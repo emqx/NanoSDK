@@ -32,7 +32,6 @@ static void mqtt_sock_send(void *arg, nni_aio *aio);
 static void mqtt_sock_recv(void *arg, nni_aio *aio);
 static void mqtt_send_cb(void *arg);
 static void mqtt_recv_cb(void *arg);
-static void mqtt_keep_alive_cb(void *arg);
 static void mqtt_timer_cb(void *arg);
 static void mqtt_run_recv_queue(mqtt_sock_t *s);
 
@@ -64,11 +63,11 @@ struct mqtt_pipe_s {
 	nni_atomic_int  next_packet_id; // next packet id to use
 	nni_pipe *      pipe;
 	mqtt_sock_t *   mqtt_sock;
-	// work_t          ping_work;     // work to send a ping request
 	nni_id_map      sent_unack;    // send messages unacknowledged
 	nni_id_map      recv_unack;    // recv messages unacknowledged
 	nni_aio         send_aio;      // send aio to the underlying transport
 	nni_aio         recv_aio;      // recv aio to the underlying transport
+	nni_aio         time_aio;      // timer aio to resend unack msg
 	nni_lmq         recv_messages; // recv messages queue
 	nni_lmq         send_messages; // send messages queue
 	nni_lmq         ctx_aios;      // awaiting aio of QoS
@@ -85,7 +84,6 @@ struct mqtt_sock_s {
 	mqtt_pipe_t *   mqtt_pipe;
 	nni_list        recv_queue; // ctx pending to receive
 	nni_list        send_queue; // ctx pending to send
-	// nni_list        free_list;  // free list of work
 };
 
 /******************************************************************************
@@ -114,7 +112,6 @@ mqtt_sock_init(void *arg, nni_sock *sock)
 	s->mqtt_pipe = NULL;
 	NNI_LIST_INIT(&s->recv_queue, mqtt_ctx_t, rqnode);
 	NNI_LIST_INIT(&s->send_queue, mqtt_ctx_t, sqnode);
-	// NNI_LIST_INIT(&s->free_list, work_t, node);
 }
 
 static void
@@ -190,14 +187,9 @@ mqtt_pipe_init(void *arg, nni_pipe *pipe, void *s)
 	nni_atomic_set(&p->next_packet_id, 0);
 	p->pipe      = pipe;
 	p->mqtt_sock = s;
-	// passing keep alive timeout
-	// work_init(&p->ping_work, s, sock->retry, mqtt_keep_alive_cb);
-	// nni_mqtt_msg_alloc(&p->ping_work.msg, 0);
-	// nni_mqtt_msg_set_packet_type(p->ping_work.msg, NNG_MQTT_PINGREQ);
-	// work_set_send(&p->ping_work, NNG_MQTT_PINGREQ);
-	// nni_mqtt_msg_encode(p->ping_work.msg);
 	nni_aio_init(&p->send_aio, mqtt_send_cb, p);
 	nni_aio_init(&p->recv_aio, mqtt_recv_cb, p);
+	nni_aio_init(&p->time_aio, mqtt_timer_cb, p);
 	// Packet IDs are 16 bits
 	// We start at a random point, to minimize likelihood of
 	// accidental collision across restarts.
@@ -226,6 +218,7 @@ mqtt_pipe_fini(void *arg)
 
 	nni_aio_fini(&p->send_aio);
 	nni_aio_fini(&p->recv_aio);
+	nni_aio_fini(&p->time_aio);
 	nni_id_map_fini(&p->sent_unack);
 	nni_id_map_fini(&p->recv_unack);
 	nni_lmq_fini(&p->recv_messages);
@@ -243,7 +236,8 @@ mqtt_pipe_start(void *arg)
 	s->mqtt_pipe = p;
 	// mqtt_send_start(s);
 	nni_mtx_unlock(&s->mtx);
-	// work_timer_schedule(&p->ping_work);
+	//initiate the resend timer
+	nni_sleep_aio(s->retry, &p->time_aio);
 	nni_pipe_recv(p->pipe, &p->recv_aio);
 	if ((c = nni_list_first(&s->send_queue)) != NULL) {
 		mqtt_ctx_send(c, c->saio);
@@ -257,10 +251,11 @@ mqtt_pipe_stop(void *arg)
 	mqtt_pipe_t *p = arg;
 	nni_aio_stop(&p->send_aio);
 	nni_aio_stop(&p->recv_aio);
+	nni_aio_stop(&p->time_aio);
 }
 
 void
-mqtt_close_unack_work_cb(void *arg)
+mqtt_close_unack_msg_cb(void *arg)
 {
 	nni_msg * msg = arg;
 	nni_msg_free(msg);
@@ -278,10 +273,11 @@ mqtt_pipe_close(void *arg)
 	s->mqtt_pipe = NULL;
 	nni_aio_close(&p->send_aio);
 	nni_aio_close(&p->recv_aio);
+	nni_aio_close(&p->time_aio);
 	// mqtt_sock_close_work_queue(s, &s->recv_queue);
 	//TODO free msg for each map
-	nni_id_map_foreach(&p->sent_unack, mqtt_close_unack_work_cb);
-	nni_id_map_foreach(&p->recv_unack, mqtt_close_unack_work_cb);
+	nni_id_map_foreach(&p->sent_unack, mqtt_close_unack_msg_cb);
+	nni_id_map_foreach(&p->recv_unack, mqtt_close_unack_msg_cb);
 	nni_mtx_unlock(&s->mtx);
 
 	nni_atomic_set_bool(&p->closed, true);
@@ -316,16 +312,53 @@ mqtt_pipe_recv_msgq_putq(mqtt_pipe_t *p, nni_msg *msg)
 	}
 }
 
-// Keep alive timer callback to send ping request.
-static void
-mqtt_keep_alive_cb(void *arg)
-{
-}
-
 // Timer callback, we use it for retransmitting.
 static void
 mqtt_timer_cb(void *arg)
 {
+	mqtt_pipe_t *p = arg;
+	mqtt_sock_t *s = p->mqtt_sock;
+	nni_msg *  msg, *rmsg;
+	nni_aio *  aio;
+	uint16_t   pid;
+
+	if (nng_aio_result(&p->time_aio) != 0) {
+		return;
+	}
+	nni_mtx_lock(&s->mtx);
+	if (NULL == p || nni_atomic_get_bool(&p->closed)) {
+		return;
+	}
+	msg = nni_id_get_any(&p->sent_unack, &pid);
+
+	if (msg != NULL) {
+		uint16_t ptype;
+		ptype = nni_mqtt_msg_get_packet_type(msg);
+		if (ptype == NNG_MQTT_PUBLISH) {
+			nni_mqtt_msg_set_publish_dup(msg, true);
+		}
+		if (!p->busy) {
+			p->busy = true;
+			nni_msg_clone(msg);
+			aio     = nni_mqtt_msg_get_aio(msg);
+			nni_aio_bump_count(
+			    aio, nni_msg_header_len(msg) + nni_msg_len(msg));
+			nni_mqtt_msg_encode(msg);
+			nni_aio_set_msg(&p->send_aio, msg);
+			nni_pipe_send(p->pipe, &p->send_aio);
+			nni_mtx_unlock(&s->mtx);
+			nni_aio_set_msg(aio, NULL);
+			nni_sleep_aio(s->retry, &p->time_aio);
+			return;
+		} else {
+			nni_msg_clone(msg);
+			nni_lmq_put(&p->send_messages, msg);
+		}
+	}
+
+	nni_mtx_unlock(&s->mtx);
+	nni_sleep_aio(s->retry, &p->time_aio);
+	return;
 }
 
 static void
@@ -690,7 +723,7 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 		tmsg = nni_id_get(&p->sent_unack, packet_id);
 		if (tmsg != NULL) {
 			nni_plat_printf("Warning : msg %d lost due to "
-			                "insufficient computing power!",
+			                "packetID duplicated!",
 			    packet_id);
 			nni_aio_finish_error(
 			    nni_mqtt_msg_get_aio(tmsg), NNG_EPROTO);
