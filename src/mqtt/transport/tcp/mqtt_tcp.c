@@ -1,7 +1,5 @@
 //
-// Copyright 2021 Staysail Systems, Inc. <info@staysail.tech>
-// Copyright 2018 Capitar IT Group BV <info@capitar.com>
-// Copyright 2019 Devolutions <info@devolutions.net>
+// Copyright 2020 NanoMQ Team, Inc. <jaylin@emqx.io>
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -24,6 +22,7 @@ typedef struct mqtt_tcptran_pipe mqtt_tcptran_pipe;
 typedef struct mqtt_tcptran_ep   mqtt_tcptran_ep;
 
 #define NNI_NANO_MAX_HEADER_SIZE 5
+#define NNI_NANO_MAX_LMQ_SIZE 128
 
 // tcp_pipe is one end of a TCP connection.
 struct mqtt_tcptran_pipe {
@@ -162,6 +161,7 @@ mqtt_tcptran_pipe_close(void *arg)
 
 	nni_mtx_lock(&p->mtx);
 	p->closed = true;
+	nni_lmq_flush(&p->rslmq);
 	nni_mtx_unlock(&p->mtx);
 
 	nni_aio_close(p->rxaio);
@@ -170,7 +170,6 @@ mqtt_tcptran_pipe_close(void *arg)
 	nni_aio_close(p->txaio);
 	nni_aio_close(p->negoaio);
 	nni_aio_close(&p->tmaio);
-
 	nng_stream_close(p->conn);
 }
 
@@ -193,7 +192,7 @@ mqtt_tcptran_pipe_init(void *arg, nni_pipe *npipe)
 	mqtt_tcptran_pipe *p = arg;
 	p->npipe             = npipe;
 
-	nni_lmq_init(&p->rslmq, 1024); // FIXME: remove hard code value
+	nni_lmq_init(&p->rslmq, 16);
 	nni_aio_init(&p->tmaio, mqtt_pipe_timer_cb, p);
 	p->busy = false;
 	nni_sleep_aio(p->keepalive, &p->tmaio);
@@ -639,14 +638,23 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 			if (nni_lmq_full(&p->rslmq)) {
 				// Make space for the new message. TODO add max
 				// limit of msgq len in conf
-				if ((rv = nni_lmq_resize(&p->rslmq,
-				         nni_lmq_cap(&p->rslmq) * 2)) != 0) {
+				if (nni_lmq_cap(&p->rslmq) <=
+				    NNI_NANO_MAX_LMQ_SIZE) {
+					if ((rv = nni_lmq_resize(&p->rslmq,
+					         nni_lmq_cap(&p->rslmq) *
+					             2)) == 0) {
+						nni_lmq_put(&p->rslmq, qmsg);
+					} else {
+						//memory error.
+						nni_msg_free(qmsg);
+					}
+				} else {
 					nni_msg *old;
 					(void) nni_lmq_get(&p->rslmq, &old);
 					nni_msg_free(old);
+					nni_lmq_put(&p->rslmq, qmsg);
 				}
 			}
-			nni_lmq_put(&p->rslmq, qmsg);
 		}
 		ack = false;
 	}
