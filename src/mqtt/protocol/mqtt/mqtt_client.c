@@ -1,4 +1,5 @@
-// Author: eeff <eeff at eeff dot dev>
+//
+// Copyright 2020 NanoMQ Team, Inc. <jaylin@emqx.io>
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -172,8 +173,8 @@ mqtt_pipe_init(void *arg, nni_pipe *pipe, void *s)
 	// accidental collision across restarts.
 	nni_id_map_init(&p->sent_unack, 0x0000u, 0xffffu, true);
 	nni_id_map_init(&p->recv_unack, 0x0000u, 0xffffu, true);
-	nni_lmq_init(&p->recv_messages, 6); // remove hard code value
-	nni_lmq_init(&p->send_messages, 6); // remove hard code value
+	nni_lmq_init(&p->recv_messages, 10); // remove hard code value
+	nni_lmq_init(&p->send_messages, 10); // remove hard code value
 
 	return (0);
 }
@@ -257,7 +258,6 @@ mqtt_pipe_close(void *arg)
 	nni_aio_close(&p->time_aio);
 	nni_lmq_flush(&p->recv_messages);
 	nni_lmq_flush(&p->send_messages);
-	//TODO free msg for each map
 	nni_id_map_foreach(&p->sent_unack, mqtt_close_unack_msg_cb);
 	nni_id_map_foreach(&p->recv_unack, mqtt_close_unack_msg_cb);
 	nni_mtx_unlock(&s->mtx);
@@ -452,51 +452,10 @@ mqtt_recv_cb(void *arg)
 		return;
 
 	case NNG_MQTT_PUBREC:
-		// // we have received a PUBREC in the QoS 2 delivery,
-		// // then send a PUBREL
-		// packet_id = nni_mqtt_msg_get_pubrec_packet_id(msg);
-		// nni_msg_free(msg);
-		// work = nni_id_get(&p->sent_unack, packet_id);
-		// if (NULL == work) {
-		// 	// ignore this message
-		// 	nni_mtx_unlock(&s->mtx);
-		// 	return;
-		// }
-		// // the transport handled sending the PUBREL for us,
-		// // expect to receive a PUBCOMP
-		// if (work_packet_type(work) == packet_type) {
-		// 	work_set_recv(work, NNG_MQTT_PUBCOMP);
-		// 	work_timer_cancel(work);
-		// } else if (work_packet_type(work) == NNG_MQTT_PUBLISH &&
-		//     2 == work->qos) {
-		// 	// scheduling disorder
-		// 	work_set_acked(work);
-		// } else {
-		// 	work_set_error(work);
-		// 	work_timer_cancel(work);
-		// }
 		nni_msg_free(msg);
 		break;
 
 	case NNG_MQTT_PUBREL:
-		// we have received a PUBREL, then send a PUBCOMP
-		// packet_id = nni_mqtt_msg_get_pubrel_packet_id(msg);
-		// cached_msg      = nni_id_get(&p->recv_unack, packet_id);
-		// if (NULL == work) {
-		// 	// ignore this message
-		// 	nni_msg_free(msg);
-		// 	nni_mtx_unlock(&s->mtx);
-		// 	return;
-		// }
-		// // the transport handled sending the PUBCOMP for us
-		// work_set_final(work);
-		// nni_id_remove(&p->recv_unack, work->packet_id);
-		// ownership of work->msg to the lmq
-		// mqtt_pipe_recv_msgq_putq(p, work->msg);
-		// mqtt_run_recv_queue(s);
-		// work->msg = msg;
-		// mqtt_sock_free_work(s, work); // will release msg
-		// nni_mtx_unlock(&s->mtx);
 		packet_id = nni_mqtt_msg_get_pubrel_packet_id(msg);
 		cached_msg = nni_id_get(&p->recv_unack, packet_id);
 		nni_msg_free(msg);
@@ -527,8 +486,6 @@ mqtt_recv_cb(void *arg)
 		if (2 > qos) {
 			// QoS 0, successful receipt
 			// QoS 1, the transport handled sending a PUBACK
-			// mqtt_pipe_recv_msgq_putq(p, msg);
-			// mqtt_run_recv_queue(s);
 			if ((ctx = nni_list_first(&s->recv_queue)) == NULL) {
 				// No one waiting to receive yet, putting msg
 				// into lmq
@@ -545,19 +502,6 @@ mqtt_recv_cb(void *arg)
 			nni_aio_finish(user_aio, 0, nni_msg_len(msg));
 			return;
 		} else {
-			// work = mqtt_sock_get_work(s);
-			// if (work == NULL) {
-			// 	nni_mtx_unlock(&s->mtx);
-			// 	nni_pipe_close(p->pipe);
-			// 	return;
-			// }
-			// work->qos = qos;
-			// work->msg = msg; // keep the message
-			// work->packet_id =
-			//     nni_mqtt_msg_get_publish_packet_id(msg);
-			// // the transport handled sending PUBREC,
-			// // expect to receive a PUBREL
-			// work_set_recv(work, NNG_MQTT_PUBREL);
 			packet_id = nni_mqtt_msg_get_publish_packet_id(msg);
 			nni_id_set(&p->recv_unack, packet_id, msg);
 		}
