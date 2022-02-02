@@ -132,8 +132,36 @@ static void
 mqtt_sock_close(void *arg)
 {
 	mqtt_sock_t *s = arg;
+	mqtt_ctx_t  *ctx;
+	nni_aio *aio;
+	nni_msg *msg;
 
 	nni_atomic_set_bool(&s->closed, true);
+	//clean ctx queue when pipe was closed.
+	while ((ctx = nni_list_first(&s->send_queue)) != NULL) {
+
+		// Pipe was closed.  To avoid pushing an error back to the
+		// entire socket, we pretend we completed this successfully.
+		nni_list_remove(&s->send_queue, ctx);
+		aio       = ctx->saio;
+		ctx->saio = NULL;
+		msg       = nni_aio_get_msg(aio);
+		nni_aio_set_msg(aio, NULL);
+		nni_aio_finish(aio, 0, nni_msg_len(msg));
+		nni_msg_free(msg);
+	}
+	while ((ctx = nni_list_first(&s->recv_queue)) != NULL) {
+
+		// Pipe was closed.  To avoid pushing an error back to the
+		// entire socket, we pretend we completed this successfully.
+		nni_list_remove(&s->recv_queue, ctx);
+		aio       = ctx->raio;
+		ctx->raio = NULL;
+		msg       = nni_aio_get_msg(aio);
+		nni_aio_set_msg(aio, NULL);
+		nni_aio_finish(aio, 0, nni_msg_len(msg));
+		nni_msg_free(msg);
+	}
 }
 
 static void
@@ -169,7 +197,6 @@ static int
 mqtt_pipe_init(void *arg, nni_pipe *pipe, void *s)
 {
 	mqtt_pipe_t *p    = arg;
-	mqtt_sock_t *sock = s;
 
 	nni_atomic_init_bool(&p->closed);
 	nni_atomic_set_bool(&p->closed, false);
@@ -239,6 +266,7 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 			nni_aio_finish(aio, 0, 0);
 			break; // QoS 0 need no packet id
 		}
+		//fallthrough
 	case NNG_MQTT_SUBSCRIBE:
 	case NNG_MQTT_UNSUBSCRIBE:
 		packet_id     = mqtt_pipe_get_next_packet_id(p);
@@ -303,7 +331,7 @@ mqtt_pipe_start(void *arg)
 		mqtt_send_msg(c->saio, c);
 		nni_sleep_aio(s->retry, &p->time_aio);
 		nni_pipe_recv(p->pipe, &p->recv_aio);
-		return;
+		return(0);
 	}
 	nni_mtx_unlock(&s->mtx);
 	//initiate the resend timer
@@ -350,7 +378,6 @@ mqtt_pipe_close(void *arg)
 	nni_lmq_flush(&p->send_messages);
 	nni_id_map_foreach(&p->sent_unack, mqtt_close_unack_msg_cb);
 	nni_id_map_foreach(&p->recv_unack, mqtt_close_unack_msg_cb);
-	//clean ctx queue when pipe was closed.
 	nni_mtx_unlock(&s->mtx);
 
 	nni_atomic_set_bool(&p->closed, true);
@@ -380,7 +407,7 @@ mqtt_timer_cb(void *arg)
 {
 	mqtt_pipe_t *p = arg;
 	mqtt_sock_t *s = p->mqtt_sock;
-	nni_msg *  msg, *rmsg;
+	nni_msg *  msg;
 	nni_aio *  aio;
 	uint16_t   pid;
 
@@ -652,10 +679,7 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 	mqtt_ctx_t * ctx = arg;
 	mqtt_sock_t *s   = ctx->mqtt_sock;
 	mqtt_pipe_t *p   = s->mqtt_pipe;
-	uint16_t     ptype, packet_id;
-	uint8_t      qos;
 	nni_msg *    msg;
-	nni_msg *    tmsg;
 
 	if (nni_aio_begin(aio) != 0) {
 		return;
