@@ -106,7 +106,6 @@ mqtt_sock_init(void *arg, nni_sock *sock)
 	s->retry = NNI_SECOND * 60;
 
 	nni_mtx_init(&s->mtx);
-
 	mqtt_ctx_init(&s->master, s);
 
 	s->mqtt_pipe = NULL;
@@ -139,7 +138,6 @@ mqtt_sock_close(void *arg)
 	nni_atomic_set_bool(&s->closed, true);
 	//clean ctx queue when pipe was closed.
 	while ((ctx = nni_list_first(&s->send_queue)) != NULL) {
-
 		// Pipe was closed.  To avoid pushing an error back to the
 		// entire socket, we pretend we completed this successfully.
 		nni_list_remove(&s->send_queue, ctx);
@@ -211,8 +209,8 @@ mqtt_pipe_init(void *arg, nni_pipe *pipe, void *s)
 	// accidental collision across restarts.
 	nni_id_map_init(&p->sent_unack, 0x0000u, 0xffffu, true);
 	nni_id_map_init(&p->recv_unack, 0x0000u, 0xffffu, true);
-	nni_lmq_init(&p->recv_messages, 10); // remove hard code value
-	nni_lmq_init(&p->send_messages, 10); // remove hard code value
+	nni_lmq_init(&p->recv_messages, NNG_MAX_RECV_LMQ);
+	nni_lmq_init(&p->send_messages, NNG_MAX_SEND_LMQ);
 
 	return (0);
 }
@@ -222,7 +220,6 @@ mqtt_pipe_fini(void *arg)
 {
 	mqtt_pipe_t *p = arg;
 	nni_msg * msg;
-	// work_fini(&p->ping_work);
 	if ((msg = nni_aio_get_msg(&p->recv_aio)) != NULL) {
 		nni_aio_set_msg(&p->recv_aio, NULL);
 		nni_msg_free(msg);
@@ -241,7 +238,7 @@ mqtt_pipe_fini(void *arg)
 	nni_lmq_fini(&p->send_messages);
 }
 
-
+// Should be called with mutex lock hold. and it will unlock mtx.
 static inline void
 mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 {
@@ -266,7 +263,7 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 			nni_aio_finish(aio, 0, 0);
 			break; // QoS 0 need no packet id
 		}
-		//fallthrough
+		// FALLTHROUGH
 	case NNG_MQTT_SUBSCRIBE:
 	case NNG_MQTT_UNSUBSCRIBE:
 		packet_id     = mqtt_pipe_get_next_packet_id(p);
@@ -334,7 +331,7 @@ mqtt_pipe_start(void *arg)
 		return(0);
 	}
 	nni_mtx_unlock(&s->mtx);
-	//initiate the resend timer
+	//initiate the global resend timer
 	nni_sleep_aio(s->retry, &p->time_aio);
 	nni_pipe_recv(p->pipe, &p->recv_aio);
 	return (0);
@@ -389,7 +386,7 @@ static inline void
 mqtt_pipe_recv_msgq_putq(mqtt_pipe_t *p, nni_msg *msg)
 {
 	if (0 != nni_lmq_put(&p->recv_messages, msg)) {
-		// resize to ensure we do not lost messages
+		// resize to ensure we do not lost messages or just lose it?
 		// add option to drop messages
 		// if (0 !=
 		//     nni_lmq_resize(&p->recv_messages,
@@ -420,6 +417,7 @@ mqtt_timer_cb(void *arg)
 	if (NULL == p || nni_atomic_get_bool(&p->closed)) {
 		return;
 	}
+	// start message resending
 	msg = nni_id_get_any(&p->sent_unack, &pid);
 
 	if (msg != NULL) {
@@ -478,12 +476,14 @@ mqtt_send_cb(void *arg)
 		nni_mtx_unlock(&s->mtx);
 		return;
 	}
-	//check cached ctx first
+	// Check cached ctx in nni_list first
+	// these ctxs are triggered before the pipe is established
 	if ((c = nni_list_first(&s->send_queue)) != NULL) {
 		nni_list_remove(&s->send_queue, c);
 		mqtt_send_msg(c->saio, c);
 		return;
 	}
+	// Then those msg in nni_lmq
 	if (nni_lmq_get(&p->send_messages, &msg) == 0) {
 		p->busy = true;
 		nni_mqtt_msg_encode(msg);
@@ -543,13 +543,13 @@ mqtt_recv_cb(void *arg)
 		return;
 	case NNG_MQTT_PUBACK:
 		// we have received a PUBACK, successful delivery of a QoS 1
-		// fall through
+		// FALLTHROUGH
 	case NNG_MQTT_PUBCOMP:
 		// we have received a PUBCOMP, successful delivery of a QoS 2
-		// fall through
+		// FALLTHROUGH
 	case NNG_MQTT_SUBACK:
 		// we have received a SUBACK, successful subscription
-		// fall through
+		// FALLTHROUGH
 	case NNG_MQTT_UNSUBACK:
 		// we have received a UNSUBACK, successful unsubscription
 		packet_id  = nni_mqtt_msg_get_packet_id(msg);
@@ -759,10 +759,6 @@ wait:
 	nni_mtx_unlock(&s->mtx);
 	return;
 }
-
-/******************************************************************************
- *                                Proto                                       *
- ******************************************************************************/
 
 static nni_proto_pipe_ops mqtt_pipe_ops = {
 	.pipe_size  = sizeof(mqtt_pipe_t),
