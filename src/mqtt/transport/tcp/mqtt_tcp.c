@@ -30,7 +30,7 @@ struct mqtt_tcptran_pipe {
 	nni_pipe *       npipe;
 	uint16_t         peer;
 	uint16_t         proto;
-	uint16_t         keepalive;	//ms
+	uint16_t         keepalive;
 	size_t           rcvmax;
 	bool             closed;
 	bool             busy;
@@ -49,7 +49,6 @@ struct mqtt_tcptran_pipe {
 	nni_aio          tmaio;
 	nni_aio *        txaio;
 	nni_aio *        rxaio;
-	nni_aio *        rsaio; // aio for puback/pubrecv
 	nni_aio *        qsaio; // aio for pubrel/pingreq
 	nni_lmq          rslmq;
 	nni_aio *        negoaio;
@@ -160,12 +159,12 @@ mqtt_tcptran_pipe_close(void *arg)
 	mqtt_tcptran_pipe *p = arg;
 
 	nni_mtx_lock(&p->mtx);
+
 	p->closed = true;
 	nni_lmq_flush(&p->rslmq);
 	nni_mtx_unlock(&p->mtx);
 
 	nni_aio_close(p->rxaio);
-	nni_aio_close(p->rsaio);
 	nni_aio_close(p->qsaio);
 	nni_aio_close(p->txaio);
 	nni_aio_close(p->negoaio);
@@ -179,7 +178,6 @@ mqtt_tcptran_pipe_stop(void *arg)
 	mqtt_tcptran_pipe *p = arg;
 
 	nni_aio_stop(p->rxaio);
-	nni_aio_stop(p->rsaio);
 	nni_aio_stop(p->qsaio);
 	nni_aio_stop(p->txaio);
 	nni_aio_stop(p->negoaio);
@@ -218,7 +216,6 @@ mqtt_tcptran_pipe_fini(void *arg)
 
 	nni_aio_free(p->rxaio);
 	nni_aio_free(p->txaio);
-	nni_aio_free(p->rsaio);
 	nni_aio_free(p->qsaio);
 	nni_aio_free(p->negoaio);
 	nng_stream_free(p->conn);
@@ -254,7 +251,6 @@ mqtt_tcptran_pipe_alloc(mqtt_tcptran_pipe **pipep)
 	        0) ||
 	    ((rv = nni_aio_alloc(&p->rxaio, mqtt_tcptran_pipe_recv_cb, p)) !=
 	        0) ||
-	    ((rv = nni_aio_alloc(&p->rsaio, NULL, p)) != 0) ||
 	    ((rv = nni_aio_alloc(
 	          &p->qsaio, mqtt_tcptran_pipe_qos_send_cb, p)) != 0) ||
 	    ((rv = nni_aio_alloc(&p->negoaio, mqtt_tcptran_pipe_nego_cb, p)) !=
@@ -589,6 +585,7 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 	if (type == 0x30) {
 		uint8_t  qos_pac;
 		uint16_t pid;
+		// should we seperate the 2 phase work of QoS into 2 aios?
 
 		qos_pac = nni_msg_get_pub_qos(msg);
 		if (qos_pac > 0) {
@@ -600,12 +597,7 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 			p->txlen[1] = 0x02;
 			pid         = nni_msg_get_pub_pid(msg);
 			NNI_PUT16(p->txlen + 2, pid);
-			iov.iov_len = 4;
-			iov.iov_buf = &p->txlen;
-			// send it down...
-			nni_aio_set_iov(p->rsaio, 1, &iov);
-			//Replace rsaio with qsaio too
-			nng_stream_send(p->conn, p->rsaio);
+			ack = true;
 		}
 	} else if (type == 0x50) {
 		p->txlen[0] = 0X62;
@@ -625,7 +617,7 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 			goto recv_error;
 		}
 		nni_msg_header_append(qmsg, p->txlen, 4);
-		// aio_begin???
+		// aio_begin?
 		if (p->busy == false) {
 			iov.iov_len = 4;
 			iov.iov_buf = nni_msg_header(qmsg);
@@ -660,8 +652,10 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 	}
 
 	// keep connection & Schedule next receive
-	// nni_pipe_bump_rx(p->npipe, n);
-	mqtt_tcptran_pipe_recv_start(p);
+	nni_pipe_bump_rx(p->npipe, n);
+	if (!nni_list_empty(&p->recvq)) {
+		mqtt_tcptran_pipe_recv_start(p);
+	}
 
 	nni_aio_set_msg(aio, msg);
 	nni_mtx_unlock(&p->mtx);
@@ -712,7 +706,6 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 	nni_msg *msg;
 	int      niov;
 	nni_iov  iov[3];
-	// uint64_t len;
 
 	if (p->closed) {
 		while ((aio = nni_list_first(&p->sendq)) != NULL) {
@@ -1362,10 +1355,7 @@ mqtt_tcptran_ep_get_connmsg(void *arg, void *v, size_t *szp, nni_opt_type t)
 	mqtt_tcptran_ep *ep = arg;
 	int              rv;
 
-	//	nni_mtx_lock(&ep->mtx);
 	nni_copyout_ptr(ep->connmsg, v, szp, t);
-	//	ep->connmsg = NULL;
-	//	nni_mtx_unlock(&ep->mtx);
 	rv = 0;
 
 	return (rv);
