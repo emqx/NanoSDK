@@ -131,7 +131,7 @@ static void
 mqtt_pipe_timer_cb(void *arg)
 {
 	mqtt_tcptran_pipe *p = arg;
-	uint8_t buf[2];
+	uint8_t            buf[2];
 
 	if (nng_aio_result(&p->tmaio) != 0) {
 		return;
@@ -293,7 +293,7 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 	nni_aio *          aio = p->negoaio;
 	nni_aio *          uaio;
 	int                rv;
-	int		   var_int;
+	int                var_int;
 	uint8_t            pos = 0;
 
 	nni_mtx_lock(&ep->mtx);
@@ -418,8 +418,8 @@ static void
 mqtt_tcptran_pipe_qos_send_cb(void *arg)
 {
 	mqtt_tcptran_pipe *p = arg;
-	nni_msg *msg;
-	nni_aio *qsaio = p->qsaio;
+	nni_msg *          msg;
+	nni_aio *          qsaio = p->qsaio;
 
 	nni_mtx_lock(&p->mtx);
 	if (nni_aio_result(qsaio) != 0) {
@@ -637,7 +637,7 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 					             2)) == 0) {
 						nni_lmq_put(&p->rslmq, qmsg);
 					} else {
-						//memory error.
+						// memory error.
 						nni_msg_free(qmsg);
 					}
 				} else {
@@ -646,6 +646,8 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 					nni_msg_free(old);
 					nni_lmq_put(&p->rslmq, qmsg);
 				}
+			} else {
+				nni_lmq_put(&p->rslmq, qmsg);
 			}
 		}
 		ack = false;
@@ -721,9 +723,6 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 
 	// This runs to send the message.
 	msg = nni_aio_get_msg(aio);
-
-	// len = nni_msg_len(msg) + nni_msg_header_len(msg);
-	// NNI_PUT64(p->txlen, len);
 
 	txaio = p->txaio;
 	niov  = 0;
@@ -892,7 +891,7 @@ mqtt_tcptran_pipe_start(
 	p->wantrxhead = 2;
 	p->wanttxhead = nni_msg_header_len(connmsg) + nni_msg_len(connmsg);
 	p->rxmsg      = NULL;
-	p->keepalive  = nni_mqtt_msg_get_connect_keep_alive(connmsg) * 1000; 
+	p->keepalive  = nni_mqtt_msg_get_connect_keep_alive(connmsg) * 1000;
 
 	if (nni_msg_header_len(connmsg) > 0) {
 		iov[niov].iov_buf = nni_msg_header(connmsg);
@@ -906,7 +905,6 @@ mqtt_tcptran_pipe_start(
 	}
 	nni_aio_set_iov(p->negoaio, niov, iov);
 	nni_list_append(&ep->negopipes, p);
-
 
 	nni_aio_set_timeout(p->negoaio, 10000); // 10 sec timeout to negotiate
 	nng_stream_send(p->conn, p->negoaio);
@@ -994,7 +992,7 @@ mqtt_tcptran_url_parse_source(
 		return (0);
 	}
 
-	len             = (size_t)(semi - url->u_hostname);
+	len             = (size_t) (semi - url->u_hostname);
 	url->u_hostname = semi + 1;
 
 	if (strcmp(surl->u_scheme, "tcp") == 0) {
@@ -1145,8 +1143,8 @@ mqtt_tcptran_ep_init(mqtt_tcptran_ep **epp, nng_url *url, nni_sock *sock)
 	NNI_LIST_INIT(&ep->waitpipes, mqtt_tcptran_pipe, node);
 	NNI_LIST_INIT(&ep->negopipes, mqtt_tcptran_pipe, node);
 
-	ep->proto  = nni_sock_proto_id(sock);
-	ep->url    = url;
+	ep->proto = nni_sock_proto_id(sock);
+	ep->url   = url;
 
 #ifdef NNG_ENABLE_STATS
 	static const nni_stat_info rcv_max_info = {
@@ -1514,12 +1512,12 @@ mqtt_tcptran_listener_setopt(
 }
 
 static nni_sp_dialer_ops mqtt_tcptran_dialer_ops = {
-	.d_init      = mqtt_tcptran_dialer_init,
-	.d_fini      = mqtt_tcptran_ep_fini,
-	.d_connect   = mqtt_tcptran_ep_connect,
-	.d_close     = mqtt_tcptran_ep_close,
-	.d_getopt    = mqtt_tcptran_dialer_getopt,
-	.d_setopt    = mqtt_tcptran_dialer_setopt,
+	.d_init    = mqtt_tcptran_dialer_init,
+	.d_fini    = mqtt_tcptran_ep_fini,
+	.d_connect = mqtt_tcptran_ep_connect,
+	.d_close   = mqtt_tcptran_ep_close,
+	.d_getopt  = mqtt_tcptran_dialer_getopt,
+	.d_setopt  = mqtt_tcptran_dialer_setopt,
 };
 
 static nni_sp_listener_ops mqtt_tcptran_listener_ops = {
