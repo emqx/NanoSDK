@@ -577,9 +577,11 @@ mqtt_recv_cb(void *arg)
 		cached_msg = nni_id_get(&p->recv_unack, packet_id);
 		nni_msg_free(msg);
 		if (cached_msg == NULL) {
-			nni_plat_printf("ERROR! packet id %d not found", packet_id);
+			nni_plat_printf("ERROR! packet id %d not found\n", packet_id);
 			break;
 		}
+		nni_id_remove(&p->recv_unack, packet_id);
+		printf("##### delete id %d\n", packet_id);
 
 		if ((ctx = nni_list_first(&s->recv_queue)) == NULL) {
 			// No one waiting to receive yet, putting msg
@@ -619,8 +621,10 @@ mqtt_recv_cb(void *arg)
 			nni_aio_finish(user_aio, 0, 0);
 			return;
 		} else {
+			//TODO check if this packetid already there
 			packet_id = nni_mqtt_msg_get_publish_packet_id(msg);
 			nni_id_set(&p->recv_unack, packet_id, msg);
+			printf("save id %d\n", packet_id);
 		}
 		break;
 
