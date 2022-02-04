@@ -138,26 +138,25 @@ mqtt_sock_close(void *arg)
 	nni_atomic_set_bool(&s->closed, true);
 	//clean ctx queue when pipe was closed.
 	while ((ctx = nni_list_first(&s->send_queue)) != NULL) {
-		// Pipe was closed.  To avoid pushing an error back to the
-		// entire socket, we pretend we completed this successfully.
+		// Pipe was closed.  just push an error back to the
+		// entire socket, because we only have one pipe
 		nni_list_remove(&s->send_queue, ctx);
 		aio       = ctx->saio;
 		ctx->saio = NULL;
 		msg       = nni_aio_get_msg(aio);
 		nni_aio_set_msg(aio, NULL);
-		nni_aio_finish(aio, 0, nni_msg_len(msg));
+		nni_aio_finish_error(aio, NNG_ECLOSED);
 		nni_msg_free(msg);
 	}
 	while ((ctx = nni_list_first(&s->recv_queue)) != NULL) {
-
-		// Pipe was closed.  To avoid pushing an error back to the
-		// entire socket, we pretend we completed this successfully.
+		// Pipe was closed.  just push an error back to the
+		// entire socket, because we only have one pipe
 		nni_list_remove(&s->recv_queue, ctx);
 		aio       = ctx->raio;
 		ctx->raio = NULL;
 		msg       = nni_aio_get_msg(aio);
 		nni_aio_set_msg(aio, NULL);
-		nni_aio_finish(aio, 0, nni_msg_len(msg));
+		nni_aio_finish_error(aio, NNG_ECLOSED);
 		nni_msg_free(msg);
 	}
 }
@@ -581,7 +580,6 @@ mqtt_recv_cb(void *arg)
 			break;
 		}
 		nni_id_remove(&p->recv_unack, packet_id);
-		printf("##### delete id %d\n", packet_id);
 
 		if ((ctx = nni_list_first(&s->recv_queue)) == NULL) {
 			// No one waiting to receive yet, putting msg
@@ -623,8 +621,18 @@ mqtt_recv_cb(void *arg)
 		} else {
 			//TODO check if this packetid already there
 			packet_id = nni_mqtt_msg_get_publish_packet_id(msg);
+			if ((cached_msg = nni_id_get(
+				         &p->recv_unack, packet_id)) != NULL) {
+					// packetid already exists.
+					// sth wrong with the broker
+					// replace old with new
+					nni_plat_printf(
+					    "ERROR: packet id %d duplicates in", packet_id);
+					nni_msg_free(cached_msg);
+					// nni_id_remove(&pipe->nano_qos_db,
+					// pid);
+				}
 			nni_id_set(&p->recv_unack, packet_id, msg);
-			printf("save id %d\n", packet_id);
 		}
 		break;
 
@@ -666,15 +674,18 @@ mqtt_ctx_fini(void *arg)
 	nni_aio *  aio;
 
 	nni_mtx_lock(&s->mtx);
-	if ((aio = ctx->saio) != NULL) {
-		ctx->saio     = NULL;
-		nni_list_remove(&s->send_queue, ctx);
-		nni_aio_finish_error(aio, NNG_ECLOSED);
-	}
-	if ((aio = ctx->raio) != NULL) {
-		ctx->raio = NULL;
-		nni_list_remove(&s->recv_queue, ctx);
-		nni_aio_finish_error(aio, NNG_ECLOSED);
+	if (nni_list_active(&s->send_queue, ctx)) {
+		if ((aio = ctx->saio) != NULL) {
+			ctx->saio = NULL;
+			nni_list_remove(&s->send_queue, ctx);
+			nni_aio_finish_error(aio, NNG_ECLOSED);
+		}
+	} else if (nni_list_active(&s->send_queue, ctx)) {
+		if ((aio = ctx->raio) != NULL) {
+			ctx->raio = NULL;
+			nni_list_remove(&s->recv_queue, ctx);
+			nni_aio_finish_error(aio, NNG_ECLOSED);
+		}
 	}
 	nni_mtx_unlock(&s->mtx);
 }
