@@ -15,7 +15,7 @@
 struct nni_id_entry {
 	uint32_t key;
 	uint32_t skips;
-	void    *val;
+	void *   val;
 };
 
 static int          id_reg_len = 0;
@@ -67,7 +67,8 @@ nni_id_map_foreach(nni_id_map *m, nni_idhash_cb cb)
 	if (m->id_entries != NULL) {
 		for (size_t i = 0; i < m->id_cap; ++i) {
 			if (m->id_entries[i].val != NULL) {
-				cb(m->id_entries[i].key, m->id_entries[i].val);
+				cb((void *) &m->id_entries[i].key,
+				    m->id_entries[i].val);
 			}
 		}
 	}
@@ -78,7 +79,6 @@ nni_id_map_foreach(nni_id_map *m, nni_idhash_cb cb)
 // the capacity is always a power of two.
 #define ID_NEXT(m, j) ((((j) *5) + 1) & (m->id_cap - 1))
 #define ID_INDEX(m, j) ((j) & (m->id_cap - 1))
-
 
 // return any solid object in table with key.
 void *
