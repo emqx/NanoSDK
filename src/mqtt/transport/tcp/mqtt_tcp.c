@@ -190,7 +190,6 @@ mqtt_tcptran_pipe_init(void *arg, nni_pipe *npipe)
 	p->npipe             = npipe;
 
 	nni_lmq_init(&p->rslmq, 16);
-	nni_aio_init(&p->tmaio, mqtt_pipe_timer_cb, p);
 	p->busy = false;
 	nni_sleep_aio(p->keepalive, &p->tmaio);
 	return (0);
@@ -246,6 +245,8 @@ mqtt_tcptran_pipe_alloc(mqtt_tcptran_pipe **pipep)
 		return (NNG_ENOMEM);
 	}
 	nni_mtx_init(&p->mtx);
+	// alloc timer aio first, but only start it when nego is completed
+	nni_aio_init(&p->tmaio, mqtt_pipe_timer_cb, p);
 	if (((rv = nni_aio_alloc(&p->txaio, mqtt_tcptran_pipe_send_cb, p)) !=
 	        0) ||
 	    ((rv = nni_aio_alloc(&p->rxaio, mqtt_tcptran_pipe_recv_cb, p)) !=
