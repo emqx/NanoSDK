@@ -461,7 +461,6 @@ mqtt_send_cb(void *arg)
 		// We failed to send... clean up and deal with it.
 		nni_msg_free(nni_aio_get_msg(&p->send_aio));
 		nni_aio_set_msg(&p->send_aio, NULL);
-		nni_mtx_unlock(&s->mtx);
 		nni_pipe_close(p->pipe);
 		return;
 	}
@@ -718,10 +717,17 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 	}
 	if (p == NULL) {
 		// connection is not established yet
-		// cache ctx
-		ctx->saio = aio;
-		ctx->raio = NULL;
-		nni_list_append(&s->send_queue, ctx);
+		if (!nni_list_active(&s->send_queue, ctx)) {
+			// cache ctx
+			ctx->saio = aio;
+			ctx->raio = NULL;
+			nni_list_append(&s->send_queue, ctx);
+		} else {
+			nni_msg_free(msg);
+			nni_mtx_unlock(&s->mtx);
+			nni_aio_set_msg(aio, NULL);
+			nni_aio_finish_error(aio, NNG_ECLOSED);
+		}
 		nni_mtx_unlock(&s->mtx);
 		return;
 	}
