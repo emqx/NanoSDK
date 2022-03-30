@@ -42,6 +42,13 @@ option(NNG_ELIDE_DEPRECATED "Elide deprecated functionality." OFF)
 option(NNG_ENABLE_STATS "Enable statistics." ON)
 mark_as_advanced(NNG_ENABLE_STATS)
 
+# SQLITE API support.
+option (NNG_ENABLE_SQLITE "Enable SQLITE API." OFF)
+if (NNG_ENABLE_SQLITE)
+    set(NNG_SUPP_SQLITE ON)
+endif()
+mark_as_advanced(NNG_ENABLE_SQLITE)
+
 # Protocols.
 option (NNG_PROTO_BUS0 "Enable BUSv0 protocol." ON)
 mark_as_advanced(NNG_PROTO_BUS0)
