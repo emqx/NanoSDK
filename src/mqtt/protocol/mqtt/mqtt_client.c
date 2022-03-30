@@ -154,10 +154,8 @@ mqtt_sock_close(void *arg)
 		nni_list_remove(&s->recv_queue, ctx);
 		aio       = ctx->raio;
 		ctx->raio = NULL;
-		msg       = nni_aio_get_msg(aio);
-		nni_aio_set_msg(aio, NULL);
+		// there should be no msg waiting
 		nni_aio_finish_error(aio, NNG_ECLOSED);
-		nni_msg_free(msg);
 	}
 }
 
@@ -678,7 +676,7 @@ mqtt_ctx_fini(void *arg)
 			nni_list_remove(&s->send_queue, ctx);
 			nni_aio_finish_error(aio, NNG_ECLOSED);
 		}
-	} else if (nni_list_active(&s->send_queue, ctx)) {
+	} else if (nni_list_active(&s->recv_queue, ctx)) {
 		if ((aio = ctx->raio) != NULL) {
 			ctx->raio = NULL;
 			nni_list_remove(&s->recv_queue, ctx);
