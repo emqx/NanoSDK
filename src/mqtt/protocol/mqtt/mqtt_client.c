@@ -195,7 +195,7 @@ mqtt_pipe_init(void *arg, nni_pipe *pipe, void *s)
 
 	nni_atomic_init_bool(&p->closed);
 	nni_atomic_set_bool(&p->closed, false);
-	nni_atomic_set(&p->next_packet_id, 0);
+	nni_atomic_set(&p->next_packet_id, 1);
 	p->pipe      = pipe;
 	p->mqtt_sock = s;
 	nni_aio_init(&p->send_aio, mqtt_send_cb, p);
