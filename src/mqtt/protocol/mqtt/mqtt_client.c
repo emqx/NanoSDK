@@ -331,6 +331,7 @@ mqtt_pipe_start(void *arg)
 		nni_pipe_recv(p->pipe, &p->recv_aio);
 		return(0);
 	}
+	// TODO start sending cached msg in SQLite
 	nni_mtx_unlock(&s->mtx);
 	//initiate the global resend timer
 	nni_sleep_aio(s->retry, &p->time_aio);
@@ -492,6 +493,7 @@ mqtt_send_cb(void *arg)
 		nni_mtx_unlock(&s->mtx);
 		return;
 	}
+	//TODO check SQLite and resend msgs
 	p->busy = false;
 	nni_mtx_unlock(&s->mtx);
 	return;
@@ -719,7 +721,7 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 		return;
 	}
 	if (p == NULL) {
-		// connection is not established yet
+		// connection is lost or not established yet
 		if (!nni_list_active(&s->send_queue, ctx)) {
 			// cache ctx
 			ctx->saio = aio;
@@ -731,6 +733,7 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 			nni_aio_set_msg(aio, NULL);
 			nni_aio_finish_error(aio, NNG_ECLOSED);
 		}
+		// TODO SQLite caching msg
 		nni_mtx_unlock(&s->mtx);
 		return;
 	}
