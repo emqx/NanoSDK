@@ -257,7 +257,6 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 	case NNG_MQTT_PUBLISH:
 		qos = nni_mqtt_msg_get_publish_qos(msg);
 		if (0 == qos) {
-			nni_aio_finish(aio, 0, 0);
 			break; // QoS 0 need no packet id
 		}
 		// FALLTHROUGH
@@ -296,6 +295,9 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 		    nni_msg_header_len(msg) + nni_msg_len(msg));
 		nni_pipe_send(p->pipe, &p->send_aio);
 		nni_mtx_unlock(&s->mtx);
+		if (0 == qos) {
+			nni_aio_finish(aio, 0, 0);
+		}
 		return;
 	}
 	if (nni_lmq_full(&p->send_messages)) {
@@ -307,6 +309,9 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 		// nni_println("Warning! msg lost due to busy socket");
 	}
 	nni_mtx_unlock(&s->mtx);
+	if (0 == qos) {
+		nni_aio_finish(aio, 0, 0);
+	}
 	return;
 }
 
