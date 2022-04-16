@@ -1,4 +1,5 @@
 #include "mqtt_msg.h"
+#include <string.h>
 
 int
 nng_mqtt_msg_proto_data_alloc(nng_msg *msg)
@@ -222,10 +223,20 @@ nng_mqtt_msg_get_publish_dup(nng_msg *msg)
 	return nni_mqtt_msg_get_publish_dup(msg);
 }
 
-void
+/**
+ * @brief set publishing topic for this msg
+ * 		return 0 if scussed -1 invalid.
+ * @param msg 
+ * @param topic 
+ * @return int 
+ */
+int
 nng_mqtt_msg_set_publish_topic(nng_msg *msg, const char *topic)
 {
-	nni_mqtt_msg_set_publish_topic(msg, topic);
+	if (strchr(topic, '#') != NULL || strchr(topic, '+') != NULL) {
+		return -1;
+	}
+	return nni_mqtt_msg_set_publish_topic(msg, topic);
 }
 
 const char *

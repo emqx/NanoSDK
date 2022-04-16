@@ -306,7 +306,7 @@ extern void        nni_mqtt_msg_set_publish_retain(nni_msg *, bool);
 extern bool        nni_mqtt_msg_get_publish_retain(nni_msg *);
 extern void        nni_mqtt_msg_set_publish_dup(nni_msg *, bool);
 extern bool        nni_mqtt_msg_get_publish_dup(nni_msg *);
-extern void        nni_mqtt_msg_set_publish_topic(nni_msg *, const char *);
+extern int        nni_mqtt_msg_set_publish_topic(nni_msg *, const char *);
 extern const char *nni_mqtt_msg_get_publish_topic(nni_msg *, uint32_t *);
 extern void        nni_mqtt_msg_set_publish_packet_id(nni_msg *, uint16_t);
 extern uint16_t    nni_mqtt_msg_get_publish_packet_id(nni_msg *);

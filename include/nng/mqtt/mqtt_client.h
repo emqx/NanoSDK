@@ -290,7 +290,7 @@ NNG_DECL void        nng_mqtt_msg_set_publish_retain(nng_msg *, bool);
 NNG_DECL bool        nng_mqtt_msg_get_publish_retain(nng_msg *);
 NNG_DECL void        nng_mqtt_msg_set_publish_dup(nng_msg *, bool);
 NNG_DECL bool        nng_mqtt_msg_get_publish_dup(nng_msg *);
-NNG_DECL void        nng_mqtt_msg_set_publish_topic(nng_msg *, const char *);
+NNG_DECL int        nng_mqtt_msg_set_publish_topic(nng_msg *, const char *);
 NNG_DECL const char *nng_mqtt_msg_get_publish_topic(nng_msg *, uint32_t *);
 NNG_DECL void nng_mqtt_msg_set_publish_payload(nng_msg *, uint8_t *, uint32_t);
 NNG_DECL uint8_t *nng_mqtt_msg_get_publish_payload(nng_msg *, uint32_t *);
