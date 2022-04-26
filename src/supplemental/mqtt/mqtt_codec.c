@@ -183,6 +183,7 @@ nni_mqtt_msg_free(void *self)
 		nni_mqtt_proto_data *mqtt = self;
 		mqtt_msg_content_free(mqtt);
 		free(mqtt);
+		mqtt = NULL;
 		return (0);
 	}
 	return (1);
