@@ -521,6 +521,7 @@ mqtt_send_cb(void *arg)
 
 	if (nni_lmq_get(&p->send_messages, &msg) == 0) {
 		p->busy = true;
+		nni_mqtt_msg_encode(msg);
 		nni_aio_set_msg(&p->send_aio, msg);
 		nni_pipe_send(p->pipe, &p->send_aio);
 		nni_mtx_unlock(&s->mtx);
