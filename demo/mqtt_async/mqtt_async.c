@@ -141,31 +141,6 @@ void
 connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 {
 	printf("%s: connected!\n", __FUNCTION__);
-	nng_socket sock = *(nng_socket *) arg;
-
-	nng_mqtt_topic_qos topic_qos[] = {
-		{ .qos     = 0,
-		    .topic = { .buf = (uint8_t *) SUB_TOPIC1,
-		        .length     = strlen(SUB_TOPIC1) } },
-		{ .qos     = 1,
-		    .topic = { .buf = (uint8_t *) SUB_TOPIC2,
-		        .length     = strlen(SUB_TOPIC2) } },
-		{ .qos     = 2,
-		    .topic = { .buf = (uint8_t *) SUB_TOPIC3,
-		        .length     = strlen(SUB_TOPIC3) } }
-	};
-
-	size_t topic_qos_count =
-	    sizeof(topic_qos) / sizeof(nng_mqtt_topic_qos);
-
-	// Connected succeed
-	nng_msg *msg;
-	nng_mqtt_msg_alloc(&msg, 0);
-	nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_SUBSCRIBE);
-	nng_mqtt_msg_set_subscribe_topics(msg, topic_qos, topic_qos_count);
-
-	// Send subscribe message
-	nng_sendmsg(sock, msg, NNG_FLAG_NONBLOCK);
 }
 
 void
@@ -207,6 +182,30 @@ client(const char *url)
 
 	nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, msg);
 	nng_dialer_start(dialer, NNG_FLAG_NONBLOCK);
+
+	nng_mqtt_topic_qos topic_qos[] = {
+		{ .qos     = 0,
+		    .topic = { .buf = (uint8_t *) SUB_TOPIC1,
+		        .length     = strlen(SUB_TOPIC1) } },
+		{ .qos     = 1,
+		    .topic = { .buf = (uint8_t *) SUB_TOPIC2,
+		        .length     = strlen(SUB_TOPIC2) } },
+		{ .qos     = 2,
+		    .topic = { .buf = (uint8_t *) SUB_TOPIC3,
+		        .length     = strlen(SUB_TOPIC3) } }
+	};
+
+	size_t topic_qos_count =
+	    sizeof(topic_qos) / sizeof(nng_mqtt_topic_qos);
+
+	// Connected succeed
+	nng_msg *submsg;
+	nng_mqtt_msg_alloc(&submsg, 0);
+	nng_mqtt_msg_set_packet_type(submsg, NNG_MQTT_SUBSCRIBE);
+	nng_mqtt_msg_set_subscribe_topics(submsg, topic_qos, topic_qos_count);
+
+	// Send subscribe message
+	nng_sendmsg(sock, submsg, NNG_FLAG_NONBLOCK);
 
 	for (i = 0; i < nwork; i++) {
 		client_cb(works[i]);
