@@ -475,6 +475,9 @@ nni_mqtt_msg_encode_connect(nni_msg *msg)
 	nni_mqtt_msg_append_u8(msg, *(uint8_t *) &var_header->conn_flags);
 
 	/* Keep Alive */
+	if (var_header->keep_alive == 0) {
+		var_header->keep_alive = 60;
+	}
 	nni_mqtt_msg_append_u16(msg, var_header->keep_alive);
 
 	/* Now we are in payload part */
@@ -887,14 +890,14 @@ nni_mqtt_msg_decode_connect(nni_msg *msg)
 		}
 	}
 	if (mqtt->var_header.connect.conn_flags.username_flag) {
-		/* Will Topic */
+		/* Username */
 		ret = read_utf8_str(&buf, &mqtt->payload.connect.user_name);
 		if (ret != 0) {
 			return MQTT_ERR_PROTOCOL;
 		}
 	}
 	if (mqtt->var_header.connect.conn_flags.password_flag) {
-		/* Will Topic */
+		/* Password */
 		ret = read_str_data(&buf, &mqtt->payload.connect.password);
 		if (ret != 0) {
 			return MQTT_ERR_PROTOCOL;
