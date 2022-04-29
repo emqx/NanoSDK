@@ -1,5 +1,5 @@
 //
-// Copyright 2021 NanoMQ Team, Inc. <jaylin@emqx.io>
+// Copyright 2022 NanoMQ Team, Inc. <jaylin@emqx.io>
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -420,13 +420,13 @@ mqtts_tcptran_pipe_qos_send_cb(void *arg)
 	nni_msg *           msg;
 	nni_aio *           qsaio = p->qsaio;
 
-	nni_mtx_lock(&p->mtx);
 	if (nni_aio_result(qsaio) != 0) {
 		nni_msg_free(nni_aio_get_msg(qsaio));
 		nni_aio_set_msg(qsaio, NULL);
 		mqtts_tcptran_pipe_close(p);
 		return;
 	}
+	nni_mtx_lock(&p->mtx);
 
 	msg = nni_aio_get_msg(p->qsaio);
 	nni_msg_free(msg);
