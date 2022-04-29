@@ -244,6 +244,10 @@ if (NNG_ENABLE_TLS)
     add_definitions(-DNNG_SUPP_TLS)
 endif ()
 
+if (NNG_ENABLE_SQLITE)
+    add_definitions(-DNNG_SUPP_SQLITE)
+endif ()
+
 if (NNG_TESTS)
     enable_testing()
     set(all_tests, "")

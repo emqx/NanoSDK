@@ -212,7 +212,7 @@ typedef struct mqtt_fixed_hdr_t {
 
 typedef struct mqtt_msg_t {
 	/* Fixed header part */
-	nni_aio * aio;  //QoS AIO
+	nni_aio *                  aio; // QoS AIO
 	mqtt_fixed_hdr             fixed_header;
 	union mqtt_variable_header var_header;
 	union mqtt_payload         payload;
@@ -233,19 +233,33 @@ extern int byte_number_for_variable_length(uint32_t);
 extern int write_variable_length_value(uint32_t, struct pos_buf *);
 extern int write_byte(uint8_t, struct pos_buf *);
 extern int write_uint16(uint16_t, struct pos_buf *);
+extern int write_uint32(uint32_t, struct pos_buf *);
+extern int write_uint64(uint64_t, struct pos_buf *);
+extern int write_bytes(uint8_t *, size_t, struct pos_buf *);
 extern int write_byte_string(mqtt_buf *, struct pos_buf *);
 
+extern int read_variable_integer(struct pos_buf *, uint32_t *);
 extern int read_byte(struct pos_buf *, uint8_t *);
 extern int read_uint16(struct pos_buf *, uint16_t *);
+extern int read_uint32(struct pos_buf *, uint32_t *);
+extern int read_uint64(struct pos_buf *, uint64_t *);
+extern int read_bytes(struct pos_buf *, uint8_t **, size_t);
 extern int read_utf8_str(struct pos_buf *, mqtt_buf *);
 extern int read_str_data(struct pos_buf *, mqtt_buf *);
 extern int read_packet_length(struct pos_buf *, uint32_t *);
 
-extern int  mqtt_buf_create(mqtt_buf *, const uint8_t *, uint32_t);
-extern int  mqtt_buf_dup(mqtt_buf *, const mqtt_buf *);
-extern void mqtt_buf_free(mqtt_buf *);
+extern int      mqtt_buf_create(mqtt_buf *, const uint8_t *, uint32_t);
+extern int      mqtt_buf_dup(mqtt_buf *, const mqtt_buf *);
+extern void     mqtt_buf_free(mqtt_buf *);
 extern nni_aio *nni_mqtt_msg_get_aio(nni_msg *);
 extern void     nni_mqtt_msg_set_aio(nni_msg *, nni_aio *);
+
+extern int mqtt_kv_create(
+    mqtt_kv *, const char *, size_t, const char *, size_t);
+extern int  mqtt_kv_dup(mqtt_kv *, const mqtt_kv *);
+extern void mqtt_kv_free(mqtt_kv *);
+
+extern const char *get_packet_type_str(nni_mqtt_packet_type packtype);
 
 extern mqtt_msg *mqtt_msg_create(nni_mqtt_packet_type);
 
