@@ -9,6 +9,14 @@ static nni_proto_msg_ops proto_msg_ops = {
 	.msg_dup = nni_mqtt_msg_dup
 };
 
+// set default conn param in case User ignores it.
+void
+nni_proto_data_init(nni_mqtt_proto_data *proto_data)
+{
+	proto_data->var_header.connect.conn_flags.clean_session = true;
+	proto_data->var_header.connect.keep_alive = 30;
+}
+
 int
 nni_mqtt_msg_proto_data_alloc(nni_msg *msg)
 {
@@ -17,6 +25,7 @@ nni_mqtt_msg_proto_data_alloc(nni_msg *msg)
 	if ((proto_data = NNI_ALLOC_STRUCT(proto_data)) == NULL) {
 		return NNG_ENOMEM;
 	}
+	nni_proto_data_init(proto_data);
 
 	nni_msg_set_proto_data(msg, &proto_msg_ops, proto_data);
 
