@@ -7,6 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef NNG_PLATFORM_WINDOWS
+#include <unistd.h>
+#endif
+
 #define table_client_msg "t_client_msg"
 
 static uint8_t *nni_mqtt_msg_serialize(nni_msg *msg, size_t *out_len);
