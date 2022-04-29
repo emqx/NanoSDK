@@ -245,6 +245,13 @@ typedef struct mqtt_buf_t mqtt_buf;
 typedef struct mqtt_buf_t nng_mqtt_buffer;
 typedef struct mqtt_buf_t nng_mqtt_topic;
 
+struct mqtt_kv_t {
+	mqtt_buf key;
+	mqtt_buf value;
+};
+
+typedef struct mqtt_kv_t mqtt_kv;
+
 typedef struct mqtt_topic_qos_t {
 	nng_mqtt_topic topic;
 	uint8_t        qos;

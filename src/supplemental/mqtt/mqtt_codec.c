@@ -7,6 +7,8 @@
 
 static void nni_mqtt_msg_append_u8(nni_msg *, uint8_t);
 static void nni_mqtt_msg_append_u16(nni_msg *, uint16_t);
+static void nni_mqtt_msg_append_u32(nni_msg *, uint32_t);
+
 static void nni_mqtt_msg_append_byte_str(nni_msg *, nni_mqtt_buffer *);
 
 static void nni_mqtt_msg_encode_fixed_header(nni_msg *, nni_mqtt_proto_data *);
@@ -379,6 +381,23 @@ nni_mqtt_msg_append_u16(nni_msg *msg, uint16_t val)
 	uint8_t buf[2] = { 0 };
 	NNI_PUT16(buf, val);
 	nni_msg_append(msg, buf, 2);
+}
+
+static void
+nni_mqtt_msg_append_u32(nni_msg *msg, uint32_t val)
+{
+	uint8_t buf[4] = { 0 };
+	NNI_PUT32(buf, val);
+	nni_msg_append(msg, buf, 4);
+}
+
+static void
+nni_mqtt_msg_append_varint(nni_msg *msg, uint32_t val)
+{
+	uint8_t        buf[4] = { 0 };
+	struct pos_buf pbuf   = { .curpos = &buf[0], .endpos = &buf[4] };
+	int            bytes  = write_variable_length_value(val, &pbuf);
+	nni_msg_append(msg, buf, bytes);
 }
 
 static void
@@ -1279,12 +1298,51 @@ write_byte(uint8_t val, struct pos_buf *buf)
 int
 write_uint16(uint16_t value, struct pos_buf *buf)
 {
-	if ((buf->endpos - buf->curpos) < 2) {
+	if ((buf->endpos - buf->curpos) < (long) sizeof(uint16_t)) {
 		return MQTT_ERR_NOMEM;
 	}
 
-	*(buf->curpos++) = (value >> 8) & 0xFF;
-	*(buf->curpos++) = value & 0xFF;
+	NNI_PUT16(buf->curpos, value);
+	buf->curpos += sizeof(uint16_t);
+
+	return 0;
+}
+
+int
+write_uint32(uint32_t value, struct pos_buf *buf)
+{
+	if ((buf->endpos - buf->curpos) < (long) sizeof(uint32_t)) {
+		return MQTT_ERR_NOMEM;
+	}
+
+	NNI_PUT32(buf->curpos, value);
+	buf->curpos += sizeof(uint32_t);
+
+	return 0;
+}
+
+int
+write_uint64(uint64_t value, struct pos_buf *buf)
+{
+	if ((buf->endpos - buf->curpos) < (long) sizeof(uint64_t)) {
+		return MQTT_ERR_NOMEM;
+	}
+
+	NNI_PUT64(buf->curpos, value);
+	buf->curpos += sizeof(uint64_t);
+
+	return 0;
+}
+
+int
+write_bytes(uint8_t *bytes, size_t len, struct pos_buf *buf)
+{
+	if ((buf->endpos - buf->curpos) < (long) len) {
+		return MQTT_ERR_NOMEM;
+	}
+
+	memcpy(buf->curpos, bytes, len);
+	buf->curpos += len;
 
 	return 0;
 }
@@ -1317,16 +1375,55 @@ read_byte(struct pos_buf *buf, uint8_t *val)
 	return 0;
 }
 
+
 int
 read_uint16(struct pos_buf *buf, uint16_t *val)
 {
-	if ((size_t)(buf->endpos - buf->curpos) < sizeof(uint16_t)) {
+	if ((buf->endpos - buf->curpos) < (long) sizeof(uint16_t)) {
 		return MQTT_ERR_INVAL;
 	}
 
-	*val = *(buf->curpos++) << 8; /* MSB */
-	*val |= *(buf->curpos++);     /* LSB */
+	NNI_GET16(buf->curpos, *val);
+	buf->curpos += 2;
 
+	return 0;
+}
+
+int
+read_uint32(struct pos_buf *buf, uint32_t *val)
+{
+	if ((buf->endpos - buf->curpos) < (long) sizeof(uint32_t)) {
+		return MQTT_ERR_INVAL;
+	}
+
+	NNI_GET32(buf->curpos, *val);
+	buf->curpos += sizeof(uint32_t);
+
+	return 0;
+}
+
+int
+read_uint64(struct pos_buf *buf, uint64_t *val)
+{
+	if ((buf->endpos - buf->curpos) < (long) sizeof(uint64_t)) {
+		return MQTT_ERR_INVAL;
+	}
+
+	NNI_GET64(buf->curpos, *val);
+	buf->curpos += sizeof(uint64_t);
+
+	return 0;
+}
+
+int
+read_bytes(struct pos_buf *buf, uint8_t **bytes, size_t len)
+{
+	if ((size_t) (buf->endpos - buf->curpos) < len) {
+		return MQTT_ERR_INVAL;
+	}
+
+	*bytes = buf->curpos;
+	buf->curpos += len;
 	return 0;
 }
 
@@ -1375,6 +1472,58 @@ read_str_data(struct pos_buf *buf, mqtt_buf *val)
 	return 0;
 }
 
+static int
+read_variable_int(
+    uint8_t *ptr, uint32_t length, uint32_t *value, uint8_t *used_bytes)
+{
+	int      i;
+	uint8_t  byte;
+	int      multiplier = 1;
+	int32_t  lword      = 0;
+	uint8_t  lbytes     = 0;
+	uint8_t *start      = ptr;
+
+	if (!ptr) {
+		return 0;
+	}
+	for (i = 0; i < 4; i++) {
+		if ((ptr - start + 1) > length) {
+			return MQTT_ERR_PAYLOAD_SIZE;
+		}
+		lbytes++;
+		byte = ptr[0];
+		lword += (byte & 127) * multiplier;
+		multiplier *= 128;
+		ptr++;
+		if ((byte & 128) == 0) {
+			if (lbytes > 1 && byte == 0) {
+				/* Catch overlong encodings */
+				return MQTT_ERR_INVAL;
+			} else {
+				*value = lword;
+				if (used_bytes) {
+					*used_bytes = lbytes;
+				}
+				return MQTT_SUCCESS;
+			}
+		}
+	}
+	return MQTT_ERR_INVAL;
+}
+
+int
+read_variable_integer(struct pos_buf *buf, uint32_t *integer)
+{
+	int     rv;
+	uint8_t bytes = 0;
+	if ((rv = read_variable_int(buf->curpos, buf->endpos - buf->curpos,
+	              integer, &bytes) != MQTT_SUCCESS)) {
+		return rv;
+	}
+	buf->curpos += bytes;
+	return MQTT_SUCCESS;
+}
+
 int
 read_packet_length(struct pos_buf *buf, uint32_t *length)
 {
@@ -1416,7 +1565,7 @@ mqtt_get_remaining_length(uint8_t *packet, uint32_t len,
 	uint8_t *start      = ptr;
 
 	for (size_t i = 0; i < 4; i++) {
-		if ((size_t)(ptr - start + 1) > len) {
+		if ((size_t) (ptr - start + 1) > len) {
 			return MQTT_ERR_PAYLOAD_SIZE;
 		}
 		lbytes++;
@@ -1473,6 +1622,38 @@ mqtt_buf_free(mqtt_buf *buf)
 		buf->length = 0;
 		buf->buf    = NULL;
 	}
+}
+
+int
+mqtt_kv_create(mqtt_kv *kv, const char *key, size_t key_len, const char *value,
+    size_t value_len)
+{
+	int rv;
+	if (((rv = mqtt_buf_create(&kv->key, (uint8_t *) key, key_len)) !=
+	        0) ||
+	    ((rv = mqtt_buf_create(
+	          &kv->value, (uint8_t *) value, value_len)) != 0)) {
+		return rv;
+	}
+	return 0;
+}
+
+int
+mqtt_kv_dup(mqtt_kv *dest, const mqtt_kv *src)
+{
+	int rv;
+	if (((rv = mqtt_buf_dup(&dest->key, &src->key)) != 0) ||
+	    ((rv = mqtt_buf_dup(&dest->value, &src->value)) != 0)) {
+		return rv;
+	}
+	return 0;
+}
+
+void
+mqtt_kv_free(mqtt_kv *kv)
+{
+	mqtt_buf_free(&kv->key);
+	mqtt_buf_free(&kv->value);
 }
 
 static mqtt_msg *
@@ -1785,7 +1966,7 @@ mqtt_msg_dump(mqtt_msg *msg, mqtt_buf *buf, mqtt_buf *packet, bool print_bytes)
 		pos += ret;
 		for (i = 0; i < packet->length; i++) {
 			ret = sprintf((char *) &buf->buf[pos], "%02x ",
-			    ((uint8_t)(packet->buf[i] & 0xff)));
+			    ((uint8_t) (packet->buf[i] & 0xff)));
 			if ((ret < 0) || ((pos + ret) > buf->length)) {
 				return 1;
 			}
