@@ -761,13 +761,13 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 			ctx->saio = aio;
 			ctx->raio = NULL;
 			nni_list_append(&s->send_queue, ctx);
+			nni_mtx_unlock(&s->mtx);
 		} else {
 			nni_msg_free(msg);
 			nni_mtx_unlock(&s->mtx);
 			nni_aio_set_msg(aio, NULL);
 			nni_aio_finish_error(aio, NNG_ECLOSED);
 		}
-		nni_mtx_unlock(&s->mtx);
 		return;
 	}
 	mqtt_send_msg(aio, ctx);
