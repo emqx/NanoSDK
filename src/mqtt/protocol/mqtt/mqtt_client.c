@@ -306,7 +306,7 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 		nni_msg_clone(msg);
 		if (nni_qos_db_set_client_msg(p->sent_unack,
 		        nni_pipe_id(p->pipe), packet_id, msg) != 0) {
-			// nni_println("Warning! QoS msg caching failed");
+			// nni_println("Warning! Cache QoS msg failed");
 			nni_msg_free(msg);
 		}
 		break;
@@ -320,11 +320,12 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 		p->busy = true;
 		nni_mqtt_msg_encode(msg);
 		nni_aio_set_msg(&p->send_aio, msg);
-		nni_aio_bump_count(aio,
-		    nni_msg_header_len(msg) + nni_msg_len(msg));
+		nni_aio_bump_count(
+		    aio, nni_msg_header_len(msg) + nni_msg_len(msg));
 		nni_pipe_send(p->pipe, &p->send_aio);
 		nni_mtx_unlock(&s->mtx);
-		if (0 == qos) {
+		if (0 == qos && ptype != NNG_MQTT_SUBSCRIBE &&
+		    ptype != NNG_MQTT_UNSUBSCRIBE) {
 			nni_aio_finish(aio, 0, 0);
 		}
 		return;
@@ -337,7 +338,8 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 		nni_println("Warning! msg lost due to busy socket");
 	}
 	nni_mtx_unlock(&s->mtx);
-	if (0 == qos) {
+	if (0 == qos && ptype != NNG_MQTT_SUBSCRIBE &&
+	    ptype != NNG_MQTT_UNSUBSCRIBE) {
 		nni_aio_finish(aio, 0, 0);
 	}
 	return;
@@ -572,7 +574,7 @@ mqtt_recv_cb(void *arg)
 	// state transitions
 	switch (packet_type) {
 	case NNG_MQTT_CONNACK:
-		// we have received the CONNACK
+		// never reach here
 		nni_mtx_unlock(&s->mtx);
 		return;
 	case NNG_MQTT_PUBACK:
