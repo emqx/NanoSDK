@@ -267,7 +267,7 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 	mqtt_sock_t *s   = ctx->mqtt_sock;
 	mqtt_pipe_t *p   = s->mqtt_pipe;
 	uint16_t     ptype, packet_id;
-	uint8_t      qos;
+	uint8_t      qos = 0;
 	nni_msg *    msg;
 	nni_msg *    tmsg;
 
@@ -308,6 +308,8 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 		        nni_pipe_id(p->pipe), packet_id, msg) != 0) {
 			// nni_println("Warning! Cache QoS msg failed");
 			nni_msg_free(msg);
+			//we finished here since there is no second time
+			nni_aio_finish_error(aio, MQTT_ERR_NOT_FOUND);
 		}
 		break;
 
