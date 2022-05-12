@@ -17,5 +17,5 @@ find_package(nng CONFIG REQUIRED)
 find_package(Threads)
 
 add_executable(quic_client client.c)
-target_link_libraries(quic_client nng)
+target_link_libraries(quic_client nng msquic pthread)
 target_compile_definitions(quic_client PRIVATE NNG_ELIDE_DEPRECATED)

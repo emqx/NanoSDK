@@ -55,9 +55,9 @@ HQUIC Configuration;
 HQUIC GStream;
 
 void
-fatal(int rv)
+fatal(char *msg, int rv)
 {
-	fprintf(stderr, "%s\n", nng_strerror(rv));
+	fprintf(stderr, "%s, %s\n", msg, nng_strerror(rv));
 	exit(1);
 }
 
@@ -154,7 +154,6 @@ QuicClientStreamCallback(
     return QUIC_STATUS_SUCCESS;
 }
 
-
 void
 QuicMqttStart(
     _In_ HQUIC Connection,
@@ -202,6 +201,7 @@ QuicMqttSend(
 	_In_ int type
     )
 {
+	/*
     QUIC_STATUS Status;
     uint8_t* SendBufferRaw;
     QUIC_BUFFER* SendBuffer;
@@ -291,6 +291,7 @@ Error:
 		printf("EXITTT...........\n");
         MsQuic->ConnectionShutdown(Connection, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
     }
+	*/
 }
 
 
@@ -342,47 +343,6 @@ LoadConfiguration(
 
     return TRUE;
 }
-
-void
-quic_connect()
-{
-    //
-    // Load the client configuration based on the "unsecure" command line option.
-    //
-    if (!LoadConfiguration(TRUE)) {
-        return;
-    }
-
-    QUIC_STATUS Status;
-    const char* ResumptionTicketString = NULL;
-    HQUIC Connection = NULL;
-
-    //
-    // Allocate a new connection object.
-    //
-    if (QUIC_FAILED(Status = MsQuic->ConnectionOpen(Registration, QuicClientConnectionCallback, NULL, &Connection))) {
-        printf("ConnectionOpen failed, 0x%x!\n", Status);
-        goto Error;
-    }
-
-    printf("[conn][%p] Connecting...\n", Connection);
-
-    //
-    // Start the connection to the server.
-    //
-    if (QUIC_FAILED(Status = MsQuic->ConnectionStart(Connection, Configuration, QUIC_ADDRESS_FAMILY_UNSPEC, Target, UdpPort))) {
-        printf("ConnectionStart failed, 0x%x!\n", Status);
-        goto Error;
-    }
-
-Error:
-
-    if (QUIC_FAILED(Status) && Connection != NULL) {
-        MsQuic->ConnectionClose(Connection);
-    }
-
-}
-
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
 _Function_class_(QUIC_CONNECTION_CALLBACK)
@@ -449,6 +409,46 @@ QuicClientConnectionCallback(
     return QUIC_STATUS_SUCCESS;
 }
 
+void
+quic_connect()
+{
+    //
+    // Load the client configuration based on the "unsecure" command line option.
+    //
+    if (!LoadConfiguration(TRUE)) {
+        return;
+    }
+
+    QUIC_STATUS Status;
+    const char* ResumptionTicketString = NULL;
+    HQUIC Connection = NULL;
+
+    //
+    // Allocate a new connection object.
+    //
+    if (QUIC_FAILED(Status = MsQuic->ConnectionOpen(Registration, QuicClientConnectionCallback, NULL, &Connection))) {
+        printf("ConnectionOpen failed, 0x%x!\n", Status);
+        goto Error;
+    }
+
+    printf("[conn][%p] Connecting...\n", Connection);
+
+    //
+    // Start the connection to the server.
+    //
+    if (QUIC_FAILED(Status = MsQuic->ConnectionStart(Connection, Configuration, QUIC_ADDRESS_FAMILY_UNSPEC, Target, UdpPort))) {
+        printf("ConnectionStart failed, 0x%x!\n", Status);
+        goto Error;
+    }
+
+Error:
+
+    if (QUIC_FAILED(Status) && Connection != NULL) {
+        MsQuic->ConnectionClose(Connection);
+    }
+
+}
+
 static int
 connect_cb(void * arg)
 {
@@ -468,13 +468,9 @@ client(const char *type, const char *url)
 	int        rv;
 	nng_msg *  msg;
 
-	if ((rv = quic_open()) != 0) {
-		fatal("quic_open", rv);
-	}
+	quic_open();
 
-	if ((rv = quic_connect(sock, url, NULL, 0)) != 0) {
-		fatal("quic_connect", rv);
-	}
+	quic_connect(sock, url, NULL, 0);
 
 /*
 	if ((rv = quic_mqtt_set_connect_cb(connect_cb, NULL)) != 0) {
@@ -484,11 +480,11 @@ client(const char *type, const char *url)
 	if ((rv = quic_mqtt_set_recv_cb(recv_cb, NULL)) != 0) {
 		fatal("set_recv_cb", rv);
 	}
-*/
 
 	if ((rv = quic_mqtt_connect(sock, url) != 0) {
 		fatal("mqtt_connect", rv);
 	}
+*/
 
 	nng_close(sock);
 
