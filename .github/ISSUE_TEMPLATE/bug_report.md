@@ -21,10 +21,12 @@ If possible include actual reproduction test code here.
 Minimal C test cases are perferred.
 
 ** Environment Details **
- - NNG version
+ - NanoSDK/NNG version
  - Operating system and version
  - Compiler and language used
  - Shared or static library
+ - Remote MQTT Broker info
+ - Messaging scenario
 
 **Additional context**
 Add any other context about the problem here.
