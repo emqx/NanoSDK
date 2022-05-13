@@ -255,8 +255,6 @@ endif ()
 
 add_subdirectory(src)
 
-add_subdirectory(extern/msquic)
-
 if (NNG_TESTS)
     add_subdirectory(tests)
 endif ()
