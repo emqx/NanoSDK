@@ -151,7 +151,7 @@ nng_mqtt_quic_client_open(nng_socket *sock, const char *url)
 	if ((rv = nni_proto_open(sock, &mqtt_msquic_proto)) == 0) {
 		// quic open
 		quic_open();
-		quic_connect();
+		quic_connect(url);
 	}
 
 	return rv;
