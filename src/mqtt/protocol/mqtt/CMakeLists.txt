@@ -12,6 +12,6 @@ nng_sources_if(NNG_PROTO_MQTT_CLIENT mqtt_client.c)
 nng_headers_if(NNG_PROTO_MQTT_CLIENT nng/mqtt/mqtt_client.h)
 nng_defines_if(NNG_PROTO_MQTT_CLIENT NNG_HAVE_MQTT_CLIENT)
 
-nng_sources_if(NNG_PROTO_MQTT_QUIC_CLIENT mqtt_msquic.c)
-nng_headers_if(NNG_PROTO_MQTT_QUIC_CLIENT nng/mqtt/mqtt_msquic.h)
+nng_sources_if(NNG_PROTO_MQTT_QUIC_CLIENT mqtt_quic.c)
+nng_headers_if(NNG_PROTO_MQTT_QUIC_CLIENT nng/mqtt/mqtt_quic.h)
 nng_defines_if(NNG_PROTO_MQTT_QUIC_CLIENT NNG_HAVE_MQTT_QUIC_CLIENT)
