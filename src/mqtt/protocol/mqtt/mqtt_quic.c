@@ -33,6 +33,8 @@ struct mqtt_sock_s {
 
 // A mqtt_pipe_s is our per-pipe protocol private structure.
 struct mqtt_pipe_s {
+	void * stream;
+	void * qstream;
 };
 
 /******************************************************************************
@@ -62,18 +64,33 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 /* Stream EQ Pipe ???? */
 
 static void
-quic_mqtt_stream_init(void *arg, void *pipe, void *s)
+quic_mqtt_stream_init(void *arg, void *qstrm, void *strm)
 {
+	debug_msg("quic_mqtt_stream_init");
 }
 
-void
-quic_mqtt_stream_open(void *arg)
+static void
+quic_mqtt_stream_fini(void *arg)
 {
+	debug_msg("quic_mqtt_stream_finit");
 }
 
-void
+static void
+quic_mqtt_stream_start(void *arg)
+{
+	debug_msg("quic_mqtt_stream_start");
+}
+
+static void
+quic_mqtt_stream_stop(void *arg)
+{
+	debug_msg("quic_mqtt_stream_stop");
+}
+
+static void
 quic_mqtt_stream_close(void *arg)
 {
+	debug_msg("quic_mqtt_stream_close");
 }
 
 static void
@@ -82,7 +99,6 @@ mqtt_quic_sock_open(void *arg)
 	NNI_ARG_UNUSED(arg);
 }
 
-
 static void
 mqtt_quic_sock_close(void *arg)
 {
@@ -90,12 +106,12 @@ mqtt_quic_sock_close(void *arg)
 }
 
 static nni_proto_pipe_ops mqtt_quic_pipe_ops = {
-	// .pipe_size  = sizeof(mqtt_pipe_t),
-	// .pipe_init  = mqtt_pipe_init,
-	// .pipe_fini  = mqtt_pipe_fini,
-	// .pipe_start = mqtt_pipe_start,
-	// .pipe_close = mqtt_pipe_close,
-	// .pipe_stop  = mqtt_pipe_stop,
+	.pipe_size  = sizeof(mqtt_pipe_t),
+	.pipe_init  = quic_mqtt_stream_init,
+	.pipe_fini  = quic_mqtt_stream_fini,
+	.pipe_start = quic_mqtt_stream_start,
+	.pipe_close = quic_mqtt_stream_close,
+	.pipe_stop  = quic_mqtt_stream_stop,
 };
 
 static nni_option mqtt_quic_ctx_options[] = {
@@ -151,6 +167,7 @@ nng_mqtt_quic_client_open(nng_socket *sock, const char *url)
 	if ((rv = nni_proto_open(sock, &mqtt_msquic_proto)) == 0) {
 		// quic open
 		quic_open();
+		quic_proto_open(&mqtt_msquic_proto);
 		quic_connect(url);
 	}
 
