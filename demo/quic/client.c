@@ -55,103 +55,6 @@ fatal(char *msg, int rv)
 	exit(1);
 }
 
-//
-// The clients's callback for stream events from MsQuic.
-//
-_IRQL_requires_max_(DISPATCH_LEVEL)
-_Function_class_(QUIC_STREAM_CALLBACK)
-QUIC_STATUS
-QUIC_API
-QuicClientStreamCallback(
-    _In_ HQUIC Stream,
-    _In_opt_ void* Context,
-    _Inout_ QUIC_STREAM_EVENT* Event
-    )
-{
-    switch (Event->Type) {
-    case QUIC_STREAM_EVENT_SEND_COMPLETE:
-        //
-        // A previous StreamSend call has completed, and the context is being
-        // returned back to the app.
-        //
-        // free(Event->SEND_COMPLETE.ClientContext);
-        printf("[strm][%p] Data sent\n", Stream);
-        break;
-    case QUIC_STREAM_EVENT_RECEIVE:
-        //
-        // Data was received from the peer on the stream.
-        //
-        printf("[strm][%p] Data received\n", Stream);
-		printf("Body is [%d][%s].\n", Event->RECEIVE.Buffers->Length, Event->RECEIVE.Buffers->Buffer);
-        break;
-    case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-        //
-        // The peer gracefully shut down its send direction of the stream.
-        //
-        printf("[strm][%p] Peer aborted\n", Stream);
-        break;
-    case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
-        //
-        // The peer aborted its send direction of the stream.
-        //
-        printf("[strm][%p] Peer shut down\n", Stream);
-        break;
-    case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-        //
-        // Both directions of the stream have been shut down and MsQuic is done
-        // with the stream. It can now be safely cleaned up.
-        //
-        printf("[strm][%p] All done\n", Stream);
-        if (!Event->SHUTDOWN_COMPLETE.AppCloseInProgress) {
-            MsQuic->StreamClose(Stream);
-        }
-        break;
-    default:
-        break;
-    }
-    return QUIC_STATUS_SUCCESS;
-}
-
-void
-QuicMqttStart(
-    _In_ HQUIC Connection,
-	_Out_ HQUIC *Streamp
-	)
-{
-    HQUIC Stream = NULL;
-    QUIC_STATUS Status;
-
-    //
-    // Create/allocate a new bidirectional stream. The stream is just allocated
-    // and no QUIC stream identifier is assigned until it's started.
-    //
-    if (QUIC_FAILED(Status = MsQuic->StreamOpen(Connection, QUIC_STREAM_OPEN_FLAG_NONE, QuicClientStreamCallback, NULL, &Stream))) {
-        printf("StreamOpen failed, 0x%x!\n", Status);
-        goto Error;
-    }
-
-    printf("[strm][%p] Starting...\n", Stream);
-
-    //
-    // Starts the bidirectional stream. By default, the peer is not notified of
-    // the stream being started until data is sent on the stream.
-    //
-    if (QUIC_FAILED(Status = MsQuic->StreamStart(Stream, QUIC_STREAM_START_FLAG_NONE))) {
-        printf("StreamStart failed, 0x%x!\n", Status);
-        MsQuic->StreamClose(Stream);
-        goto Error;
-    }
-
-	*Streamp = Stream;
-
-Error:
-
-    if (QUIC_FAILED(Status)) {
-		printf("EXITTT...........\n");
-        MsQuic->ConnectionShutdown(Connection, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
-    }
-}
-
 void
 QuicMqttSend(
     _In_ HQUIC Connection,
@@ -283,20 +186,6 @@ client(const char *type, const char *url)
 			exit(0);
 		}
 	}
-
-/*
-	if ((rv = quic_mqtt_set_connect_cb(connect_cb, NULL)) != 0) {
-		fatal("set_connect_cb", rv);
-	}
-
-	if ((rv = quic_mqtt_set_recv_cb(recv_cb, NULL)) != 0) {
-		fatal("set_recv_cb", rv);
-	}
-
-	if ((rv = quic_mqtt_connect(sock, url) != 0) {
-		fatal("mqtt_connect", rv);
-	}
-*/
 
 	nng_close(sock);
 
