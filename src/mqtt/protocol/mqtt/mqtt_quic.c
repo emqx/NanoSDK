@@ -36,6 +36,7 @@ struct mqtt_sock_s {
 struct mqtt_pipe_s {
 	void * stream;
 	void * qstream;
+	nni_aio send_aio;
 };
 
 /******************************************************************************
@@ -62,12 +63,22 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 	NNI_ARG_UNUSED(arg);
 }
 
+static void
+mqtt_send_cb(void *p)
+{
+	printf("here is callback for send.\n");
+}
+
 /* Stream EQ Pipe ???? */
 
 static void
 quic_mqtt_stream_init(void *arg, void *qstrm, void *strm)
 {
 	printf("quic_mqtt_stream_init.\n");
+	mqtt_pipe_t *p = arg;
+	p->qstream = qstrm;
+	p->stream = strm;
+	nni_aio_init(&p->send_aio, mqtt_send_cb, p);
 }
 
 static void
@@ -80,6 +91,33 @@ static void
 quic_mqtt_stream_start(void *arg)
 {
 	printf("quic_mqtt_stream_start.\n");
+	mqtt_pipe_t *p = arg;
+
+	/*
+	// XXX Send a mqtt connect packet
+	// Mqtt connect message
+	printf("start.\n");
+	nng_msg *msg;
+	nng_mqtt_msg_alloc(&msg, 0);
+
+	nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
+
+	nng_mqtt_msg_set_connect_will_topic(msg, "topic");
+	char *willmsg = "will \n test";
+	nng_mqtt_msg_set_connect_will_msg(msg, willmsg, 12);
+
+	nng_mqtt_msg_set_connect_keep_alive(msg, 180);
+	nng_mqtt_msg_set_connect_clean_session(msg, true);
+
+	nng_mqtt_msg_encode(msg);
+	printf("connect packet encode done.\n");
+
+	nni_aio_set_msg(&p->send_aio, msg);
+
+	quic_strm_send(p->qstream, &p->send_aio);
+	*/
+
+	return;
 }
 
 static void
