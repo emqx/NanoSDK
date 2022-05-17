@@ -13,8 +13,14 @@
 typedef struct quic_strm_s quic_strm_t;
 
 struct quic_strm_s {
-	HQUIC * stream;
-	void  * pipe;
+	HQUIC     stream;
+	void *    pipe;
+	nni_mtx   mtx;
+	nni_list  sendq;
+	nni_list  recvq;
+	nni_aio * txaio;
+	nni_aio * rxaio;
+	bool      closed;
 };
 
 // Config for msquic
@@ -33,6 +39,9 @@ nni_proto *                    g_quic_proto;
 
 static int quic_pipe_start(_In_ HQUIC Connection, _In_ void *Context, _Out_ HQUIC *Streamp);
 static BOOLEAN LoadConfiguration(BOOLEAN Unsecure);
+static void quic_strm_send_cancel(nni_aio *aio, void *arg, int rv);
+static void quic_strm_send_start(quic_strm_t *qstrm);
+static int  quic_strm_alloc(quic_strm_t **qstrmp);
 
 // Helper function to load a client configuration.
 static BOOLEAN
@@ -71,6 +80,24 @@ LoadConfiguration(BOOLEAN Unsecure)
     return TRUE;
 }
 
+static int
+quic_strm_alloc(quic_strm_t **qstrmp)
+{
+	quic_strm_t *qstrm;
+	qstrm = malloc(sizeof(quic_strm_t));
+
+	qstrm->closed = false;
+	qstrm->rxaio  = NULL;
+	qstrm->txaio  = NULL;
+	nni_mtx_init(&qstrm->mtx);
+	nni_aio_list_init(&qstrm->sendq);
+	nni_aio_list_init(&qstrm->recvq);
+
+	*qstrmp = qstrm;
+
+	return 0;
+}
+
 // The clients's callback for stream events from MsQuic.
 _IRQL_requires_max_(DISPATCH_LEVEL)
 _Function_class_(QUIC_STREAM_CALLBACK)
@@ -90,6 +117,9 @@ QuicStreamCallback(
         // returned back to the app.
         // free(Event->SEND_COMPLETE.ClientContext);
         printf("[strm][%p] Data sent\n", Stream);
+
+		// TODO Find aio from sendq and finish (BUG here)
+		nni_aio_finish(qstrm->txaio, 0, 0);
 		break;
     case QUIC_STREAM_EVENT_RECEIVE:
         // Data was received from the peer on the stream.
@@ -129,6 +159,7 @@ QuicConnectionCallback(
     )
 {
 	nni_proto_pipe_ops * pipe_ops = g_quic_proto->proto_pipe_ops;
+	quic_strm_t * qstrm = NULL;
 
     switch (Event->Type) {
     case QUIC_CONNECTION_EVENT_CONNECTED:
@@ -136,8 +167,9 @@ QuicConnectionCallback(
         printf("[conn][%p] Connected\n", Connection);
 
 		// Create a pipe for quic client
-		quic_strm_t * qstrm
-			= nng_alloc(sizeof(quic_strm_t));
+		if (0 != quic_strm_alloc(&qstrm)) {
+			printf("Error in alloc quic strm alloc.\n");
+		}
 		GStream = qstrm; // TODO Replace with getting from array
 
 		qstrm->pipe = nng_alloc(pipe_ops->pipe_size);
@@ -324,28 +356,139 @@ Error:
 	return 0;
 }
 
-int
-quic_strm_recv(void *qstrm, nni_aio *raio)
+static void
+quic_strm_send_start(quic_strm_t *qstrm)
 {
+	nni_aio *aio;
+	nni_msg *msg;
+    QUIC_STATUS Status;
+
+	if (qstrm->closed) {
+		while ((aio = nni_list_first(&qstrm->sendq)) != NULL) {
+			nni_list_remove(&qstrm->sendq, aio);
+			nni_aio_finish_error(aio, NNG_ECLOSED);
+		}
+		return;
+	}
+
+	if ((aio = nni_list_first(&qstrm->sendq)) == NULL) {
+		return;
+	}
+
+	// This runs to send the message.
+	msg = nni_aio_get_msg(aio);
+
+	QUIC_BUFFER *bufs = NULL;
+	int hl = nni_msg_header_len(msg);
+	int bl = nni_msg_len(msg);
+
+	if (hl > 0 && bl > 0) {
+		bufs = malloc(sizeof(QUIC_BUFFER)+ bl + hl);
+		memcpy((char *)(bufs+1), nni_msg_header(msg), hl);
+		memcpy((char *)(bufs+1) + hl, nni_msg_body(msg), bl);
+		bufs->Length = hl + bl;
+		bufs->Buffer = bufs + 1;
+	}
+
+	if (!bufs)
+		printf("error in iov.\n");
+
+    if (QUIC_FAILED(Status = MsQuic->StreamSend(qstrm->stream, bufs, 1, QUIC_SEND_FLAG_NONE, bufs))) {
+        printf("StreamSend failed, 0x%x!\n", Status);
+        free(bufs);
+    }
+
+	/*
+	niov  = 0;
+	if (nni_msg_header_len(msg) > 0) {
+		iov[niov].iov_buf = nni_msg_header(msg);
+		iov[niov].iov_len = nni_msg_header_len(msg);
+		niov++;
+	}
+	if (nni_msg_len(msg) > 0) {
+		iov[niov].iov_buf = nni_msg_body(msg);
+		iov[niov].iov_len = nni_msg_len(msg);
+		niov++;
+	}
+	nni_aio_set_iov(txaio, niov, iov);
+	nng_stream_send(p->conn, txaio);
+	*/
+}
+
+static void
+quic_strm_send_cancel(nni_aio *aio, void *arg, int rv)
+{
+	quic_strm_t *qstrm = arg;
+
+	nni_mtx_lock(&qstrm->mtx);
+	if (!nni_aio_list_active(aio)) {
+		nni_mtx_unlock(&qstrm->mtx);
+		return;
+	}
+	// If this is being sent, then cancel the pending transfer.
+	// The callback on the txaio will cause the user aio to
+	// be canceled too.
+	if (nni_list_first(&qstrm->sendq) == aio) {
+		nni_aio_abort(qstrm->txaio, rv);
+		nni_mtx_unlock(&qstrm->mtx);
+		return;
+	}
+	nni_aio_list_remove(aio);
+	nni_mtx_unlock(&qstrm->mtx);
+
+	nni_aio_finish_error(aio, rv);
 }
 
 int
-quic_strm_send(void *qstrm, nni_aio *saio)
+quic_strm_recv(void *qstrm, nni_aio *raio)
 {
+	NNI_ARG_UNUSED(qstrm);
+	NNI_ARG_UNUSED(raio);
+	return 0;
+}
+
+int
+quic_strm_send(void *arg, nni_aio *aio)
+{
+	int          rv;
+	quic_strm_t *qstrm = arg;
+
+	if (nni_aio_begin(aio) != 0) {
+		return;
+	}
+	// nni_mtx_lock(&qstrm->mtx);
+	/*
+	if ((rv = nni_aio_schedule(aio, quic_strm_send_cancel, qstrm)) != 0) {
+		nni_mtx_unlock(&qstrm->mtx);
+		nni_aio_finish_error(aio, rv);
+		return (-1);
+	}
+	*/
+	qstrm->txaio = aio;
+	nni_list_append(&qstrm->sendq, aio);
+	if (nni_list_first(&qstrm->sendq) == aio) {
+		quic_strm_send_start(qstrm);
+	}
+	// nni_mtx_unlock(&qstrm->mtx);
+
+	return 0;
 }
 
 // unite init of msquic here, deal with cb of stream
 static int
 quic_alloc()
 {
+	return 0;
 }
 
 int
 nni_msquic_dialer_alloc(nng_stream_dialer **dp, const nng_url *url)
 {
+	return 0;
 }
 
 int
 nni_msquic_listener_alloc(nng_stream_listener **lp, const nng_url *url)
 {
+	return 0;
 }
