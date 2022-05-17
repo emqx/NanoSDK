@@ -10,6 +10,8 @@
 #include "core/nng_impl.h"
 #include "quic_api.h"
 
+typedef struct quic_strm_s quic_strm_t;
+
 struct quic_strm_s {
 	HQUIC * stream;
 	void  * pipe;
@@ -25,7 +27,7 @@ const QUIC_API_TABLE          *MsQuic;
 HQUIC                          Registration;
 HQUIC                          Configuration;
 
-struct quic_strm_s *           GStream;
+quic_strm_t *                  GStream;
 
 nni_proto *                    g_quic_proto;
 
@@ -80,7 +82,7 @@ QuicStreamCallback(
     _Inout_ QUIC_STREAM_EVENT* Event
     )
 {
-	struct quic_strm_s *qstrm = Context;
+	quic_strm_t *qstrm = Context;
 
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_SEND_COMPLETE:
@@ -88,8 +90,6 @@ QuicStreamCallback(
         // returned back to the app.
         // free(Event->SEND_COMPLETE.ClientContext);
         printf("[strm][%p] Data sent\n", Stream);
-
-		// Create aio for callback
 		break;
     case QUIC_STREAM_EVENT_RECEIVE:
         // Data was received from the peer on the stream.
@@ -136,8 +136,8 @@ QuicConnectionCallback(
         printf("[conn][%p] Connected\n", Connection);
 
 		// Create a pipe for quic client
-		struct quic_strm_s * qstrm
-			= nng_alloc(sizeof(struct quic_strm_s));
+		quic_strm_t * qstrm
+			= nng_alloc(sizeof(quic_strm_t));
 		GStream = qstrm; // TODO Replace with getting from array
 
 		qstrm->pipe = nng_alloc(pipe_ops->pipe_size);
@@ -150,7 +150,7 @@ QuicConnectionCallback(
 		}
 
 		pipe_ops->pipe_start(qstrm->pipe);
-        break;
+		break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
         // The connection has been shut down by the transport. Generally, this
         // is the expected way for the connection to shut down with this
@@ -218,6 +218,7 @@ quic_pipe_start(
         goto Error;
     }
 
+    printf("[strm][%p] Done...\n", Stream);
 	*Streamp = Stream;
 
 	return 0;

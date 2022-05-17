@@ -17,6 +17,7 @@
 #define NNG_MQTT_PEER 0
 #define NNG_MQTT_PEER_NAME "mqtt-server"
 typedef struct mqtt_sock_s mqtt_sock_t;
+typedef struct mqtt_pipe_s mqtt_pipe_t;
 
 static void mqtt_quic_sock_init(void *arg, nni_sock *sock);
 static void mqtt_quic_sock_fini(void *arg);
@@ -66,31 +67,31 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 static void
 quic_mqtt_stream_init(void *arg, void *qstrm, void *strm)
 {
-	debug_msg("quic_mqtt_stream_init");
+	printf("quic_mqtt_stream_init.\n");
 }
 
 static void
 quic_mqtt_stream_fini(void *arg)
 {
-	debug_msg("quic_mqtt_stream_finit");
+	printf("quic_mqtt_stream_finit.\n");
 }
 
 static void
 quic_mqtt_stream_start(void *arg)
 {
-	debug_msg("quic_mqtt_stream_start");
+	printf("quic_mqtt_stream_start.\n");
 }
 
 static void
 quic_mqtt_stream_stop(void *arg)
 {
-	debug_msg("quic_mqtt_stream_stop");
+	printf("quic_mqtt_stream_stop.\n");
 }
 
 static void
 quic_mqtt_stream_close(void *arg)
 {
-	debug_msg("quic_mqtt_stream_close");
+	printf("quic_mqtt_stream_close.\n");
 }
 
 static void
