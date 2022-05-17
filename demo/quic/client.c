@@ -275,6 +275,15 @@ client(const char *type, const char *url)
 		printf("error in quic client open.\n");
 	}
 
+	char *bufr;
+	size_t szr;
+	for (;;) {
+		getline(&bufr, &szr, stdin);
+		if (0 == strcmp(bufr, "exit")) {
+			exit(0);
+		}
+	}
+
 /*
 	if ((rv = quic_mqtt_set_connect_cb(connect_cb, NULL)) != 0) {
 		fatal("set_connect_cb", rv);
