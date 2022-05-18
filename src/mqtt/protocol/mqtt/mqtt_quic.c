@@ -81,12 +81,55 @@ mqtt_timer_cb(void *arg)
 static void
 mqtt_quic_sock_fini(void *arg)
 {
+	nni_plat_printf("testing\n");
 }
 
 static void
 mqtt_quic_sock_send(void *arg, nni_aio *aio)
 {
-	nni_plat_printf("hello!\n");
+	// do not support context for now.
+	mqtt_sock_t *s   = arg;
+	// mqtt_pipe_t *p   = s->;
+	nni_msg *    msg;
+
+	if (nni_aio_begin(aio) != 0) {
+		return;
+	}
+	printf("sock send!\n");
+
+	nni_mtx_lock(&s->mtx);
+
+	if (s->closed) {
+		nni_mtx_unlock(&s->mtx);
+		nni_aio_finish_error(aio, NNG_ECLOSED);
+		return;
+	}
+
+	msg   = nni_aio_get_msg(aio);
+	if (msg == NULL) {
+		nni_mtx_unlock(&s->mtx);
+		nni_aio_set_msg(aio, NULL);
+		nni_aio_finish_error(aio, NNG_EPROTO);
+		return;
+	}
+	// if (p == NULL) {
+	// 	// connection is lost or not established yet
+	// 	if (!nni_list_active(&s->send_queue, ctx)) {
+	// 		// cache ctx
+	// 		ctx->saio = aio;
+	// 		ctx->raio = NULL;
+	// 		nni_list_append(&s->send_queue, ctx);
+	// 		nni_mtx_unlock(&s->mtx);
+	// 	} else {
+	// 		nni_msg_free(msg);
+	// 		nni_mtx_unlock(&s->mtx);
+	// 		nni_aio_set_msg(aio, NULL);
+	// 		nni_aio_finish_error(aio, NNG_ECLOSED);
+	// 	}
+	// 	return;
+	// }
+	nni_mtx_unlock(&s->mtx);
+	return;
 }
 
 static void
@@ -128,11 +171,11 @@ mqtt_send_cb(void *p)
 /* Stream EQ Pipe ???? */
 
 static int
-quic_mqtt_stream_init(void *arg, void *sock, void *qstrm, void *strm)
+quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
 {
 	mqtt_pipe_t *p = arg;
 	p->qstream = qstrm;
-	p->stream = strm;
+	p->mqtt_sock = sock;
 
 	p->closed = false;
 	p->busy   = false;
@@ -182,7 +225,6 @@ quic_mqtt_stream_start(void *arg)
 
 	// XXX Send a mqtt connect packet
 	// Mqtt connect message
-	printf("start.\n");
 	nng_msg *msg;
 	nng_mqtt_msg_alloc(&msg, 0);
 
@@ -196,12 +238,11 @@ quic_mqtt_stream_start(void *arg)
 	nng_mqtt_msg_set_connect_clean_session(msg, true);
 
 	nng_mqtt_msg_encode(msg);
-	printf("connect packet encode done.\n");
 
 	nni_aio_set_msg(&p->send_aio, msg);
 
-	quic_strm_send(p->stream, &p->send_aio);
-	quic_strm_recv(p->stream, &p->recv_aio);
+	quic_strm_send(p->qstream, &p->send_aio);
+	quic_strm_recv(p->qstream, &p->recv_aio);
 	return;
 }
 
@@ -286,23 +327,15 @@ static nni_proto mqtt_msquic_proto = {
 int
 nng_mqtt_quic_client_open(nng_socket *sock, const char *url)
 {
-
+	nni_sock *nsock;
 	int rv = 0;
 	// Quic settings
 	if ((rv = nni_proto_open(sock, &mqtt_msquic_proto)) == 0) {
 		// TODO write an independent transport layer for msquic
+		nni_sock_find(&nsock, sock->id);
 		quic_open();
 		quic_proto_open(&mqtt_msquic_proto);
-		quic_connect(url);
+		quic_connect(url, nsock);
 	}
-
-/*
-	put sock to pipe
-	quic_open(sock);
-	nni_sock *sock;
-	if ((rv = nni_sock_find(&sock, s.id)) != 0) {
-		return (rv);
-	}
-*/
 	return rv;
 }
