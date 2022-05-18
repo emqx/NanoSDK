@@ -186,12 +186,11 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 		if (0 != quic_strm_alloc(&qstrm)) {
 			printf("Error in alloc quic strm alloc.\n");
 		}
-		GStream = qstrm; // TODO Replace with getting from array
+		GStream = qstrm; // TODO move init work to quic_strm_init
 
 		qstrm->pipe = nng_alloc(pipe_ops->pipe_size);
 		nni_lmq_init(&qstrm->recv_messages, NNG_MAX_RECV_LMQ);
 		nni_lmq_init(&qstrm->send_messages, NNG_MAX_SEND_LMQ);
-
 		pipe_ops->pipe_init(qstrm->pipe, qstrm, Context);
 
 		if (0 != quic_pipe_start(Connection, qstrm, &qstrm->stream)) {

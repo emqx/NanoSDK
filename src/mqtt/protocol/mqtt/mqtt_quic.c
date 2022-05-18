@@ -32,6 +32,7 @@ static void mqtt_timer_cb(void *arg);
 struct mqtt_sock_s {
 	bool         closed;
 	nni_duration retry;
+	mqtt_pipe_t  *pipe;
 	nni_mtx      mtx; // more fine grained mutual exclusion
 	// mqtt_ctx_t      master; // to which we delegate send/recv calls
 	// mqtt_pipe_t *   mqtt_pipe;
@@ -89,7 +90,7 @@ mqtt_quic_sock_send(void *arg, nni_aio *aio)
 {
 	// do not support context for now.
 	mqtt_sock_t *s   = arg;
-	// mqtt_pipe_t *p   = s->;
+	mqtt_pipe_t *p   = s->pipe;
 	nni_msg *    msg;
 
 	if (nni_aio_begin(aio) != 0) {
@@ -112,22 +113,26 @@ mqtt_quic_sock_send(void *arg, nni_aio *aio)
 		nni_aio_finish_error(aio, NNG_EPROTO);
 		return;
 	}
-	// if (p == NULL) {
-	// 	// connection is lost or not established yet
-	// 	if (!nni_list_active(&s->send_queue, ctx)) {
-	// 		// cache ctx
-	// 		ctx->saio = aio;
-	// 		ctx->raio = NULL;
-	// 		nni_list_append(&s->send_queue, ctx);
-	// 		nni_mtx_unlock(&s->mtx);
-	// 	} else {
-	// 		nni_msg_free(msg);
-	// 		nni_mtx_unlock(&s->mtx);
-	// 		nni_aio_set_msg(aio, NULL);
-	// 		nni_aio_finish_error(aio, NNG_ECLOSED);
-	// 	}
-	// 	return;
-	// }
+	if (p == NULL) {
+		// connection is lost or not established yet
+		// TODO lmq caching data
+		// if () {
+		// } else {
+		// 	nni_msg_free(msg);
+		// 	nni_mtx_unlock(&s->mtx);
+		// 	nni_aio_set_msg(aio, NULL);
+		// 	nni_aio_finish_error(aio, NNG_ECLOSED);
+		//      return;
+		// }
+		printf("connection lost!\n");
+		nni_msg_free(msg);
+		nni_mtx_unlock(&s->mtx);
+		nni_aio_set_msg(aio, NULL);
+		nni_aio_finish_error(aio, NNG_EPROTO);
+		return;
+	}
+	nni_aio_set_msg(&p->send_aio, msg);
+	quic_strm_send(p->qstream, &p->send_aio);
 	nni_mtx_unlock(&s->mtx);
 	return;
 }
@@ -176,6 +181,7 @@ quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
 	mqtt_pipe_t *p = arg;
 	p->qstream = qstrm;
 	p->mqtt_sock = sock;
+	p->mqtt_sock->pipe = p;
 
 	p->closed = false;
 	p->busy   = false;
@@ -225,23 +231,23 @@ quic_mqtt_stream_start(void *arg)
 
 	// XXX Send a mqtt connect packet
 	// Mqtt connect message
-	nng_msg *msg;
-	nng_mqtt_msg_alloc(&msg, 0);
+	// nng_msg *msg;
+	// nng_mqtt_msg_alloc(&msg, 0);
 
-	nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
+	// nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
 
-	nng_mqtt_msg_set_connect_will_topic(msg, "topic");
-	char *willmsg = "will \n test";
-	nng_mqtt_msg_set_connect_will_msg(msg, willmsg, 12);
+	// nng_mqtt_msg_set_connect_will_topic(msg, "topic");
+	// char *willmsg = "will \n test";
+	// nng_mqtt_msg_set_connect_will_msg(msg, willmsg, 12);
 
-	nng_mqtt_msg_set_connect_keep_alive(msg, 180);
-	nng_mqtt_msg_set_connect_clean_session(msg, true);
+	// nng_mqtt_msg_set_connect_keep_alive(msg, 180);
+	// nng_mqtt_msg_set_connect_clean_session(msg, true);
 
-	nng_mqtt_msg_encode(msg);
+	// nng_mqtt_msg_encode(msg);
 
-	nni_aio_set_msg(&p->send_aio, msg);
+	// nni_aio_set_msg(&p->send_aio, msg);
 
-	quic_strm_send(p->qstream, &p->send_aio);
+	// quic_strm_send(p->qstream, &p->send_aio);
 	quic_strm_recv(p->qstream, &p->recv_aio);
 	return;
 }
