@@ -136,7 +136,9 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 		    *(Event->RECEIVE.Buffers->Buffer + 1));
 		// store to lmq
 		// get aio and trigger cb of protocol layer
+                nni_mtx_lock(&qstrm->mtx);
 		nni_aio *aio = nni_list_first(&qstrm->recvq);
+                nni_mtx_unlock(&qstrm->mtx);
 		if (aio != NULL) {
 			nni_aio_finish_sync(aio, 0, 0);
 		}
@@ -186,7 +188,6 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 		GStream = qstrm; // TODO Replace with getting from array
 
 		qstrm->pipe = nng_alloc(pipe_ops->pipe_size);
-		nni_aio_list_init(&qstrm->recvq);
 		nni_lmq_init(&qstrm->recv_messages, NNG_MAX_RECV_LMQ);
 		nni_lmq_init(&qstrm->send_messages, NNG_MAX_SEND_LMQ);
 
@@ -293,61 +294,6 @@ quic_pipe_start(
 
 	printf("[strm][%p] Done...\n", Stream);
 	*Streamp = Stream;
-	nng_msg *msg;
-	nng_mqtt_msg_alloc(&msg, 0);
-	nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
-
-	nng_mqtt_msg_set_connect_keep_alive(msg, 180);
-	nng_mqtt_msg_set_connect_clean_session(msg, true);
-
-	nng_mqtt_msg_set_connect_will_topic(msg, "topic");
-	char *willmsg = "will \n test";
-	nng_mqtt_msg_set_connect_will_msg(msg, willmsg, 12);
-	nng_mqtt_msg_set_connect_keep_alive(msg, 180);
-	nng_mqtt_msg_set_connect_clean_session(msg, true);
-	nng_mqtt_msg_encode(msg);
-	int   header_len = nng_msg_header_len(msg);
-	int   body_len   = nng_msg_len(msg);
-	char *header     = nng_msg_header(msg);
-	char *body       = nng_msg_body(msg);
-	int   msg_len    = header_len + body_len;
-
-	printf("msg_len %d header_len %d body_len %d .\n", msg_len, header_len,
-	    body_len);
-	printf("header [%x%x] boyd [%x%x%x] .\n", header[0], header[1],
-	    body[0], body[1], body[2]);
-	uint8_t     *SendBufferRaw;
-	QUIC_BUFFER *SendBuffer;
-	SendBufferRaw = (uint8_t *) malloc(sizeof(QUIC_BUFFER) + msg_len);
-	if (SendBufferRaw == NULL) {
-		printf("SendBuffer allocation failed!\n");
-		Status = QUIC_STATUS_OUT_OF_MEMORY;
-		goto Error;
-	}
-
-	memcpy(SendBufferRaw + sizeof(QUIC_BUFFER), header, header_len);
-	memcpy(
-	    SendBufferRaw + sizeof(QUIC_BUFFER) + header_len, body, body_len);
-
-	SendBuffer         = (QUIC_BUFFER *) SendBufferRaw;
-	SendBuffer->Buffer = SendBufferRaw + sizeof(QUIC_BUFFER);
-	SendBuffer->Length = msg_len;
-
-	printf("[strm][%p] Sending data...\n", Stream);
-
-	//
-	// Sends the buffer over the stream. Note the FIN flag is passed along
-	// with the buffer. This indicates this is the last buffer on the
-	// stream and the the stream is shut down (in the send direction)
-	// immediately after.
-	//
-	if (QUIC_FAILED(Status = MsQuic->StreamSend(Stream, SendBuffer, 1,
-	                    QUIC_SEND_FLAG_NONE, SendBuffer))) {
-		printf("StreamSend failed, 0x%x!\n", Status);
-		free(SendBufferRaw);
-		goto Error;
-	}
-
 	return 0;
 
 Error:
@@ -363,6 +309,12 @@ void
 quic_proto_open(nni_proto *proto)
 {
 	g_quic_proto = proto;
+}
+
+static void
+quic_close()
+{
+        
 }
 
 void
@@ -539,8 +491,21 @@ quic_strm_send_cancel(nni_aio *aio, void *arg, int rv)
 int
 quic_strm_recv(void *arg, nni_aio *raio)
 {
-	NNI_ARG_UNUSED(arg);
-	NNI_ARG_UNUSED(raio);
+	quic_strm_t *qstrm = arg;
+	int                rv;
+
+	if (nni_aio_begin(raio) != 0) {
+		return;
+	}
+	// if ((rv = nni_aio_schedule(aio, mqtt_tcptran_pipe_recv_cancel, p)) !=
+	//     0) {
+	// 	nni_aio_finish_error(aio, rv);
+	// 	return;
+	// }
+
+	nni_list_append(&qstrm->recvq, raio);
+	if (nni_list_first(&qstrm->recvq) == raio) {
+	}
 	return 0;
 }
 

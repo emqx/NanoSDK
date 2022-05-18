@@ -180,7 +180,6 @@ quic_mqtt_stream_start(void *arg)
 {
 	mqtt_pipe_t *p = arg;
 
-	/*
 	// XXX Send a mqtt connect packet
 	// Mqtt connect message
 	printf("start.\n");
@@ -201,8 +200,7 @@ quic_mqtt_stream_start(void *arg)
 
 	nni_aio_set_msg(&p->send_aio, msg);
 
-	quic_strm_send(p->qstream, &p->send_aio);
-	*/
+	quic_strm_send(p->stream, &p->send_aio);
 	quic_strm_recv(p->stream, &p->recv_aio);
 	return;
 }
