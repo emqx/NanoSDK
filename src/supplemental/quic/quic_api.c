@@ -497,6 +497,7 @@ quic_strm_recv(void *arg, nni_aio *raio)
 	if (nni_aio_begin(raio) != 0) {
 		return;
 	}
+        nni_mtx_lock(&qstrm->mtx);
 	// if ((rv = nni_aio_schedule(aio, mqtt_tcptran_pipe_recv_cancel, p)) !=
 	//     0) {
 	// 	nni_aio_finish_error(aio, rv);
@@ -506,6 +507,7 @@ quic_strm_recv(void *arg, nni_aio *raio)
 	nni_list_append(&qstrm->recvq, raio);
 	if (nni_list_first(&qstrm->recvq) == raio) {
 	}
+        nni_mtx_lock(&qstrm->mtx);
 	return 0;
 }
 
