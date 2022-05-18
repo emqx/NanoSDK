@@ -22,6 +22,7 @@ struct quic_strm_s {
 	nni_list recvq;
 	nni_aio *txaio;
 	nni_aio *rxaio;
+        nni_sock *sock;
 	bool     closed;
 	nni_lmq  recv_messages; // recv messages queue
 	nni_lmq  send_messages; // send messages queue
@@ -354,7 +355,7 @@ Error:
 }
 
 int
-quic_connect(const char *url)
+quic_connect(const char *url, nni_sock *sock)
 {
 	// Load the client configuration based on the "unsecure" command line
 	// option.
@@ -366,9 +367,10 @@ quic_connect(const char *url)
 	const char *ResumptionTicketString = NULL;
 	HQUIC       Connection             = NULL;
 
+        void  *sock_data = nni_sock_proto_data(sock);
 	// Allocate a new connection object.
 	if (QUIC_FAILED(Status = MsQuic->ConnectionOpen(Registration,
-	                    QuicConnectionCallback, NULL, &Connection))) {
+	                    QuicConnectionCallback, sock_data, &Connection))) {
 		printf("ConnectionOpen failed, 0x%x!\n", Status);
 		goto Error;
 	}
@@ -507,7 +509,7 @@ quic_strm_recv(void *arg, nni_aio *raio)
 	nni_list_append(&qstrm->recvq, raio);
 	if (nni_list_first(&qstrm->recvq) == raio) {
 	}
-        nni_mtx_lock(&qstrm->mtx);
+        nni_mtx_unlock(&qstrm->mtx);
 	return 0;
 }
 
