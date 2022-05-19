@@ -32,7 +32,7 @@ struct quic_strm_s {
 	int      rxlen; // Length received
 	int      rwlen; // Length wanted
 	uint8_t  rxbuf[5];
-	uint8_t *rxmsg;
+	uint8_t *rxmsg; // change to nng_msg
 };
 
 // Config for msquic
@@ -52,6 +52,7 @@ static int quic_pipe_start(
 static BOOLEAN LoadConfiguration(BOOLEAN Unsecure);
 static void    quic_strm_send_cancel(nni_aio *aio, void *arg, int rv);
 static void    quic_strm_send_start(quic_strm_t *qstrm);
+static void    quic_strm_recv_cb();
 static int     quic_strm_alloc(quic_strm_t **qstrmp);
 static void    quic_strm_recv_start(void *arg);
 
@@ -243,13 +244,29 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		nni_aio *aio = nni_list_first(&qstrm->recvq);
 		nni_mtx_unlock(&qstrm->mtx);
 		if (aio != NULL) {
-			// TODO it's for testing, remove should be called in recv_cb
+			// TODO only remove and finish this aio when complete msg is received. 
 			nni_aio_list_remove(aio);
 			nni_aio_finish_sync(aio, 0, 0);
 		}
 		return QUIC_STATUS_PENDING;
-
+                /*
+		nni_aio *aio;
+                nng_msg *msg;
+                nng_msg_alloc(&msg, 0);
+                if ((aio = nni_list_first(&qstrm->recvq)) == NULL) {
+			// store to lmq
+			if (0 != nni_lmq_put(&qstrm->recv_messages, msg)) {
+				nni_msg_free(msg);
+			}
+                        nni_mtx_unlock(&qstrm->mtx);
+                        break;
+                }
+                nni_list_remove(&qstrm->recvq, aio);
+                nni_aio_set_msg(aio, msg);
+                nni_mtx_unlock(&qstrm->mtx);
+		nni_aio_finish_sync(aio, 0, 0);
 		break;
+                */
 	case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
 		// The peer gracefully shut down its send direction of the
 		// stream.
@@ -584,7 +601,19 @@ quic_strm_recv_start(void *arg)
 {
 	printf("quic_strm_recv_start.\n");
 	quic_strm_t *qstrm = arg;
+	NNI_ASSERT(qstrm->rxmsg == NULL);
 
+	if (qstrm->closed) {
+		nni_aio *aio;
+		while ((aio = nni_list_first(&qstrm->recvq)) != NULL) {
+			nni_list_remove(&qstrm->recvq, aio);
+			nni_aio_finish_error(aio, NNG_ECLOSED);
+		}
+		return;
+	}
+	if (nni_list_empty(&qstrm->recvq)) {
+		return;
+	}
 	MsQuic->StreamReceiveSetEnabled(qstrm->stream, TRUE);
 }
 
@@ -628,7 +657,7 @@ quic_strm_send(void *arg, nni_aio *aio)
 	if (nni_aio_begin(aio) != 0) {
 		return;
 	}
-	// nni_mtx_lock(&qstrm->mtx);
+	nni_mtx_lock(&qstrm->mtx);
 	/*
 	if ((rv = nni_aio_schedule(aio, quic_strm_send_cancel, qstrm)) != 0) {
 	        nni_mtx_unlock(&qstrm->mtx);
@@ -641,7 +670,7 @@ quic_strm_send(void *arg, nni_aio *aio)
 	if (nni_list_first(&qstrm->sendq) == aio) {
 		quic_strm_send_start(qstrm);
 	}
-	// nni_mtx_unlock(&qstrm->mtx);
+	nni_mtx_unlock(&qstrm->mtx);
 
 	return 0;
 }
