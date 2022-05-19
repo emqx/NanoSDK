@@ -65,12 +65,13 @@ struct mqtt_pipe_s {
 static void
 mqtt_quic_send_cb(void *arg)
 {
+	nni_plat_printf("Quic send callback\n");
 }
 
 static void
 mqtt_quic_recv_cb(void *arg)
 {
-	nni_plat_printf("testing\n");
+	nni_plat_printf("Quic recv callback\n");
 }
 
 // Timer callback, we use it for retransmitting.
@@ -178,6 +179,7 @@ mqtt_send_cb(void *p)
 static int
 quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
 {
+	printf("quic_mqtt_stream_init.\n");
 	mqtt_pipe_t *p = arg;
 	p->qstream = qstrm;
 	p->mqtt_sock = sock;
@@ -204,6 +206,7 @@ quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
 static void
 quic_mqtt_stream_fini(void *arg)
 {
+	printf("quic_mqtt_stream_finit.\n");
 	mqtt_pipe_t *p = arg;
 	nni_msg * msg;
 	if ((msg = nni_aio_get_msg(&p->recv_aio)) != NULL) {
@@ -227,6 +230,7 @@ quic_mqtt_stream_fini(void *arg)
 static void
 quic_mqtt_stream_start(void *arg)
 {
+	printf("quic_mqtt_stream_start.\n");
 	mqtt_pipe_t *p = arg;
 
 	// XXX Send a mqtt connect packet
@@ -248,7 +252,6 @@ quic_mqtt_stream_start(void *arg)
 	// nni_aio_set_msg(&p->send_aio, msg);
 
 	// quic_strm_send(p->qstream, &p->send_aio);
-	quic_strm_recv(p->qstream, &p->recv_aio);
 	return;
 }
 
@@ -345,3 +348,22 @@ nng_mqtt_quic_client_open(nng_socket *sock, const char *url)
 	}
 	return rv;
 }
+
+int
+nng_mqtt_quic_recv(nng_socket *sock)
+{
+	nni_sock *nsock;
+	mqtt_pipe_t *p;
+
+	printf("recv start.\n");
+	if (0 == nni_sock_find(&nsock, sock->id)) {
+		printf("socket find.\n");
+	}
+
+	mqtt_sock_t *sock_data = nni_sock_proto_data(nsock);
+	p = sock_data->pipe;
+
+	printf("strm[%p].\n", p->qstream);
+	quic_strm_recv(p->qstream, &p->recv_aio);
+}
+
