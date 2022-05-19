@@ -349,6 +349,8 @@ nng_mqtt_quic_client_open(nng_socket *sock, const char *url)
 	return rv;
 }
 
+// int
+// nng_mqtt_quic_recv(nng_socket *sock, nng_msg *msg)
 int
 nng_mqtt_quic_recv(nng_socket *sock)
 {
@@ -356,14 +358,32 @@ nng_mqtt_quic_recv(nng_socket *sock)
 	mqtt_pipe_t *p;
 
 	printf("recv start.\n");
-	if (0 == nni_sock_find(&nsock, sock->id)) {
-		printf("socket find.\n");
+	if (0 != nni_sock_find(&nsock, sock->id)) {
+		printf("Error in socket find.\n");
 	}
 
 	mqtt_sock_t *sock_data = nni_sock_proto_data(nsock);
 	p = sock_data->pipe;
 
-	printf("strm[%p].\n", p->qstream);
 	quic_strm_recv(p->qstream, &p->recv_aio);
+}
+
+// int
+// nng_mqtt_quic_send(nng_socket *sock, nng_msg *msg)
+int
+nng_mqtt_quic_send(nng_socket *sock)
+{
+	nni_sock *nsock;
+	mqtt_pipe_t *p;
+
+	printf("send start.\n");
+	if (0 != nni_sock_find(&nsock, sock->id)) {
+		printf("Error in socket find.\n");
+	}
+
+	mqtt_sock_t *sock_data = nni_sock_proto_data(nsock);
+	p = sock_data->pipe;
+
+	quic_strm_send(p->qstream, &p->recv_aio);
 }
 
