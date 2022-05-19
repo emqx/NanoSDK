@@ -84,7 +84,6 @@ struct mqtt_pipe_s {
 // A mqtt_sock_s is our per-socket protocol private structure.
 struct mqtt_sock_s {
 	nni_atomic_bool closed;
-	nni_atomic_int  ttl;
 	nni_duration    retry;
 	nni_mtx         mtx;    // more fine grained mutual exclusion
 	mqtt_ctx_t      master; // to which we delegate send/recv calls
@@ -108,9 +107,6 @@ mqtt_sock_init(void *arg, nni_sock *sock)
 
 	nni_atomic_init_bool(&s->closed);
 	nni_atomic_set_bool(&s->closed, false);
-
-	nni_atomic_init(&s->ttl);
-	nni_atomic_set(&s->ttl, 8);
 
 	// this is "semi random" start for request IDs.
 	s->retry = NNI_SECOND * 60;
