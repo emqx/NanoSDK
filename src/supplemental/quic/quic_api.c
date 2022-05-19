@@ -3,6 +3,7 @@
 #include "msquic.h"
 #include "nng/mqtt/mqtt_client.h"
 #include "supplemental/mqtt/mqtt_msg.h"
+
 #include <assert.h>
 #include <errno.h>
 #include <stdint.h>
@@ -22,10 +23,16 @@ struct quic_strm_s {
 	nni_list recvq;
 	nni_aio *txaio;
 	nni_aio *rxaio;
-        nni_sock *sock;
+	nni_sock *sock;
 	bool     closed;
 	nni_lmq  recv_messages; // recv messages queue
 	nni_lmq  send_messages; // send messages queue
+
+	nni_aio  rraio; // Use for re-receive when packet length is not enough
+	int      rxlen; // Length received
+	int      rwlen; // Length wanted
+	uint8_t  rxbuf[5];
+	uint8_t *rxmsg;
 };
 
 // Config for msquic
@@ -37,7 +44,6 @@ HQUIC                 Registration;
 HQUIC                 Configuration;
 
 quic_strm_t *GStream;
-int gstrm_len = 0;
 
 nni_proto *g_quic_proto;
 
@@ -47,6 +53,7 @@ static BOOLEAN LoadConfiguration(BOOLEAN Unsecure);
 static void    quic_strm_send_cancel(nni_aio *aio, void *arg, int rv);
 static void    quic_strm_send_start(quic_strm_t *qstrm);
 static int     quic_strm_alloc(quic_strm_t **qstrmp);
+static void    quic_strm_recv_start(void *arg);
 
 // Helper function to load a client configuration.
 static BOOLEAN
@@ -103,8 +110,19 @@ quic_strm_alloc(quic_strm_t **qstrmp)
 	nni_aio_list_init(&qstrm->sendq);
 	nni_aio_list_init(&qstrm->recvq);
 
+	nni_aio_init(&qstrm->rraio, quic_strm_recv_start, qstrm);
+
+	qstrm->rxlen = 0;
+	qstrm->rxmsg = NULL;
+
 	*qstrmp = qstrm;
 
+	return 0;
+}
+
+static int
+quic_strm_free(quic_strm_t *qstrm)
+{
 	return 0;
 }
 
@@ -116,6 +134,9 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
         _Inout_ QUIC_STREAM_EVENT *Event)
 {
 	quic_strm_t *qstrm = Context;
+	int rlen, n;
+	uint32_t usedbytes, remain_len;
+	uint8_t *rbuf;
 
 	switch (Event->Type) {
 	case QUIC_STREAM_EVENT_SEND_COMPLETE:
@@ -130,27 +151,93 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		break;
 	case QUIC_STREAM_EVENT_RECEIVE:
 		// Data was received from the peer on the stream.
-		printf("[strm][%p] Data received\n", Stream);
-		printf("Body is [%d][%x][%x].\n",
-		    Event->RECEIVE.Buffers->Length,
-		    *(Event->RECEIVE.Buffers->Buffer),
-		    *(Event->RECEIVE.Buffers->Buffer + 1));
+		rbuf = Event->RECEIVE.Buffers->Buffer;
+		rlen = Event->RECEIVE.Buffers->Length;
 
-		// test
-		MsQuic->StreamReceiveComplete(qstrm->stream, 2);
-		gstrm_len += 2;
-		printf("received len is %d..\n", gstrm_len);
-		/*
-		if (Event->RECEIVE.Buffers->Length > 2) {
-			if (Event->RECEIVE.Buffers->Buffer[1] == 2) {
-				MsQuic->StreamReceiveComplete(qstrm->stream, 4);
-				printf("received....\n");
+		printf("[strm][%p] Data received\n", Stream);
+		printf("Body is [%d]-[0x%x 0x%x].\n", rlen, *(rbuf), *(rbuf + 1));
+
+		// Not get enough len, wait to be re-schedule
+		if (Event->RECEIVE.Buffers->Length < qstrm->rwlen) {
+			nni_aio * aio = &qstrm->rraio;
+			nni_aio_finish(aio, 0, 1);
+			// TODO I'am not sure if the buffer in msquic would be free
+			return QUIC_STATUS_PENDING;
+		}
+
+		printf("before rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+
+		// Get 2 Bytes
+		if (qstrm->rxlen == 0) {
+			n = 2; // new
+			memcpy(qstrm->rxbuf, rbuf, n);
+			qstrm->rxlen = 0 + n;
+			MsQuic->StreamReceiveComplete(qstrm->stream, n);
+			if (qstrm->rxbuf[1] == 0) {
+				// TODO PING back
 				return QUIC_STATUS_PENDING;
 			}
-		}
-		*/
+			if (qstrm->rxbuf[1] == 2)
+				qstrm->rwlen = n + 2;
+			if (qstrm->rxbuf[1] > 0x7f)
+				qstrm->rwlen = n + 3;
 
-		// store to lmq
+			// Wait to be re-schedule
+			nni_aio * aio = &qstrm->rraio;
+			nni_aio_finish(aio, 0, 1);
+			// TODO I'am not sure if the buffer in msquic would be free
+			printf("after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+			return QUIC_STATUS_PENDING;
+		}
+
+		// Get 4 Bytes And Mqttv311
+		if ((qstrm->rxbuf[0] & 0xf0) == 0x20 && qstrm->rxbuf[1] == 2) {
+			// TODO CONNACK
+			n = 2; // new
+			memcpy(qstrm->rxbuf + 2, rbuf, n);
+			qstrm->rxlen = n;
+			MsQuic->StreamReceiveComplete(qstrm->stream, n);
+			// Done
+		}
+
+		// Get 5 Bytes
+		if (qstrm->rxbuf[1] > 0x7f && qstrm->rxmsg == NULL) {
+			n = 3; // new
+			memcpy(qstrm->rxbuf + 2, rbuf, n);
+			qstrm->rxlen += n;
+			MsQuic->StreamReceiveComplete(qstrm->stream, n);
+
+			usedbytes = 0;
+			if (0 != mqtt_get_remaining_length(qstrm->rxbuf, qstrm->rxlen, &remain_len, &usedbytes)) {
+				printf("error in get remain_len.\n");
+			}
+			qstrm->rxmsg = malloc(remain_len);
+
+			// Wait to be re-schedule
+			nni_aio * aio = &qstrm->rraio;
+			nni_aio_finish(aio, 0, 1);
+			// TODO I'am not sure if the buffer in msquic would be free
+			printf("after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+			return QUIC_STATUS_PENDING;
+		}
+
+		// Get remain_len Bytes
+		if (qstrm->rxbuf[1] > 0x7f && qstrm->rxmsg != NULL) {
+			usedbytes = 0;
+			if (0 != mqtt_get_remaining_length(qstrm->rxbuf, qstrm->rxlen, &remain_len, &usedbytes)) {
+				printf("error in get remain_len.\n");
+			}
+			n = remain_len; // new
+
+			memcpy(qstrm->rxmsg + usedbytes + 1, rbuf, n);
+			qstrm->rxlen += n;
+			MsQuic->StreamReceiveComplete(qstrm->stream, n);
+
+			printf("Get.\n");
+		}
+		printf("after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+
+		// TODO Another idea. Store to lmq
 		// get aio and trigger cb of protocol layer
 		nni_mtx_lock(&qstrm->mtx);
 		nni_aio *aio = nni_list_first(&qstrm->recvq);
@@ -466,22 +553,6 @@ quic_strm_send_start(quic_strm_t *qstrm)
 		printf("StreamSend failed, 0x%x!\n", Status);
 		free(bufs);
 	}
-
-	/*
-	niov  = 0;
-	if (nni_msg_header_len(msg) > 0) {
-	        iov[niov].iov_buf = nni_msg_header(msg);
-	        iov[niov].iov_len = nni_msg_header_len(msg);
-	        niov++;
-	}
-	if (nni_msg_len(msg) > 0) {
-	        iov[niov].iov_buf = nni_msg_body(msg);
-	        iov[niov].iov_len = nni_msg_len(msg);
-	        niov++;
-	}
-	nni_aio_set_iov(txaio, niov, iov);
-	nng_stream_send(p->conn, txaio);
-	*/
 }
 
 static void
@@ -508,6 +579,15 @@ quic_strm_send_cancel(nni_aio *aio, void *arg, int rv)
 	nni_aio_finish_error(aio, rv);
 }
 
+static void
+quic_strm_recv_start(void *arg)
+{
+	printf("quic_strm_recv_start.\n");
+	quic_strm_t *qstrm = arg;
+
+	MsQuic->StreamReceiveSetEnabled(qstrm->stream, TRUE);
+}
+
 int
 quic_strm_recv(void *arg, nni_aio *raio)
 {
@@ -526,10 +606,14 @@ quic_strm_recv(void *arg, nni_aio *raio)
 
 	nni_list_append(&qstrm->recvq, raio);
 	if (nni_list_first(&qstrm->recvq) == raio) {
-		printf("rcv start ......%d...........\n", gstrm_len);
-		if (gstrm_len < 4) {
-			MsQuic->StreamReceiveSetEnabled(qstrm->stream, TRUE);
+		qstrm->rxlen = 0;
+		qstrm->rwlen = 2; // Minimal RX length
+		if (qstrm->rxmsg) {
+			nng_free(qstrm->rxmsg, 0);
+			qstrm->rxmsg = NULL;
 		}
+
+		quic_strm_recv_start(qstrm);
 	}
 	nni_mtx_unlock(&qstrm->mtx);
 	return 0;
