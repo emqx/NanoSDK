@@ -32,13 +32,12 @@ struct quic_strm_s {
 const QUIC_REGISTRATION_CONFIG RegConfig = { "mqtt",
 	QUIC_EXECUTION_PROFILE_LOW_LATENCY };
 const QUIC_BUFFER     Alpn = { sizeof("mqtt") - 1, (uint8_t *) "mqtt" };
-const uint64_t        IdleTimeoutMs    = 0;
-const uint32_t        SendBufferLength = 100;
 const QUIC_API_TABLE *MsQuic;
 HQUIC                 Registration;
 HQUIC                 Configuration;
 
 quic_strm_t *GStream;
+int gstrm_len = 0;
 
 nni_proto *g_quic_proto;
 
@@ -55,7 +54,7 @@ LoadConfiguration(BOOLEAN Unsecure)
 {
 	QUIC_SETTINGS Settings = { 0 };
 	// Configures the client's idle timeout.
-	Settings.IdleTimeoutMs       = IdleTimeoutMs;
+	Settings.IdleTimeoutMs       = 0;
 	Settings.IsSet.IdleTimeoutMs = FALSE;
 
 	// Configures a default client configuration, optionally disabling
@@ -113,7 +112,7 @@ quic_strm_alloc(quic_strm_t **qstrmp)
 // New recv cb of quic transport
 _IRQL_requires_max_(DISPATCH_LEVEL)
     _Function_class_(QUIC_STREAM_CALLBACK) QUIC_STATUS QUIC_API
-    QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
+QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
         _Inout_ QUIC_STREAM_EVENT *Event)
 {
 	quic_strm_t *qstrm = Context;
@@ -126,7 +125,8 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 		printf("[strm][%p] Data sent\n", Stream);
 
 		// TODO Find aio from sendq and finish (BUG here)
-		// nni_aio_finish(qstrm->txaio, 0, 0);
+		nni_aio_finish(qstrm->txaio, 0, 0);
+
 		break;
 	case QUIC_STREAM_EVENT_RECEIVE:
 		// Data was received from the peer on the stream.
@@ -135,14 +135,32 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 		    Event->RECEIVE.Buffers->Length,
 		    *(Event->RECEIVE.Buffers->Buffer),
 		    *(Event->RECEIVE.Buffers->Buffer + 1));
+
+		// test
+		MsQuic->StreamReceiveComplete(qstrm->stream, 2);
+		gstrm_len += 2;
+		printf("received len is %d..\n", gstrm_len);
+		/*
+		if (Event->RECEIVE.Buffers->Length > 2) {
+			if (Event->RECEIVE.Buffers->Buffer[1] == 2) {
+				MsQuic->StreamReceiveComplete(qstrm->stream, 4);
+				printf("received....\n");
+				return QUIC_STATUS_PENDING;
+			}
+		}
+		*/
+
 		// store to lmq
 		// get aio and trigger cb of protocol layer
-                nni_mtx_lock(&qstrm->mtx);
+		nni_mtx_lock(&qstrm->mtx);
 		nni_aio *aio = nni_list_first(&qstrm->recvq);
-                nni_mtx_unlock(&qstrm->mtx);
+		nni_mtx_unlock(&qstrm->mtx);
 		if (aio != NULL) {
+			// TODO it's for testing, remove should be called in recv_cb
+			nni_aio_list_remove(aio);
 			nni_aio_finish_sync(aio, 0, 0);
 		}
+		return QUIC_STATUS_PENDING;
 
 		break;
 	case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
@@ -170,7 +188,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
     _Function_class_(QUIC_CONNECTION_CALLBACK) QUIC_STATUS QUIC_API
-    QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
+QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
         _Inout_ QUIC_CONNECTION_EVENT *Event)
 {
 	nni_proto_pipe_ops *pipe_ops = g_quic_proto->proto_pipe_ops;
@@ -197,6 +215,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 			printf("Error in quic pipe start.\n");
 			pipe_ops->pipe_fini(qstrm->pipe);
 		}
+		MsQuic->StreamReceiveSetEnabled(qstrm->stream, FALSE);
 
 		pipe_ops->pipe_start(qstrm->pipe);
 		break;
@@ -498,7 +517,7 @@ quic_strm_recv(void *arg, nni_aio *raio)
 	if (nni_aio_begin(raio) != 0) {
 		return;
 	}
-        nni_mtx_lock(&qstrm->mtx);
+	nni_mtx_lock(&qstrm->mtx);
 	// if ((rv = nni_aio_schedule(aio, mqtt_tcptran_pipe_recv_cancel, p)) !=
 	//     0) {
 	// 	nni_aio_finish_error(aio, rv);
@@ -507,8 +526,12 @@ quic_strm_recv(void *arg, nni_aio *raio)
 
 	nni_list_append(&qstrm->recvq, raio);
 	if (nni_list_first(&qstrm->recvq) == raio) {
+		printf("rcv start ......%d...........\n", gstrm_len);
+		if (gstrm_len < 4) {
+			MsQuic->StreamReceiveSetEnabled(qstrm->stream, TRUE);
+		}
 	}
-        nni_mtx_unlock(&qstrm->mtx);
+	nni_mtx_unlock(&qstrm->mtx);
 	return 0;
 }
 
