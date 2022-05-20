@@ -32,7 +32,7 @@ struct quic_strm_s {
 	int      rxlen; // Length received
 	int      rwlen; // Length wanted
 	uint8_t  rxbuf[5];
-	uint8_t *rxmsg; // change to nng_msg
+	nni_msg *rxmsg; // nng_msg for received
 };
 
 // Config for msquic
@@ -159,7 +159,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		printf("Body is [%d]-[0x%x 0x%x].\n", rlen, *(rbuf), *(rbuf + 1));
 
 		// Not get enough len, wait to be re-schedule
-		if (Event->RECEIVE.Buffers->Length < qstrm->rwlen) {
+		if (Event->RECEIVE.Buffers->Length + qstrm->rxlen < qstrm->rwlen) {
 			nni_aio * aio = &qstrm->rraio;
 			nni_aio_finish(aio, 0, 1);
 			// TODO I'am not sure if the buffer in msquic would be free
@@ -196,7 +196,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			// TODO CONNACK
 			n = 2; // new
 			memcpy(qstrm->rxbuf + 2, rbuf, n);
-			qstrm->rxlen = n;
+			qstrm->rxlen += n;
 			MsQuic->StreamReceiveComplete(qstrm->stream, n);
 			// Done
 		}
@@ -212,7 +212,9 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			if (0 != mqtt_get_remaining_length(qstrm->rxbuf, qstrm->rxlen, &remain_len, &usedbytes)) {
 				printf("error in get remain_len.\n");
 			}
-			qstrm->rxmsg = malloc(remain_len);
+			if (0 != nng_msg_alloc(&qstrm->rxmsg, 1 + usedbytes + remain_len)) {
+				printf("error in msg allocated.\n");
+			}
 
 			// Wait to be re-schedule
 			nni_aio * aio = &qstrm->rraio;
@@ -230,7 +232,12 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			}
 			n = remain_len; // new
 
-			memcpy(qstrm->rxmsg + usedbytes + 1, rbuf, n);
+			// Copy Header
+			memcpy(nni_msg_header(qstrm->rxmsg), qstrm->rxbuf, 1+usedbytes);
+			// Copy Body
+			memcpy(nni_msg_body(qstrm->rxmsg), qstrm->rxbuf, 5 - (1 + usedbytes));
+			memcpy(nni_msg_body(qstrm->rxmsg) + 5 - (1 + usedbytes), rbuf, n);
+
 			qstrm->rxlen += n;
 			MsQuic->StreamReceiveComplete(qstrm->stream, n);
 
@@ -238,35 +245,40 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		}
 		printf("after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 
-		// TODO Another idea. Store to lmq
+		// Complete receive msg.
 		// get aio and trigger cb of protocol layer
 		nni_mtx_lock(&qstrm->mtx);
 		nni_aio *aio = nni_list_first(&qstrm->recvq);
 		nni_mtx_unlock(&qstrm->mtx);
+
 		if (aio != NULL) {
-			// TODO only remove and finish this aio when complete msg is received. 
+			// Set msg and remove from list and finish
+			nni_aio_set_msg(aio, qstrm->rxmsg);
 			nni_aio_list_remove(aio);
 			nni_aio_finish_sync(aio, 0, 0);
 		}
 		return QUIC_STATUS_PENDING;
-                /*
+
+		// TODO Another idea. Store to lmq
+		//
+		/*
 		nni_aio *aio;
-                nng_msg *msg;
-                nng_msg_alloc(&msg, 0);
-                if ((aio = nni_list_first(&qstrm->recvq)) == NULL) {
-			// store to lmq
-			if (0 != nni_lmq_put(&qstrm->recv_messages, msg)) {
-				nni_msg_free(msg);
-			}
-                        nni_mtx_unlock(&qstrm->mtx);
-                        break;
-                }
-                nni_list_remove(&qstrm->recvq, aio);
-                nni_aio_set_msg(aio, msg);
-                nni_mtx_unlock(&qstrm->mtx);
+		nng_msg *msg;
+		nng_msg_alloc(&msg, 0);
+		if ((aio = nni_list_first(&qstrm->recvq)) == NULL) {
+		        // store to lmq
+		        if (0 != nni_lmq_put(&qstrm->recv_messages, msg)) {
+		                nni_msg_free(msg);
+		        }
+		        nni_mtx_unlock(&qstrm->mtx);
+		        break;
+		}
+		nni_list_remove(&qstrm->recvq, aio);
+		nni_aio_set_msg(aio, msg);
+		nni_mtx_unlock(&qstrm->mtx);
 		nni_aio_finish_sync(aio, 0, 0);
 		break;
-                */
+		*/
 	case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
 		// The peer gracefully shut down its send direction of the
 		// stream.
@@ -614,6 +626,7 @@ quic_strm_recv_start(void *arg)
 	if (nni_list_empty(&qstrm->recvq)) {
 		return;
 	}
+
 	MsQuic->StreamReceiveSetEnabled(qstrm->stream, TRUE);
 }
 
