@@ -36,6 +36,7 @@
 
 #include <nng/nng.h>
 #include <nng/mqtt/mqtt_quic.h>
+#include <nng/mqtt/mqtt_client.h>
 
 #include "msquic.h"
 
@@ -55,18 +56,9 @@ fatal(char *msg, int rv)
 	exit(1);
 }
 
-void
-QuicMqttSend(
-    _In_ HQUIC Connection,
-	_In_ HQUIC Stream,
-	_In_ int type
-    )
+static nng_msg *
+mqtt_msg_compose(int type)
 {
-	/*
-    QUIC_STATUS Status;
-    uint8_t* SendBufferRaw;
-    QUIC_BUFFER* SendBuffer;
-
 	// Mqtt connect message
 	nng_msg *msg;
 	nng_mqtt_msg_alloc(&msg, 0);
@@ -85,74 +77,37 @@ QuicMqttSend(
 	} else if (type == 2) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_SUBSCRIBE);
 
-		int qos = 0;
+		int qos   = 0;
 		int count = 1;
+		char *topic1 = "topic1";
 
-		nng_mqtt_topic_qos *topics_qos =
-		    nng_mqtt_topic_qos_array_create(count);
-		char * topic1 = "topic1";
-		struct topic * topics;
-		topics = malloc(sizeof(*topics));
-		topics->next = NULL;
-		topics->val  = topic1;
+		nng_mqtt_topic_qos subscriptions[] = {
+			{
+				.qos   = qos,
+				.topic = {
+					.buf    = (uint8_t *) topic1,
+					.length = strlen(topic1)
+				}
+			},
+		};
 
-		size_t i = 0;
-		for (struct topic *tp = topics;
-		     tp != NULL && i < 1;
-		     tp = tp->next, i++) {
-			nng_mqtt_topic_qos_array_set(
-			    topics_qos, i, tp->val, qos);
-		}
+		nng_mqtt_msg_set_subscribe_topics(msg, subscriptions, count);
+	} else if (type == 3) {
+		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_PUBLISH);
+		int qos   = 0;
+		char *topic = "topic1";
 
-		nng_mqtt_msg_set_subscribe_topics(
-		    msg, topics_qos, count);
+		nng_mqtt_msg_set_publish_dup(msg, 0);
+		nng_mqtt_msg_set_publish_qos(msg, qos);
+		nng_mqtt_msg_set_publish_retain(msg, 0);
+		nng_mqtt_msg_set_publish_payload(
+		    msg, (uint8_t *) "Hllo world.", 11);
+		nng_mqtt_msg_set_publish_topic(msg, topic);
 	}
 
 	nng_mqtt_msg_encode(msg);
 
-	int header_len = nng_msg_header_len(msg);
-	int body_len   = nng_msg_len(msg);
-	char * header  = nng_msg_header(msg);
-	char * body    = nng_msg_body(msg);
-	int msg_len    = header_len + body_len;
-
-	printf("msg_len %d header_len %d body_len %d .\n", msg_len, header_len, body_len);
-	printf("header [%x%x] boyd [%x%x%x] .\n", header[0], header[1], body[0], body[1], body[2]);
-
-    SendBufferRaw = (uint8_t*)malloc(sizeof(QUIC_BUFFER) + msg_len);
-    if (SendBufferRaw == NULL) {
-        printf("SendBuffer allocation failed!\n");
-        Status = QUIC_STATUS_OUT_OF_MEMORY;
-        goto Error;
-    }
-
-	memcpy(SendBufferRaw+sizeof(QUIC_BUFFER), header, header_len);
-	memcpy(SendBufferRaw+sizeof(QUIC_BUFFER)+header_len, body, body_len);
-
-    SendBuffer = (QUIC_BUFFER*)SendBufferRaw;
-    SendBuffer->Buffer = SendBufferRaw+sizeof(QUIC_BUFFER);
-    SendBuffer->Length = msg_len;
-
-    printf("[strm][%p] Sending data...\n", Stream);
-
-    //
-    // Sends the buffer over the stream. Note the FIN flag is passed along with
-    // the buffer. This indicates this is the last buffer on the stream and the
-    // the stream is shut down (in the send direction) immediately after.
-    //
-    if (QUIC_FAILED(Status = MsQuic->StreamSend(Stream, SendBuffer, 1, QUIC_SEND_FLAG_NONE, SendBuffer))) {
-        printf("StreamSend failed, 0x%x!\n", Status);
-        free(SendBufferRaw);
-        goto Error;
-    }
-
-Error:
-
-    if (QUIC_FAILED(Status)) {
-		printf("EXITTT...........\n");
-        MsQuic->ConnectionShutdown(Connection, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
-    }
-	*/
+	return msg;
 }
 
 static int
@@ -178,15 +133,27 @@ client(const char *type, const char *url)
 		printf("error in quic client open.\n");
 	}
 
-	char bufr[20];
-	size_t szr;
-	for (;;) {
-		fgets(bufr, 20, stdin);
-		if (0 == strncmp(bufr, "exit", 4)) {
-			exit(0);
-		} else if (0 == strncmp(bufr, "recv", 4)) {
-			nng_mqtt_quic_recv(&sock);
-		}
+	nng_msleep(3000);
+
+	if (0 == strncmp(type, "conn", 4)) {
+		msg = mqtt_msg_compose(1);
+		nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
+	} else if (0 == strncmp(type, "sub", 3)) {
+		msg = mqtt_msg_compose(1);
+		nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
+		nng_msleep(2000);
+		msg = mqtt_msg_compose(2);
+		nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
+		// wait msg
+		nng_recvmsg(sock, &msg, NNG_FLAG_ALLOC);
+	} else if (0 == strncmp(type, "pub", 3)) {
+		msg = mqtt_msg_compose(1);
+		nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
+		nng_msleep(2000);
+		msg = mqtt_msg_compose(3);
+		nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
+	} else {
+		printf("Unknown command.\n");
 	}
 
 	nng_close(sock);
