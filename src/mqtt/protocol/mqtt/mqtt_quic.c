@@ -65,8 +65,11 @@ struct mqtt_pipe_s {
 static void
 mqtt_quic_send_cb(void *arg)
 {
-	NNI_ARG_UNUSED(arg);
 	nni_plat_printf("Quic send callback\n");
+	mqtt_pipe_t *p = arg;
+	nni_aio *aio = &p->send_aio;
+
+	nni_aio_list_remove(aio);
 }
 
 static void
@@ -74,6 +77,7 @@ mqtt_quic_recv_cb(void *arg)
 {
 	NNI_ARG_UNUSED(arg);
 	nni_plat_printf("Quic recv callback\n");
+
 }
 
 // Timer callback, we use it for retransmitting.
@@ -98,6 +102,7 @@ mqtt_quic_sock_send(void *arg, nni_aio *aio)
 	mqtt_pipe_t *p   = s->pipe;
 	nni_msg *    msg;
 
+	nni_plat_printf("sock send.......\n");
 	if (nni_aio_begin(aio) != 0) {
 		return;
 	}
@@ -136,8 +141,11 @@ mqtt_quic_sock_send(void *arg, nni_aio *aio)
 		nni_aio_finish_error(aio, NNG_EPROTO);
 		return;
 	}
+	nni_plat_printf("snd aio %p.\n", &p->send_aio);
 	nni_aio_set_msg(&p->send_aio, msg);
 	quic_strm_send(p->qstream, &p->send_aio);
+	// nni_aio_set_msg(&p->send_aio, msg);
+	// quic_strm_send(p->qstream, &p->send_aio);
 	nni_mtx_unlock(&s->mtx);
 	return;
 }
@@ -145,8 +153,55 @@ mqtt_quic_sock_send(void *arg, nni_aio *aio)
 static void
 mqtt_quic_sock_recv(void *arg, nni_aio *aio)
 {
-	NNI_ARG_UNUSED(arg);
-	NNI_ARG_UNUSED(aio);
+	mqtt_sock_t *s   = arg;
+	mqtt_pipe_t *p   = s->pipe;
+	nni_msg     *msg = NULL;
+
+	nni_plat_printf("sock send!\n");
+	if (nni_aio_begin(aio) != 0) {
+		return;
+	}
+
+	nni_mtx_lock(&s->mtx);
+	if ( p == NULL ) {
+		goto wait;
+	} 
+
+	if (s->closed) {
+		nni_mtx_unlock(&s->mtx);
+		nni_aio_finish_error(aio, NNG_ECLOSED);
+		return;
+	}
+	/*
+	if (nni_lmq_get(&p->recv_messages, &msg) == 0) {
+		nni_aio_set_msg(aio, msg);
+		nni_mtx_unlock(&s->mtx);
+		//let user gets a quick reply
+		nni_aio_finish(aio, 0, nni_msg_len(msg));
+		return;
+	}
+	*/
+
+	// no open pipe or msg wating
+wait:
+
+	quic_strm_recv(p->qstream, aio);
+	nni_mtx_unlock(&s->mtx);
+	return;
+
+	/*
+	if (ctx->raio != NULL) {
+		nni_mtx_unlock(&s->mtx);
+		// nni_println("ERROR! former aio not finished!");
+		nni_aio_finish_error(aio, NNG_ESTATE);
+		return;
+	}
+	ctx->raio = aio;
+	ctx->saio = NULL;
+	nni_list_append(&s->recv_queue, ctx);
+	nni_mtx_unlock(&s->mtx);
+	return;
+	*/
 }
 
 static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
@@ -191,6 +246,8 @@ quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
 	p->qstream = qstrm;
 	p->mqtt_sock = sock;
 	p->mqtt_sock->pipe = p;
+
+	nni_plat_printf("pipe settd.\n");
 
 	p->closed = false;
 	p->busy   = false;
@@ -241,24 +298,24 @@ quic_mqtt_stream_start(void *arg)
 	mqtt_pipe_t *p = arg;
 
 	// XXX Send a mqtt connect packet
-	nng_msg *msg;
-	nng_mqtt_msg_alloc(&msg, 0);
+	// nng_msg *msg;
+	// nng_mqtt_msg_alloc(&msg, 0);
 
-	nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
+	// nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
 
-	nng_mqtt_msg_set_connect_will_topic(msg, "topic");
-	char *willmsg = "will \n test";
-	nng_mqtt_msg_set_connect_will_msg(msg, willmsg, 12);
+	// nng_mqtt_msg_set_connect_will_topic(msg, "topic");
+	// char *willmsg = "will \n test";
+	// nng_mqtt_msg_set_connect_will_msg(msg, willmsg, 12);
 
-	nng_mqtt_msg_set_connect_keep_alive(msg, 180);
-	nng_mqtt_msg_set_connect_clean_session(msg, true);
+	// nng_mqtt_msg_set_connect_keep_alive(msg, 180);
+	// nng_mqtt_msg_set_connect_clean_session(msg, true);
 
-	nng_mqtt_msg_encode(msg);
+	// nng_mqtt_msg_encode(msg);
 
-	nni_aio_set_msg(&p->send_aio, msg);
+	// nni_aio_set_msg(&p->send_aio, msg);
 
 	// */
-	quic_strm_send(p->qstream, &p->send_aio);
+	// quic_strm_send(p->qstream, &p->send_aio);
 
 	return;
 }
@@ -355,43 +412,5 @@ nng_mqtt_quic_client_open(nng_socket *sock, const char *url)
 		quic_connect(url, nsock);
 	}
 	return rv;
-}
-
-// int
-// nng_mqtt_quic_recv(nng_socket *sock, nng_msg *msg)
-int
-nng_mqtt_quic_recv(nng_socket *sock)
-{
-	nni_sock *nsock;
-	mqtt_pipe_t *p;
-
-	nni_plat_printf("recv start.\n");
-	if (0 != nni_sock_find(&nsock, sock->id)) {
-		nni_plat_printf("Error in socket find.\n");
-	}
-
-	mqtt_sock_t *sock_data = nni_sock_proto_data(nsock);
-	p = sock_data->pipe;
-
-	quic_strm_recv(p->qstream, &p->recv_aio);
-}
-
-// int
-// nng_mqtt_quic_send(nng_socket *sock, nng_msg *msg)
-int
-nng_mqtt_quic_send(nng_socket *sock)
-{
-	nni_sock *nsock;
-	mqtt_pipe_t *p;
-
-	nni_plat_printf("send start.\n");
-	if (0 != nni_sock_find(&nsock, sock->id)) {
-		nni_plat_printf("Error in socket find.\n");
-	}
-
-	mqtt_sock_t *sock_data = nni_sock_proto_data(nsock);
-	p = sock_data->pipe;
-
-	quic_strm_send(p->qstream, &p->recv_aio);
 }
 
