@@ -62,8 +62,8 @@ LoadConfiguration(BOOLEAN Unsecure)
 {
 	QUIC_SETTINGS Settings = { 0 };
 	// Configures the client's idle timeout.
-	Settings.IdleTimeoutMs       = 0;
-	Settings.IsSet.IdleTimeoutMs = FALSE;
+	Settings.IdleTimeoutMs       = 60000;
+	Settings.IsSet.IdleTimeoutMs = TRUE;
 
 	// Configures a default client configuration, optionally disabling
 	// server certificate validation.
@@ -138,6 +138,8 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 	int rlen, n;
 	uint32_t usedbytes, remain_len;
 	uint8_t *rbuf;
+	nni_msg *rmsg, *smsg;
+	nni_aio *aio;
 
 	switch (Event->Type) {
 	case QUIC_STREAM_EVENT_SEND_COMPLETE:
@@ -146,8 +148,16 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		// free(Event->SEND_COMPLETE.ClientContext);
 		printf("[strm][%p] Data sent\n", Stream);
 
-		// TODO Find aio from sendq and finish (BUG here)
-		nni_aio_finish(qstrm->txaio, 0, 0);
+		// Get aio from sendq and finish
+		nni_mtx_lock(&qstrm->mtx);
+		if ((aio = nni_list_first(&qstrm->sendq)) != NULL)
+			nni_aio_list_remove(aio);
+		printf("snd aio %p end.\n", aio);
+		nni_mtx_unlock(&qstrm->mtx);
+
+		smsg = nni_aio_get_msg(aio);
+		nni_msg_free(smsg);
+		nni_aio_finish(aio, 0, 0);
 
 		break;
 	case QUIC_STREAM_EVENT_RECEIVE:
@@ -179,15 +189,16 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 				return QUIC_STATUS_PENDING;
 			}
 			if (qstrm->rxbuf[1] == 2)
-				qstrm->rwlen = n + 2;
-			if (qstrm->rxbuf[1] > 0x7f)
+				qstrm->rwlen = n + 2; // Only this case
+			// if (qstrm->rxbuf[1] > 0x7f)
+			else
 				qstrm->rwlen = n + 3;
 
 			// Wait to be re-schedule
-			nni_aio * aio = &qstrm->rraio;
+			aio = &qstrm->rraio;
 			nni_aio_finish(aio, 0, 1);
 			// TODO I'am not sure if the buffer in msquic would be free
-			printf("after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+			printf("1after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 			return QUIC_STATUS_PENDING;
 		}
 
@@ -198,7 +209,8 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			memcpy(qstrm->rxbuf + 2, rbuf, n);
 			qstrm->rxlen += n;
 			MsQuic->StreamReceiveComplete(qstrm->stream, n);
-			// Done
+			// Done CONNACK has not callback
+			printf("2after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 		}
 
 		// Get 5 Bytes
@@ -220,7 +232,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			nni_aio * aio = &qstrm->rraio;
 			nni_aio_finish(aio, 0, 1);
 			// TODO I'am not sure if the buffer in msquic would be free
-			printf("after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+			printf("3after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 			return QUIC_STATUS_PENDING;
 		}
 
@@ -243,7 +255,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 
 			printf("Get.\n");
 		}
-		printf("after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+		printf("4after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 
 		// Complete receive msg.
 		// get aio and trigger cb of protocol layer
@@ -501,7 +513,7 @@ quic_connect(const char *url, nni_sock *sock)
 	const char *ResumptionTicketString = NULL;
 	HQUIC       Connection             = NULL;
 
-        void  *sock_data = nni_sock_proto_data(sock);
+	void  *sock_data = nni_sock_proto_data(sock);
 	// Allocate a new connection object.
 	if (QUIC_FAILED(Status = MsQuic->ConnectionOpen(Registration,
 	                    QuicConnectionCallback, sock_data, &Connection))) {
@@ -574,6 +586,22 @@ quic_strm_send_start(quic_strm_t *qstrm)
 		bufs->Buffer = bufs + 1;
 	}
 
+	uint8_t type = (((uint8_t *)nni_msg_header(msg))[0] & 0xf0) >> 4;
+	printf("type is 0x%x.\n", type);
+
+	switch (type) {
+	// For those packet which need an ack
+	case NNG_MQTT_CONNECT:
+	case NNG_MQTT_SUBSCRIBE:
+		qstrm->rwlen = 2;
+		qstrm->rxlen = 0;
+		MsQuic->StreamReceiveSetEnabled(qstrm->stream, TRUE);
+		break;
+	case NNG_MQTT_PUBLISH:
+	default:
+		break;
+	}
+
 	if (!bufs)
 		printf("error in iov.\n");
 
@@ -615,6 +643,8 @@ quic_strm_recv_start(void *arg)
 	quic_strm_t *qstrm = arg;
 	NNI_ASSERT(qstrm->rxmsg == NULL);
 
+	// TODO recv_start can be called from sender
+	/*
 	if (qstrm->closed) {
 		nni_aio *aio;
 		while ((aio = nni_list_first(&qstrm->recvq)) != NULL) {
@@ -626,6 +656,7 @@ quic_strm_recv_start(void *arg)
 	if (nni_list_empty(&qstrm->recvq)) {
 		return;
 	}
+	*/
 
 	MsQuic->StreamReceiveSetEnabled(qstrm->stream, TRUE);
 }
@@ -672,13 +703,13 @@ quic_strm_send(void *arg, nni_aio *aio)
 	}
 	nni_mtx_lock(&qstrm->mtx);
 	/*
+	qstrm->txaio = aio;
 	if ((rv = nni_aio_schedule(aio, quic_strm_send_cancel, qstrm)) != 0) {
 	        nni_mtx_unlock(&qstrm->mtx);
 	        nni_aio_finish_error(aio, rv);
 	        return (-1);
 	}
 	*/
-	qstrm->txaio = aio;
 	nni_list_append(&qstrm->sendq, aio);
 	if (nni_list_first(&qstrm->sendq) == aio) {
 		quic_strm_send_start(qstrm);
