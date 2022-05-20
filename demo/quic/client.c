@@ -178,12 +178,14 @@ client(const char *type, const char *url)
 		printf("error in quic client open.\n");
 	}
 
-	char *bufr;
+	char bufr[20];
 	size_t szr;
 	for (;;) {
-		getline(&bufr, &szr, stdin);
-		if (0 == strcmp(bufr, "exit")) {
+		fgets(bufr, 20, stdin);
+		if (0 == strncmp(bufr, "exit", 4)) {
 			exit(0);
+		} else if (0 == strncmp(bufr, "recv", 4)) {
+			nng_mqtt_quic_recv(&sock);
 		}
 	}
 
