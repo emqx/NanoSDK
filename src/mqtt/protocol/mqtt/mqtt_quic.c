@@ -260,6 +260,7 @@ mqtt_quic_recv_cb(void *arg)
 	nni_mqtt_msg_decode(msg);
 
 	packet_type_t packet_type = nni_mqtt_msg_get_packet_type(msg);
+	printf("msg type is %d.\n", packet_type);
 
 	int32_t       packet_id;
 	uint8_t       qos;
@@ -269,7 +270,7 @@ mqtt_quic_recv_cb(void *arg)
 	
 	switch (packet_type) {
 	case NNG_MQTT_CONNACK:
-		// never reach here
+		// Trigger cb
 		if (s->cb.connect_cb)
 			s->cb.connect_cb(msg);
 		nni_mtx_unlock(&s->mtx);
@@ -297,6 +298,10 @@ mqtt_quic_recv_cb(void *arg)
 		nni_msg_free(msg);
 		break;
 	case NNG_MQTT_PUBLISH:
+		// Allow to trigger cb
+		if (s->cb.msg_recv_cb)
+			s->cb.msg_recv_cb(msg);
+
 		// we have received a PUBLISH
 		qos = nni_mqtt_msg_get_publish_qos(msg);
 		if (2 > qos) {
@@ -344,9 +349,6 @@ mqtt_quic_recv_cb(void *arg)
 		return;
 	}
 	nni_mtx_unlock(&s->mtx);
-
-	if (s->cb.msg_recv_cb)
-		s->cb.msg_recv_cb(msg);
 
 	if (user_aio) {
 		nni_aio_finish(user_aio, 0, 0);
