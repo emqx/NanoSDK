@@ -63,6 +63,24 @@ struct mqtt_pipe_s {
  *                              Sock Implementation                           *
  ******************************************************************************/
 
+static inline void
+mqtt_pipe_recv_msgq_putq(mqtt_pipe_t *p, nni_msg *msg)
+{
+	if (0 != nni_lmq_put(&p->recv_messages, msg)) {
+		// resize to ensure we do not lost messages or just lose it?
+		// add option to drop messages
+		// if (0 !=
+		//     nni_lmq_resize(&p->recv_messages,
+		//         nni_lmq_len(&p->recv_messages) * 2)) {
+		// 	// drop the message when no memory available
+		// 	nni_msg_free(msg);
+		// 	return;
+		// }
+		// nni_lmq_put(&p->recv_messages, msg);
+		nni_msg_free(msg);
+	}
+}
+
 static uint16_t
 mqtt_pipe_get_next_packet_id(mqtt_pipe_t *p)
 {
@@ -202,6 +220,7 @@ mqtt_quic_recv_cb(void *arg)
 	mqtt_sock_t *s = p->mqtt_sock;
 	nni_aio * user_aio = NULL;
 	nni_msg * cached_msg = NULL;
+	nni_aio *aio;
 
 	if (nni_aio_result(&p->recv_aio) != 0) {
 		// TODO close quic stream
@@ -263,6 +282,46 @@ mqtt_quic_recv_cb(void *arg)
 		}
 		nni_msg_free(msg);
 		break;
+	case NNG_MQTT_PUBLISH:
+		// we have received a PUBLISH
+		qos = nni_mqtt_msg_get_publish_qos(msg);
+		if (2 > qos) {
+			// QoS 0, successful receipt
+			// QoS 1, the transport handled sending a PUBACK
+			if ((aio = nni_list_first(&s->recv_queue)) == NULL) {
+				// No one waiting to receive yet, putting msg
+				// into lmq
+				mqtt_pipe_recv_msgq_putq(p, msg);
+				nni_mtx_unlock(&s->mtx);
+				// nni_println("ERROR: no ctx found!! create
+				// more ctxs!");
+				return;
+			}
+			nni_list_remove(&s->recv_queue, aio);
+			user_aio  = aio;
+			nni_aio_set_msg(user_aio, msg);
+			nni_mtx_unlock(&s->mtx);
+			nni_aio_finish(user_aio, 0, 0);
+			return;
+		} else {
+			// TODO check if this packetid already there
+			packet_id = nni_mqtt_msg_get_publish_packet_id(msg);
+			if ((cached_msg = nni_id_get(
+			         &p->recv_unack, packet_id)) != NULL) {
+				// packetid already exists.
+				// sth wrong with the broker
+				// replace old with new
+				nni_plat_printf(
+				    "ERROR: packet id %d duplicates in",
+				    packet_id);
+				nni_msg_free(cached_msg);
+				// nni_id_remove(&pipe->nano_qos_db,
+				// pid);
+			}
+			nni_id_set(&p->recv_unack, packet_id, msg);
+		}
+		break;
+
 	default:
 		// unexpected packet type, server misbehaviour
 		nni_mtx_unlock(&s->mtx);
