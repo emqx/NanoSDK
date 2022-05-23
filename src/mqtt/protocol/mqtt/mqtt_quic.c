@@ -190,7 +190,6 @@ mqtt_quic_recv_cb(void *arg)
 		// nni_pipe_close(p->pipe);
 		return;
 	}
-
 	nni_mtx_unlock(&s->mtx);
 	if (user_aio) {
 		nni_aio_finish(user_aio, 0, 0);

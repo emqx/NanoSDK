@@ -657,7 +657,7 @@ quic_strm_recv_start(void *arg)
 {
 	printf("quic_strm_recv_start.\n");
 	quic_strm_t *qstrm = arg;
-	NNI_ASSERT(qstrm->rxmsg == NULL);
+	// NNI_ASSERT(qstrm->rxmsg == NULL);
 
 	// TODO recv_start can be called from sender
 	/*
@@ -697,11 +697,6 @@ quic_strm_recv(void *arg, nni_aio *raio)
 	if (nni_list_first(&qstrm->recvq) == raio) {
 		qstrm->rxlen = 0;
 		qstrm->rwlen = 2; // Minimal RX length
-		if (qstrm->rxmsg) {
-			nng_free(qstrm->rxmsg, 0);
-			qstrm->rxmsg = NULL;
-		}
-
 		quic_strm_recv_start(qstrm);
 	}
 	nni_mtx_unlock(&qstrm->mtx);
