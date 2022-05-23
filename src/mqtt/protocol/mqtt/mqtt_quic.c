@@ -39,6 +39,7 @@ struct mqtt_sock_s {
 	// mqtt_pipe_t *   mqtt_pipe;
 	nni_list recv_queue; // ctx pending to receive
 	nni_list send_queue; // ctx pending to send
+	nni_lmq      send_messages; // send messages queue
 };
 
 // A mqtt_pipe_s is our per-pipe protocol private structure.
@@ -55,7 +56,6 @@ struct mqtt_pipe_s {
 	nni_aio      recv_aio;      // recv aio to the underlying transport
 	nni_aio      time_aio;      // timer aio to resend unack msg
 	nni_lmq      recv_messages; // recv messages queue
-	nni_lmq      send_messages; // send messages queue
 	nni_lmq      ctx_aios;      // awaiting aio of QoS
 };
 
@@ -78,6 +78,7 @@ static void
 mqtt_quic_send_cb(void *arg)
 {
 	mqtt_pipe_t *p   = arg;
+	mqtt_sock_t *s   = p->mqtt_sock;
 
 	nni_plat_printf("Quic send callback\n");
 
@@ -102,7 +103,7 @@ mqtt_quic_send_cb(void *arg)
 		return;
 	}
 	// Check cached ctx in lmq first
-	if (nni_lmq_get(&p->send_messages, &msg) == 0) {
+	if (nni_lmq_get(&s->send_messages, &msg) == 0) {
 		p->busy = true;
 		nni_mqtt_msg_encode(msg);
 		nni_aio_set_msg(&p->send_aio, msg);
@@ -207,8 +208,9 @@ mqtt_timer_cb(void *arg)
 static void
 mqtt_quic_sock_fini(void *arg)
 {
-	NNI_ARG_UNUSED(arg);
-	nni_plat_printf("testing\n");
+	mqtt_sock_t *s = arg;
+	nni_plat_printf("sock finit\n");
+	nni_lmq_fini(&s->send_messages);
 }
 
 static void
@@ -243,7 +245,6 @@ mqtt_quic_sock_send(void *arg, nni_aio *aio)
 	}
 	if (p == NULL) {
 		// connection is lost or not established yet
-		// TODO lmq caching data
 		// if () {
 		// } else {
 		// 	nni_msg_free(msg);
@@ -310,11 +311,11 @@ mqtt_quic_sock_send(void *arg, nni_aio *aio)
 		quic_strm_send(p->qstream, &p->send_aio);
 		nni_mtx_unlock(&s->mtx);
 	} else {
-		if (nni_lmq_full(&p->send_messages)) {
-			(void) nni_lmq_get(&p->send_messages, &tmsg);
+		if (nni_lmq_full(&s->send_messages)) {
+			(void) nni_lmq_get(&s->send_messages, &tmsg);
 			nni_msg_free(tmsg);
 		}
-		if (0 != nni_lmq_put(&p->send_messages, msg)) {
+		if (0 != nni_lmq_put(&s->send_messages, msg)) {
 			nni_println("Warning! msg lost due to busy socket");
 		}
 		nni_mtx_unlock(&s->mtx);
@@ -400,6 +401,7 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 	nni_qos_db_init_sqlite(s->sqlite_db, DB_NAME, false);
 	nni_qos_db_reset_client_msg_pipe_id(s->sqlite_db);
 #endif
+	nni_lmq_init(&s->send_messages, NNG_MAX_SEND_LMQ);
 
 	// s->mqtt_pipe = NULL;
 	// NNI_LIST_INIT(&s->recv_queue, mqtt_ctx_t, rqnode);
@@ -439,7 +441,6 @@ quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
 	nni_id_map_init(&p->sent_unack, 0x0000u, 0xffffu, true);
 	nni_id_map_init(&p->recv_unack, 0x0000u, 0xffffu, true);
 	nni_lmq_init(&p->recv_messages, NNG_MAX_RECV_LMQ);
-	nni_lmq_init(&p->send_messages, NNG_MAX_SEND_LMQ);
 
 	return (0);
 }
@@ -465,7 +466,6 @@ quic_mqtt_stream_fini(void *arg)
 	nni_id_map_fini(&p->sent_unack);
 	nni_id_map_fini(&p->recv_unack);
 	nni_lmq_fini(&p->recv_messages);
-	nni_lmq_fini(&p->send_messages);
 }
 
 static void
