@@ -43,12 +43,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-// Config for msquic
-const QUIC_API_TABLE* MsQuic;
-HQUIC Registration;
-HQUIC Configuration;
-HQUIC GStream;
-
 void
 fatal(char *msg, int rv)
 {
