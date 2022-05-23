@@ -146,6 +146,8 @@ mqtt_quic_recv_cb(void *arg)
 	// nni_msg_set_pipe(msg, nni_pipe_id(p->pipe));
 	nni_mqtt_msg_proto_data_alloc(msg);
 	nni_mqtt_msg_decode(msg);
+	uint8_t *header = nni_msg_header(msg);
+	printf(" %x \n", *header);
 
 	packet_type_t packet_type = nni_mqtt_msg_get_packet_type(msg);
 	int32_t       packet_id;
@@ -426,7 +428,7 @@ quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
 
 	p->closed = false;
 	p->busy   = false;
-	p->next_packet_id = 1;
+	p->next_packet_id = 0;
 	// p->mqtt_sock = s;
 	nni_aio_init(&p->send_aio, mqtt_quic_send_cb, p);
 	nni_aio_init(&p->recv_aio, mqtt_quic_recv_cb, p);
