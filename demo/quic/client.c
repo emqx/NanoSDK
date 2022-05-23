@@ -107,13 +107,19 @@ mqtt_msg_compose(int type)
 static int
 connect_cb(void * arg)
 {
-
+	printf("Connected.\n");
 }
 
 static int
-recv_cb(void * arg)
+msg_send_cb(void * arg)
 {
+	printf("Msg Sent.\n");
+}
 
+static int
+msg_recv_cb(void * arg)
+{
+	printf("Msg Arrived.\n");
 }
 
 int
@@ -125,6 +131,11 @@ client(const char *type, const char *url)
 
 	if ((rv = nng_mqtt_quic_client_open(&sock, url)) != 0) {
 		printf("error in quic client open.\n");
+	}
+	if (0 != nng_mqtt_quic_set_connect_cb(&sock, connect_cb) ||
+	    0 != nng_mqtt_quic_set_msg_recv_cb(&sock, msg_recv_cb) ||
+	    0 != nng_mqtt_quic_set_msg_send_cb(&sock, msg_send_cb)) {
+		printf("error in quic client cb set.\n");
 	}
 
 	nng_msleep(3000);

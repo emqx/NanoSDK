@@ -29,6 +29,12 @@ static void mqtt_quic_send_cb(void *arg);
 static void mqtt_quic_recv_cb(void *arg);
 static void mqtt_timer_cb(void *arg);
 
+struct mqtt_client_cb {
+	int (*connect_cb)(void *);
+	int (*msg_send_cb)(void *);
+	int (*msg_recv_cb)(void *);
+};
+
 // A mqtt_sock_s is our per-socket protocol private structure.
 struct mqtt_sock_s {
 	bool         closed;
@@ -40,6 +46,8 @@ struct mqtt_sock_s {
 	nni_list recv_queue;    // aio pending to receive
 	nni_list send_queue;    // aio pending to send
 	nni_lmq  send_messages; // send messages queue
+
+	struct mqtt_client_cb cb; // user cb
 };
 
 // A mqtt_pipe_s is our per-pipe protocol private structure.
@@ -208,8 +216,11 @@ mqtt_quic_send_cb(void *arg)
 	}
 	p->busy = false;
 	nni_mtx_unlock(&s->mtx);
-	return;
 
+	if (s->cb.msg_send_cb)
+		s->cb.msg_send_cb(NULL);
+
+	return;
 }
 
 static void
@@ -223,7 +234,7 @@ mqtt_quic_recv_cb(void *arg)
 	nni_aio *aio;
 
 	if (nni_aio_result(&p->recv_aio) != 0) {
-		// TODO close quic stream
+	// TODO close quic stream
 		return;
 	}
 
@@ -249,6 +260,8 @@ mqtt_quic_recv_cb(void *arg)
 	nni_mqtt_msg_decode(msg);
 
 	packet_type_t packet_type = nni_mqtt_msg_get_packet_type(msg);
+	printf("msg type is %d.\n", packet_type);
+
 	int32_t       packet_id;
 	uint8_t       qos;
 
@@ -258,6 +271,8 @@ mqtt_quic_recv_cb(void *arg)
 	switch (packet_type) {
 	case NNG_MQTT_CONNACK:
 		// never reach here
+		if (s->cb.connect_cb)
+			s->cb.connect_cb(msg);
 		nni_mtx_unlock(&s->mtx);
 		return;
 	case NNG_MQTT_PUBACK:
@@ -330,6 +345,10 @@ mqtt_quic_recv_cb(void *arg)
 		return;
 	}
 	nni_mtx_unlock(&s->mtx);
+
+	if (s->cb.msg_recv_cb)
+		s->cb.msg_recv_cb(msg);
+
 	if (user_aio) {
 		nni_aio_finish(user_aio, 0, 0);
 	}
@@ -473,13 +492,10 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 	nni_aio_list_init(&s->recv_queue);
 
 	s->pipe = NULL;
-}
 
-static void
-mqtt_send_cb(void *p)
-{
-	NNI_ARG_UNUSED(p);
-	nni_plat_printf("here is callback for send.\n");
+	s->cb.connect_cb = NULL;
+	s->cb.msg_recv_cb = NULL;
+	s->cb.msg_send_cb = NULL;
 }
 
 /* Stream EQ Pipe ???? */
@@ -687,5 +703,50 @@ nng_mqtt_quic_client_open(nng_socket *sock, const char *url)
 		quic_connect(url, nsock);
 	}
 	return rv;
+}
+
+int
+nng_mqtt_quic_set_connect_cb(nng_socket *sock, int (*cb)(void *))
+{
+	nni_sock *nsock = NULL;
+
+	nni_sock_find(&nsock, sock->id);
+	if (nsock) {
+		mqtt_sock_t *mqtt_sock = nni_sock_proto_data(nsock);
+		mqtt_sock->cb.connect_cb = cb;
+	} else {
+		return -1;
+	}
+	return 0;
+}
+
+int
+nng_mqtt_quic_set_msg_recv_cb(nng_socket *sock, int (*cb)(void *))
+{
+	nni_sock *nsock = NULL;
+
+	nni_sock_find(&nsock, sock->id);
+	if (nsock) {
+		mqtt_sock_t *mqtt_sock = nni_sock_proto_data(nsock);
+		mqtt_sock->cb.msg_recv_cb = cb;
+	} else {
+		return -1;
+	}
+	return 0;
+}
+
+int
+nng_mqtt_quic_set_msg_send_cb(nng_socket *sock, int (*cb)(void *))
+{
+	nni_sock *nsock = NULL;
+
+	nni_sock_find(&nsock, sock->id);
+	if (nsock) {
+		mqtt_sock_t *mqtt_sock = nni_sock_proto_data(nsock);
+		mqtt_sock->cb.msg_send_cb = cb;
+	} else {
+		return -1;
+	}
+	return 0;
 }
 
