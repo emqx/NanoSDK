@@ -256,9 +256,24 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			printf("Get.\n");
 		}
 		printf("4after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
-
+		if ((qstrm->rxbuf[0] & 0xf0) == 0x90) {
+			// SUBACK
+			n = 3;
+			memcpy(qstrm->rxbuf + 2, rbuf, n);
+			qstrm->rxlen += n;
+			MsQuic->StreamReceiveComplete(qstrm->stream, n);
+			// Done CONNACK has not callback
+			if (0 != nng_msg_alloc(&qstrm->rxmsg, 1 + usedbytes + remain_len)) {
+				printf("error in msg allocated.\n");
+			}
+			nni_msg_header_append(qstrm->rxmsg, qstrm->rxbuf, 2);
+			nni_msg_append(qstrm->rxmsg, qstrm->rxbuf+2, 3);
+		}
 		// Complete receive msg.
 		// get aio and trigger cb of protocol layer
+		if (qstrm->rxlen == qstrm->rwlen) {
+
+		
 		nni_mtx_lock(&qstrm->mtx);
 		nni_aio *aio = nni_list_first(&qstrm->recvq);
 		nni_mtx_unlock(&qstrm->mtx);
@@ -268,6 +283,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			nni_aio_set_msg(aio, qstrm->rxmsg);
 			nni_aio_list_remove(aio);
 			nni_aio_finish_sync(aio, 0, 0);
+		}
 		}
 		return QUIC_STATUS_PENDING;
 
