@@ -107,19 +107,19 @@ mqtt_msg_compose(int type)
 static int
 connect_cb(void * arg)
 {
-	printf("Connected.\n");
+	printf("[Connected]...\n");
 }
 
 static int
 msg_send_cb(void * arg)
 {
-	printf("Msg Sent.\n");
+	printf("[Msg Sent]...\n");
 }
 
 static int
 msg_recv_cb(void * arg)
 {
-	printf("Msg Arrived.\n");
+	printf("[Msg Arrived]...\n");
 }
 
 int
