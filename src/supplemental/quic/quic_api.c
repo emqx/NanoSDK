@@ -62,7 +62,7 @@ LoadConfiguration(BOOLEAN Unsecure)
 {
 	QUIC_SETTINGS Settings = { 0 };
 	// Configures the client's idle timeout.
-	Settings.IdleTimeoutMs       = 60000;
+	Settings.IdleTimeoutMs       = 5*60*1000;
 	Settings.IsSet.IdleTimeoutMs = TRUE;
 
 	// Configures a default client configuration, optionally disabling
@@ -178,7 +178,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 
 		printf("before rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 
-		// Get 2 Bytes
+		// Already get 2 Bytes
 		if (qstrm->rxlen == 0) {
 			n = 2; // new
 			memcpy(qstrm->rxbuf, rbuf, n);
@@ -202,8 +202,8 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			return QUIC_STATUS_PENDING;
 		}
 
-		// Get 4 Bytes
-		if (qstrm->rxbuf[1] == 2) {
+		// Already get 4 Bytes
+		if (qstrm->rxbuf[1] == 2 && qstrm->rwlen == 4) {
 			// Handle 4 bytes msg
 			n = 2; // new
 			memcpy(qstrm->rxbuf + 2, rbuf, n);
@@ -223,8 +223,8 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			printf("2after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 		}
 
-		// Get 5 Bytes
-		if (qstrm->rxbuf[1] > 0x7f && qstrm->rxmsg == NULL) {
+		// Already get 5 Bytes
+		if (qstrm->rxbuf[1] > 0x02 && qstrm->rwlen == 5) {
 			n = 3; // new
 			memcpy(qstrm->rxbuf + 2, rbuf, n);
 			qstrm->rxlen += n;
@@ -237,54 +237,45 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			if (0 != nng_msg_alloc(&qstrm->rxmsg, 1 + usedbytes + remain_len)) {
 				printf("error in msg allocated.\n");
 			}
+			qstrm->rwlen = remain_len + usedbytes + 1;
+			printf("remain_len %d.\n", remain_len);
 
-			// Wait to be re-schedule
-			nni_aio * aio = &qstrm->rraio;
-			nni_aio_finish(aio, 0, 1);
-			// TODO I'am not sure if the buffer in msquic would be free
-			printf("3after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
-			return QUIC_STATUS_PENDING;
+			if (qstrm->rxbuf[1] == 0x03) {
+				// Copy Header
+				memcpy(nni_msg_header(qstrm->rxmsg), qstrm->rxbuf, 2);
+				// Copy Body
+				memcpy(nni_msg_body(qstrm->rxmsg), qstrm->rxbuf + 2, 3);
+			} else {
+				// Wait to be re-schedule
+				nni_aio * aio = &qstrm->rraio;
+				nni_aio_finish(aio, 0, 1);
+				// TODO I'am not sure if the buffer in msquic would be free
+				printf("3after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+				return QUIC_STATUS_PENDING;
+			}
 		}
 
-		// Get remain_len Bytes
-		if (qstrm->rxbuf[1] > 0x7f && qstrm->rxmsg != NULL) {
+		// Already get remain_len Bytes
+		if (qstrm->rwlen > 0x05 && qstrm->rxmsg != NULL) {
 			usedbytes = 0;
 			if (0 != mqtt_get_remaining_length(qstrm->rxbuf, qstrm->rxlen, &remain_len, &usedbytes)) {
 				printf("error in get remain_len.\n");
 			}
-			n = remain_len; // new
+			n = 1 + usedbytes + remain_len - 5; // new
 
 			// Copy Header
-			memcpy(nni_msg_header(qstrm->rxmsg), qstrm->rxbuf, 1+usedbytes);
+			memcpy(nni_msg_header(qstrm->rxmsg), qstrm->rxbuf, 1 + usedbytes);
 			// Copy Body
 			memcpy(nni_msg_body(qstrm->rxmsg),
-				qstrm->rxbuf + (1+usedbytes), 5 - (1 + usedbytes));
+				qstrm->rxbuf + (1 + usedbytes), 5 - (1 + usedbytes));
 			memcpy(nni_msg_body(qstrm->rxmsg) + 5 - (1 + usedbytes), rbuf, n);
 
 			qstrm->rxlen += n;
 			MsQuic->StreamReceiveComplete(qstrm->stream, n);
-
-			printf("Get.\n");
 		}
 		printf("4after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
-		if ((qstrm->rxbuf[0] & 0xf0) == 0x90) {
-			// SUBACK
-			n = 3;
-			memcpy(qstrm->rxbuf + 2, rbuf, n);
-			qstrm->rxlen += n;
-			MsQuic->StreamReceiveComplete(qstrm->stream, n);
-			// Done CONNACK has not callback
-			if (0 != nng_msg_alloc(&qstrm->rxmsg, 1 + usedbytes + remain_len)) {
-				printf("error in msg allocated.\n");
-			}
-			nni_msg_header_append(qstrm->rxmsg, qstrm->rxbuf, 2);
-			nni_msg_append(qstrm->rxmsg, qstrm->rxbuf+2, 3);
-		}
-		// Complete receive msg.
-		// get aio and trigger cb of protocol layer
-		if (qstrm->rxlen == qstrm->rwlen) {
 
-		
+		// get aio and trigger cb of protocol layer
 		nni_mtx_lock(&qstrm->mtx);
 		nni_aio *aio = nni_list_first(&qstrm->recvq);
 		nni_mtx_unlock(&qstrm->mtx);
@@ -294,7 +285,6 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			nni_aio_set_msg(aio, qstrm->rxmsg);
 			nni_aio_list_remove(aio);
 			nni_aio_finish_sync(aio, 0, 0);
-		}
 		}
 		return QUIC_STATUS_PENDING;
 

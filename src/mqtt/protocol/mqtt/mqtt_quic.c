@@ -73,6 +73,7 @@ mqtt_pipe_get_next_packet_id(mqtt_pipe_t *p)
 	    !nni_atomic_cas(&p->next_packet_id, packet_id, packet_id + 1));
 	return packet_id & 0xFFFF;
 }
+
 static void
 mqtt_quic_send_cb(void *arg)
 {
