@@ -215,9 +215,9 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 				printf("error in msg allocated.\n");
 			}
 			// Copy Header
-			memcpy(nni_msg_header(qstrm->rxmsg), qstrm->rxbuf, 2);
+			nni_msg_header_append(qstrm->rxmsg, qstrm->rxbuf, 2);
 			// Copy Body
-			memcpy(nni_msg_body(qstrm->rxmsg), qstrm->rxbuf + 2, 2);
+			nni_msg_append(qstrm->rxmsg, qstrm->rxbuf + 2, 2);
 
 			// Done
 			printf("2after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
@@ -242,9 +242,9 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 
 			if (qstrm->rxbuf[1] == 0x03) {
 				// Copy Header
-				memcpy(nni_msg_header(qstrm->rxmsg), qstrm->rxbuf, 2);
+				nni_msg_header_append(qstrm->rxmsg, qstrm->rxbuf, 2);
 				// Copy Body
-				memcpy(nni_msg_body(qstrm->rxmsg), qstrm->rxbuf + 2, 3);
+				nni_msg_append(qstrm->rxmsg, qstrm->rxbuf + 2, 3);
 			} else {
 				// Wait to be re-schedule
 				nni_aio * aio = &qstrm->rraio;
@@ -264,11 +264,11 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			n = 1 + usedbytes + remain_len - 5; // new
 
 			// Copy Header
-			memcpy(nni_msg_header(qstrm->rxmsg), qstrm->rxbuf, 1 + usedbytes);
+			nni_msg_header_append(qstrm->rxmsg, qstrm->rxbuf, 1 + usedbytes);
 			// Copy Body
-			memcpy(nni_msg_body(qstrm->rxmsg),
+			nni_msg_append(qstrm->rxmsg,
 				qstrm->rxbuf + (1 + usedbytes), 5 - (1 + usedbytes));
-			memcpy(nni_msg_body(qstrm->rxmsg) + 5 - (1 + usedbytes), rbuf, n);
+			nni_msg_append(qstrm->rxmsg, rbuf, n);
 
 			qstrm->rxlen += n;
 			MsQuic->StreamReceiveComplete(qstrm->stream, n);

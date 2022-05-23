@@ -134,7 +134,7 @@ mqtt_quic_recv_cb(void *arg)
 	nni_msg * cached_msg = NULL;
 
 	if (nni_aio_result(&p->recv_aio) != 0) {
-	// TODO close quic stream
+		// TODO close quic stream
 		return;
 	}
 
@@ -162,7 +162,6 @@ mqtt_quic_recv_cb(void *arg)
 	printf("msg type is %x.\n", *header);
 
 	packet_type_t packet_type = nni_mqtt_msg_get_packet_type(msg);
-	printf("msg type is %d.\n", packet_type);
 
 	int32_t       packet_id;
 	uint8_t       qos;
