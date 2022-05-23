@@ -154,6 +154,7 @@ mqtt_quic_send_cb(void *arg)
 	mqtt_pipe_t *p   = arg;
 	mqtt_sock_t *s   = p->mqtt_sock;
 	nni_msg *    msg = NULL;
+	nni_aio * aio;
 
 	nni_plat_printf("Quic send callback\n");
 
@@ -165,8 +166,6 @@ mqtt_quic_send_cb(void *arg)
 		return;
 	}
 	nni_mtx_lock(&s->mtx);
-
-	p->busy = false;
 	if (nni_atomic_get_bool(&s->closed) ||
 	    nni_atomic_get_bool(&p->closed)) {
 		// This occurs if the mqtt_pipe_close has been called.
@@ -174,13 +173,22 @@ mqtt_quic_send_cb(void *arg)
 		nni_mtx_unlock(&s->mtx);
 		return;
 	}
-	// Check cached ctx in lmq first
+	// Check cached aio first
+	if ((aio = nni_list_first(&s->send_queue)) != NULL) {
+		nni_list_remove(&s->send_queue, aio);
+		msg = nni_aio_get_msg(aio);
+		mqtt_send_msg(aio, msg, s);
+		nni_mtx_unlock(&s->mtx);
+		return;
+	}
+	// Check cached msg in lmq later
 	if (nni_lmq_get(&s->send_messages, &msg) == 0) {
 		p->busy = true;
 		nni_mqtt_msg_encode(msg);
 		nni_aio_set_msg(&p->send_aio, msg);
 		quic_strm_send(p->qstream, &p->send_aio);
 	}
+	p->busy = false;
 	nni_mtx_unlock(&s->mtx);
 	return;
 
@@ -312,20 +320,17 @@ mqtt_quic_sock_send(void *arg, nni_aio *aio)
 		return;
 	}
 	if (p == NULL) {
-		// connection is lost or not established yet
-		// if () {
-		// } else {
-		// 	nni_msg_free(msg);
-		// 	nni_mtx_unlock(&s->mtx);
-		// 	nni_aio_set_msg(aio, NULL);
-		// 	nni_aio_finish_error(aio, NNG_ECLOSED);
-		//      return;
-		// }
-		nni_plat_printf("connection lost!\n");
-		nni_msg_free(msg);
-		nni_mtx_unlock(&s->mtx);
-		nni_aio_set_msg(aio, NULL);
-		nni_aio_finish_error(aio, NNG_ECONNREFUSED);
+		nni_plat_printf("connection lost! caching aio \n");
+		if (!nni_list_active(&s->send_queue, aio)) {
+			// cache aio
+			nni_list_append(&s->send_queue, aio);
+			nni_mtx_unlock(&s->mtx);
+		} else {
+			nni_msg_free(msg);
+			nni_mtx_unlock(&s->mtx);
+			nni_aio_set_msg(aio, NULL);
+			nni_aio_finish_error(aio, NNG_ECLOSED);
+		}
 		return;
 	}
 	if (mqtt_send_msg(aio, msg, s)) {
@@ -413,10 +418,9 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 	nni_qos_db_reset_client_msg_pipe_id(s->sqlite_db);
 #endif
 	nni_lmq_init(&s->send_messages, NNG_MAX_SEND_LMQ);
+	nni_aio_list_init(&s->send_queue);
 
-	// s->mqtt_pipe = NULL;
-	// NNI_LIST_INIT(&s->recv_queue, mqtt_ctx_t, rqnode);
-	// NNI_LIST_INIT(&s->send_queue, mqtt_ctx_t, sqnode);
+	s->pipe = NULL;
 }
 
 static void
@@ -483,6 +487,8 @@ quic_mqtt_stream_start(void *arg)
 	nni_plat_printf("quic_mqtt_stream_start.\n");
 	mqtt_pipe_t *p = arg;
 	mqtt_sock_t *s = p->mqtt_sock;
+	nni_aio   *aio;
+	nni_msg *msg;
 	// XXX Send a mqtt connect packet
 	// nng_msg *msg;
 	// nng_mqtt_msg_alloc(&msg, 0);
@@ -505,13 +511,13 @@ quic_mqtt_stream_start(void *arg)
 
 
 	nni_mtx_lock(&s->mtx);
-	// if ((c = nni_list_first(&s->send_queue)) != NULL) {
-	// 	nni_list_remove(&s->send_queue, c);
-	// 	mqtt_send_msg(c->saio, c);
-	// 	nni_sleep_aio(s->retry, &p->time_aio);
-	// 	nni_pipe_recv(p->pipe, &p->recv_aio);
-	// 	return(0);
-	// }
+	if ((aio = nni_list_first(&s->send_queue)) != NULL) {
+		nni_list_remove(&s->send_queue, aio);
+		msg = nni_aio_get_msg(aio);
+		if (mqtt_send_msg(aio, msg, s)) {
+			nni_aio_finish(aio, 0, 0);
+		}
+	}
 	nni_mtx_unlock(&s->mtx);
 	//initiate the global resend timer
 	// nni_sleep_aio(s->retry, &p->time_aio);
@@ -542,7 +548,17 @@ mqtt_quic_sock_open(void *arg)
 static void
 mqtt_quic_sock_close(void *arg)
 {
-	NNI_ARG_UNUSED(arg);
+	mqtt_sock_t *s = arg;
+	nni_msg *msg;
+	nni_aio *aio;
+	while ((aio = nni_list_first(&s->send_queue)) != NULL) {
+		nni_list_remove(&s->send_queue, aio);
+		msg = nni_aio_get_msg(aio);
+		if (msg != NULL) {
+			nni_msg_free(msg);
+		}
+		nni_aio_finish_error(aio, NNG_ECLOSED);
+	}
 }
 
 static nni_proto_pipe_ops mqtt_quic_pipe_ops = {
