@@ -189,7 +189,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 				return QUIC_STATUS_PENDING;
 			}
 			if (qstrm->rxbuf[1] == 2)
-				qstrm->rwlen = n + 2; // Only this case
+				qstrm->rwlen = n + 2; // Only this case exclude
 			// if (qstrm->rxbuf[1] > 0x7f)
 			else
 				qstrm->rwlen = n + 3;
@@ -202,14 +202,24 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			return QUIC_STATUS_PENDING;
 		}
 
-		// Get 4 Bytes And Mqttv311
-		if ((qstrm->rxbuf[0] & 0xf0) == 0x20 && qstrm->rxbuf[1] == 2) {
-			// TODO CONNACK
+		// Get 4 Bytes
+		if (qstrm->rxbuf[1] == 2) {
+			// Handle 4 bytes msg
 			n = 2; // new
 			memcpy(qstrm->rxbuf + 2, rbuf, n);
 			qstrm->rxlen += n;
 			MsQuic->StreamReceiveComplete(qstrm->stream, n);
-			// Done CONNACK has not callback
+
+			// Compose msg
+			if (0 != nng_msg_alloc(&qstrm->rxmsg, 4)) {
+				printf("error in msg allocated.\n");
+			}
+			// Copy Header
+			memcpy(nni_msg_header(qstrm->rxmsg), qstrm->rxbuf, 2);
+			// Copy Body
+			memcpy(nni_msg_body(qstrm->rxmsg), qstrm->rxbuf + 2, 2);
+
+			// Done
 			printf("2after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 		}
 
@@ -247,7 +257,8 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			// Copy Header
 			memcpy(nni_msg_header(qstrm->rxmsg), qstrm->rxbuf, 1+usedbytes);
 			// Copy Body
-			memcpy(nni_msg_body(qstrm->rxmsg), qstrm->rxbuf, 5 - (1 + usedbytes));
+			memcpy(nni_msg_body(qstrm->rxmsg),
+				qstrm->rxbuf + (1+usedbytes), 5 - (1 + usedbytes));
 			memcpy(nni_msg_body(qstrm->rxmsg) + 5 - (1 + usedbytes), rbuf, n);
 
 			qstrm->rxlen += n;
