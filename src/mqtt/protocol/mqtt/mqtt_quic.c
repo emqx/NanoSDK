@@ -37,8 +37,8 @@ struct mqtt_sock_s {
 	nni_mtx      mtx; // more fine grained mutual exclusion
 	// mqtt_ctx_t      master; // to which we delegate send/recv calls
 	// mqtt_pipe_t *   mqtt_pipe;
-	nni_list recv_queue;    // ctx pending to receive
-	nni_list send_queue;    // ctx pending to send
+	nni_list recv_queue;    // aio pending to receive
+	nni_list send_queue;    // aio pending to send
 	nni_lmq  send_messages; // send messages queue
 };
 
@@ -361,12 +361,12 @@ mqtt_quic_sock_recv(void *arg, nni_aio *aio)
 		goto wait;
 	} 
 
-	if (s->closed) {
+	if (nni_atomic_get_bool(&s->closed) || nni_atomic_get_bool(&p->closed)) {
 		nni_mtx_unlock(&s->mtx);
 		nni_aio_finish_error(aio, NNG_ECLOSED);
 		return;
 	}
-	/*
+	/**/
 	if (nni_lmq_get(&p->recv_messages, &msg) == 0) {
 		nni_aio_set_msg(aio, msg);
 		nni_mtx_unlock(&s->mtx);
@@ -374,28 +374,20 @@ mqtt_quic_sock_recv(void *arg, nni_aio *aio)
 		nni_aio_finish(aio, 0, nni_msg_len(msg));
 		return;
 	}
-	*/
-
 	// no open pipe or msg wating
 wait:
-
-	quic_strm_recv(p->qstream, aio);
-	nni_mtx_unlock(&s->mtx);
-	return;
-
-	/*
-	if (ctx->raio != NULL) {
+	nni_plat_printf("connection lost! caching aio \n");
+	if (!nni_list_active(&s->recv_queue, aio)) {
+		// cache aio
+		nni_list_append(&s->recv_queue, aio);
 		nni_mtx_unlock(&s->mtx);
+	} else {
+		nni_mtx_unlock(&s->mtx);
+		nni_aio_set_msg(aio, NULL);
 		// nni_println("ERROR! former aio not finished!");
-		nni_aio_finish_error(aio, NNG_ESTATE);
-		return;
+		nni_aio_finish_error(aio, NNG_ECLOSED);
 	}
-	ctx->raio = aio;
-	ctx->saio = NULL;
-	nni_list_append(&s->recv_queue, ctx);
-	nni_mtx_unlock(&s->mtx);
 	return;
-	*/
 }
 
 static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
@@ -419,6 +411,7 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 #endif
 	nni_lmq_init(&s->send_messages, NNG_MAX_SEND_LMQ);
 	nni_aio_list_init(&s->send_queue);
+	nni_aio_list_init(&s->recv_queue);
 
 	s->pipe = NULL;
 }
@@ -557,6 +550,13 @@ mqtt_quic_sock_close(void *arg)
 		if (msg != NULL) {
 			nni_msg_free(msg);
 		}
+		nni_aio_finish_error(aio, NNG_ECLOSED);
+	}
+	while ((aio = nni_list_first(&s->recv_queue)) != NULL) {
+		// Pipe was closed.  just push an error back to the
+		// entire socket, because we only have one pipe
+		nni_list_remove(&s->recv_queue, aio);
+		// there should be no msg waiting
 		nni_aio_finish_error(aio, NNG_ECLOSED);
 	}
 }
