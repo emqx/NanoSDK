@@ -43,11 +43,38 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void
-fatal(char *msg, int rv)
+#define CLIENT_SEND_Q_SZ 4
+
+static nng_msg * send_q[CLIENT_SEND_Q_SZ];
+static int send_q_pos = 0;
+static int send_q_sz = 0;
+
+static nng_socket * g_sock;
+
+static inline void
+put_send_q(nng_msg *msg)
 {
-	fprintf(stderr, "%s, %s\n", msg, nng_strerror(rv));
-	exit(1);
+	if (send_q_sz == 4) {
+		printf("Msg Send Queue Overflow.\n");
+		return;
+	}
+	send_q[send_q_pos] = msg;
+	send_q_pos = (++send_q_pos) % CLIENT_SEND_Q_SZ;
+	send_q_sz ++;
+}
+
+static inline nng_msg *
+get_send_q()
+{
+	nng_msg *msg;
+	if (send_q_sz == 0) {
+		printf("Msg Send Queue Is Empty.\n");
+		return NULL;
+	}
+	send_q_pos = (--send_q_pos) % CLIENT_SEND_Q_SZ;
+	msg = send_q[send_q_pos];
+	send_q_sz --;
+	return msg;
 }
 
 static nng_msg *
@@ -63,9 +90,6 @@ mqtt_msg_compose(int type)
 		nng_mqtt_msg_set_connect_keep_alive(msg, 180);
 		nng_mqtt_msg_set_connect_clean_session(msg, true);
 
-		nng_mqtt_msg_set_connect_will_topic(msg, "topic");
-		char *willmsg = "will \n test";
-		nng_mqtt_msg_set_connect_will_msg(msg, willmsg, 12);
 		nng_mqtt_msg_set_connect_keep_alive(msg, 180);
 		nng_mqtt_msg_set_connect_clean_session(msg, true);
 	} else if (type == 2) {
@@ -108,6 +132,13 @@ static int
 connect_cb(void * arg)
 {
 	printf("[Connected]...\n");
+
+	nng_msg *msg;
+	while (send_q_sz > 0) {
+		msg = get_send_q();
+		printf("send a msg...\n");
+		nng_sendmsg(*g_sock, msg, NNG_FLAG_ALLOC);
+	}
 }
 
 static int
@@ -134,7 +165,7 @@ int
 client(const char *type, const char *url)
 {
 	nng_socket sock;
-	int        rv;
+	int        rv, sz;
 	nng_msg *  msg;
 
 	if ((rv = nng_mqtt_quic_client_open(&sock, url)) != 0) {
@@ -145,25 +176,28 @@ client(const char *type, const char *url)
 	    0 != nng_mqtt_quic_set_msg_send_cb(&sock, msg_send_cb)) {
 		printf("error in quic client cb set.\n");
 	}
+	g_sock = &sock;
+
+	// MQTT Connect...
+	msg = mqtt_msg_compose(1);
+	nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
 
 	if (0 == strncmp(type, "conn", 4)) {
-		msg = mqtt_msg_compose(1);
-		nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
 	} else if (0 == strncmp(type, "sub", 3)) {
-		msg = mqtt_msg_compose(1);
-		nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
 		msg = mqtt_msg_compose(2);
-		nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
-		// wait msg
-		nng_recvmsg(sock, &msg, NNG_FLAG_ALLOC);
+		put_send_q(msg);
 	} else if (0 == strncmp(type, "pub", 3)) {
-		msg = mqtt_msg_compose(1);
-		nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
 		msg = mqtt_msg_compose(3);
-		nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
+		put_send_q(msg);
 	} else {
 		printf("Unknown command.\n");
 	}
+
+	for (;;)
+		nng_msleep(1000);
+
+	// Hold the session
+	// nng_recvmsg(sock, &msg, NNG_FLAG_ALLOC);
 
 	nng_close(sock);
 
@@ -174,9 +208,10 @@ int
 main(int argc, char **argv)
 {
 	int rc;
+	memset(send_q, 0, sizeof(send_q));
 
 	if (argc != 3) {
-		fprintf(stderr, "Usage: %s <conn|sub|pub> <url>\n", argv[0]);
+		fprintf(stderr, "Usage: %s <conn|sub|pub> <url> <-t topic> -m payload\n", argv[0]);
 		exit(EXIT_FAILURE);
 	}
 	rc = client(argv[1], argv[2]);
