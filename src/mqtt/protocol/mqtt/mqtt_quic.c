@@ -260,7 +260,6 @@ mqtt_quic_recv_cb(void *arg)
 	nni_mqtt_msg_decode(msg);
 
 	packet_type_t packet_type = nni_mqtt_msg_get_packet_type(msg);
-	printf("msg type is %d.\n", packet_type);
 
 	int32_t       packet_id;
 	uint8_t       qos;
@@ -350,7 +349,6 @@ mqtt_quic_recv_cb(void *arg)
 	if (packet_type == NNG_MQTT_PUBLISH)
 		if (s->cb.msg_recv_cb) // Trigger cb
 			s->cb.msg_recv_cb(msg);
-
 }
 
 // Timer callback, we use it for retransmitting.
