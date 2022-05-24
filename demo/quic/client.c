@@ -216,6 +216,8 @@ main(int argc, char **argv)
 	int rc;
 	memset(send_q, 0, sizeof(send_q));
 
+	if (argc < 3)
+		printf_helper(argv[0]);
 	if (0 == strncmp(argv[1], "conn", 4) && argc == 3)
 		client(1, argv[2], NULL, NULL);
 	if (0 == strncmp(argv[1], "sub", 3)  && argc == 4)
