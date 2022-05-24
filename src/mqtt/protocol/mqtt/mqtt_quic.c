@@ -374,7 +374,6 @@ mqtt_quic_sock_send(void *arg, nni_aio *aio)
 	mqtt_pipe_t *p   = s->pipe;
 	nni_msg *    msg, *tmsg;
 
-	nni_plat_printf("sock send.......\n");
 	if (nni_aio_begin(aio) != 0) {
 		return;
 	}
