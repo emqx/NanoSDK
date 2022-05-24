@@ -138,15 +138,12 @@ client(const char *type, const char *url)
 		printf("error in quic client cb set.\n");
 	}
 
-	nng_msleep(3000);
-
 	if (0 == strncmp(type, "conn", 4)) {
 		msg = mqtt_msg_compose(1);
 		nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
 	} else if (0 == strncmp(type, "sub", 3)) {
 		msg = mqtt_msg_compose(1);
 		nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
-		nng_msleep(2000);
 		msg = mqtt_msg_compose(2);
 		nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
 		// wait msg
@@ -154,7 +151,6 @@ client(const char *type, const char *url)
 	} else if (0 == strncmp(type, "pub", 3)) {
 		msg = mqtt_msg_compose(1);
 		nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
-		nng_msleep(2000);
 		msg = mqtt_msg_compose(3);
 		nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
 	} else {
