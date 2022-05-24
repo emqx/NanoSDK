@@ -120,6 +120,14 @@ static int
 msg_recv_cb(void * arg)
 {
 	printf("[Msg Arrived]...\n");
+	nng_msg *msg = arg;
+	uint32_t topicsz, payloadsz;
+
+	char *topic   = nng_mqtt_msg_get_publish_topic(msg, &topicsz);
+	char *payload = nng_mqtt_msg_get_publish_payload(msg, &payloadsz);
+
+	printf("topic   => %.*s\n"
+	       "payload => %.*s\n",topicsz, topic, payloadsz, payload);
 }
 
 int
