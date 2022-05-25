@@ -260,7 +260,6 @@ mqtt_quic_recv_cb(void *arg)
 	nni_mqtt_msg_decode(msg);
 
 	packet_type_t packet_type = nni_mqtt_msg_get_packet_type(msg);
-	printf("msg type is %d.\n", packet_type);
 
 	int32_t       packet_id;
 	uint8_t       qos;
@@ -270,11 +269,7 @@ mqtt_quic_recv_cb(void *arg)
 	
 	switch (packet_type) {
 	case NNG_MQTT_CONNACK:
-		// Trigger cb
-		if (s->cb.connect_cb)
-			s->cb.connect_cb(msg);
-		nni_mtx_unlock(&s->mtx);
-		return;
+		break;
 	case NNG_MQTT_PUBACK:
 		// we have received a PUBACK, successful delivery of a QoS 1
 		// FALLTHROUGH
@@ -298,10 +293,6 @@ mqtt_quic_recv_cb(void *arg)
 		nni_msg_free(msg);
 		break;
 	case NNG_MQTT_PUBLISH:
-		// Allow to trigger cb
-		if (s->cb.msg_recv_cb)
-			s->cb.msg_recv_cb(msg);
-
 		// we have received a PUBLISH
 		qos = nni_mqtt_msg_get_publish_qos(msg);
 		if (2 > qos) {
@@ -311,17 +302,15 @@ mqtt_quic_recv_cb(void *arg)
 				// No one waiting to receive yet, putting msg
 				// into lmq
 				mqtt_pipe_recv_msgq_putq(p, msg);
-				nni_mtx_unlock(&s->mtx);
 				// nni_println("ERROR: no ctx found!! create
 				// more ctxs!");
-				return;
+				break;
 			}
 			nni_list_remove(&s->recv_queue, aio);
 			user_aio  = aio;
 			nni_aio_set_msg(user_aio, msg);
-			nni_mtx_unlock(&s->mtx);
-			nni_aio_finish(user_aio, 0, 0);
-			return;
+			break;
+
 		} else {
 			// TODO check if this packetid already there
 			packet_id = nni_mqtt_msg_get_publish_packet_id(msg);
@@ -353,6 +342,13 @@ mqtt_quic_recv_cb(void *arg)
 	if (user_aio) {
 		nni_aio_finish(user_aio, 0, 0);
 	}
+
+	if (packet_type == NNG_MQTT_CONNACK)
+		if (s->cb.connect_cb) // Trigger cb
+			s->cb.connect_cb(msg);
+	if (packet_type == NNG_MQTT_PUBLISH)
+		if (s->cb.msg_recv_cb) // Trigger cb
+			s->cb.msg_recv_cb(msg);
 }
 
 // Timer callback, we use it for retransmitting.
@@ -378,7 +374,6 @@ mqtt_quic_sock_send(void *arg, nni_aio *aio)
 	mqtt_pipe_t *p   = s->pipe;
 	nni_msg *    msg, *tmsg;
 
-	nni_plat_printf("sock send.......\n");
 	if (nni_aio_begin(aio) != 0) {
 		return;
 	}

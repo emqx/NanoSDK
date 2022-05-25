@@ -214,6 +214,9 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			if (0 != nng_msg_alloc(&qstrm->rxmsg, 4)) {
 				printf("error in msg allocated.\n");
 			}
+
+			nni_msg_header_clear(qstrm->rxmsg);
+			nni_msg_clear(qstrm->rxmsg);
 			// Copy Header
 			nni_msg_header_append(qstrm->rxmsg, qstrm->rxbuf, 2);
 			// Copy Body
@@ -238,9 +241,10 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 				printf("error in msg allocated.\n");
 			}
 			qstrm->rwlen = remain_len + usedbytes + 1;
-			printf("remain_len %d.\n", remain_len);
 
 			if (qstrm->rxbuf[1] == 0x03) {
+				nni_msg_header_clear(qstrm->rxmsg);
+				nni_msg_clear(qstrm->rxmsg);
 				// Copy Header
 				nni_msg_header_append(qstrm->rxmsg, qstrm->rxbuf, 2);
 				// Copy Body
@@ -263,6 +267,8 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			}
 			n = 1 + usedbytes + remain_len - 5; // new
 
+			nni_msg_header_clear(qstrm->rxmsg);
+			nni_msg_clear(qstrm->rxmsg);
 			// Copy Header
 			nni_msg_header_append(qstrm->rxmsg, qstrm->rxbuf, 1 + usedbytes);
 			// Copy Body
@@ -284,7 +290,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			// Set msg and remove from list and finish
 			nni_aio_set_msg(aio, qstrm->rxmsg);
 			nni_aio_list_remove(aio);
-			nni_aio_finish_sync(aio, 0, 0);
+			nni_aio_finish(aio, 0, 0);
 		}
 		return QUIC_STATUS_PENDING;
 
@@ -606,6 +612,7 @@ quic_strm_send_start(quic_strm_t *qstrm)
 	uint8_t type = (((uint8_t *)nni_msg_header(msg))[0] & 0xf0) >> 4;
 	printf("type is 0x%x.\n", type);
 
+	/*
 	switch (type) {
 	// For those packet which need an ack
 	case NNG_MQTT_CONNECT:
@@ -618,6 +625,7 @@ quic_strm_send_start(quic_strm_t *qstrm)
 	default:
 		break;
 	}
+	*/
 
 	if (!bufs)
 		printf("error in iov.\n");
