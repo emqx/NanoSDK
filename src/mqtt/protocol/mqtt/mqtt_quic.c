@@ -152,7 +152,7 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 		break;
 	default:
 		nni_aio_finish_error(aio, NNG_EPROTO);
-		return;
+		return false;
 	}
 	if (!p->busy) {
 		nni_mqtt_msg_encode(msg);
