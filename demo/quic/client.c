@@ -77,7 +77,7 @@ get_send_q()
 }
 
 static nng_msg *
-mqtt_msg_compose(int type, char *topic, char *payload)
+mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 {
 	// Mqtt connect message
 	nng_msg *msg;
@@ -94,7 +94,6 @@ mqtt_msg_compose(int type, char *topic, char *payload)
 	} else if (type == 2) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_SUBSCRIBE);
 
-		int qos   = 0;
 		int count = 1;
 
 		nng_mqtt_topic_qos subscriptions[] = {
@@ -110,7 +109,6 @@ mqtt_msg_compose(int type, char *topic, char *payload)
 		nng_mqtt_msg_set_subscribe_topics(msg, subscriptions, count);
 	} else if (type == 3) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_PUBLISH);
-		int qos   = 0;
 
 		nng_mqtt_msg_set_publish_dup(msg, 0);
 		nng_mqtt_msg_set_publish_qos(msg, qos);
@@ -119,8 +117,6 @@ mqtt_msg_compose(int type, char *topic, char *payload)
 		nng_mqtt_msg_set_publish_payload(
 		    msg, (uint8_t *) payload, strlen(payload));
 	}
-
-	// nng_mqtt_msg_encode(msg);
 
 	return msg;
 }
@@ -158,10 +154,10 @@ msg_recv_cb(void * arg)
 }
 
 int
-client(int type, const char *url, const char *topic, const char *data)
+client(int type, const char *url, const char *qos, const char *topic, const char *data)
 {
 	nng_socket sock;
-	int        rv, sz;
+	int        rv, sz, q;
 	nng_msg *  msg;
 
 	if ((rv = nng_mqtt_quic_client_open(&sock, url)) != 0) {
@@ -175,18 +171,24 @@ client(int type, const char *url, const char *topic, const char *data)
 	g_sock = &sock;
 
 	// MQTT Connect...
-	msg = mqtt_msg_compose(1, NULL, NULL);
+	msg = mqtt_msg_compose(1, 0, NULL, NULL);
 	nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
+
+	q = atoi(qos);
+	if (q < 0 || q > 2) {
+		printf("Qos should be in range(0~2).\n");
+		q = 0;
+	}
 
 	switch (type) {
 	case 1:
 		break;
 	case 2:
-		msg = mqtt_msg_compose(2, (char *)topic, NULL);
+		msg = mqtt_msg_compose(2, q, (char *)topic, NULL);
 		put_send_q(msg);
 		break;
 	case 3:
-		msg = mqtt_msg_compose(3, (char *)topic, (char *)data);
+		msg = mqtt_msg_compose(3, q, (char *)topic, (char *)data);
 		put_send_q(msg);
 		break;
 	default:
@@ -205,8 +207,8 @@ static void
 printf_helper(char *exec)
 {
 	fprintf(stderr, "Usage: %s conn <url>\n"
-	                "       %s sub  <url> <topic>\n"
-	                "       %s pub  <url> <topic> <data>\n", exec, exec, exec);
+	                "       %s sub  <url> <qos> <topic>\n"
+	                "       %s pub  <url> <qos> <topic> <data>\n", exec, exec, exec);
 	exit(EXIT_FAILURE);
 }
 
@@ -219,11 +221,11 @@ main(int argc, char **argv)
 	if (argc < 3)
 		printf_helper(argv[0]);
 	if (0 == strncmp(argv[1], "conn", 4) && argc == 3)
-		client(1, argv[2], NULL, NULL);
-	if (0 == strncmp(argv[1], "sub", 3)  && argc == 4)
-		client(2, argv[2], argv[3], NULL);
-	if (0 == strncmp(argv[1], "pub", 3)  && argc == 5)
-		client(3, argv[2], argv[3], argv[4]);
+		client(1, argv[2], NULL, NULL, NULL);
+	if (0 == strncmp(argv[1], "sub", 3)  && argc == 5)
+		client(2, argv[2], argv[3], argv[4], NULL);
+	if (0 == strncmp(argv[1], "pub", 3)  && argc == 6)
+		client(3, argv[2], argv[3], argv[4], argv[5]);
 
 	printf_helper(argv[1]);
 }
