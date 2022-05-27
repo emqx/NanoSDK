@@ -494,7 +494,7 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 	s->cb.msg_send_cb = NULL;
 }
 
-/* Stream EQ Pipe ???? */
+/* Stream EQ Pipe */
 
 static int
 quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
@@ -553,26 +553,6 @@ quic_mqtt_stream_start(void *arg)
 	mqtt_sock_t *s = p->mqtt_sock;
 	nni_aio   *aio;
 	nni_msg *msg;
-	// XXX Send a mqtt connect packet
-	// nng_msg *msg;
-	// nng_mqtt_msg_alloc(&msg, 0);
-
-	// nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
-
-	// nng_mqtt_msg_set_connect_will_topic(msg, "topic");
-	// char *willmsg = "will \n test";
-	// nng_mqtt_msg_set_connect_will_msg(msg, willmsg, 12);
-
-	// nng_mqtt_msg_set_connect_keep_alive(msg, 180);
-	// nng_mqtt_msg_set_connect_clean_session(msg, true);
-
-	// nng_mqtt_msg_encode(msg);
-
-	// nni_aio_set_msg(&p->send_aio, msg);
-
-	// */
-	// quic_strm_send(p->qstream, &p->send_aio);
-
 
 	nni_mtx_lock(&s->mtx);
 	if ((aio = nni_list_first(&s->send_queue)) != NULL) {

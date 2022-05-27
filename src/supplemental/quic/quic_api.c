@@ -102,7 +102,7 @@ static int
 quic_strm_alloc(quic_strm_t **qstrmp)
 {
 	quic_strm_t *qstrm;
-	qstrm = malloc(sizeof(quic_strm_t));
+	qstrm = nng_alloc(sizeof(quic_strm_t));
 
 	qstrm->closed = false;
 	qstrm->rxaio  = NULL;
@@ -124,6 +124,8 @@ quic_strm_alloc(quic_strm_t **qstrmp)
 static int
 quic_strm_free(quic_strm_t *qstrm)
 {
+	nng_free(qstrm, sizeof(quic_strm_t));
+
 	return 0;
 }
 
@@ -152,7 +154,6 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		nni_mtx_lock(&qstrm->mtx);
 		if ((aio = nni_list_first(&qstrm->sendq)) != NULL)
 			nni_aio_list_remove(aio);
-		printf("snd aio %p end.\n", aio);
 		nni_mtx_unlock(&qstrm->mtx);
 
 		smsg = nni_aio_get_msg(aio);
@@ -612,20 +613,7 @@ quic_strm_send_start(quic_strm_t *qstrm)
 	uint8_t type = (((uint8_t *)nni_msg_header(msg))[0] & 0xf0) >> 4;
 	printf("type is 0x%x.\n", type);
 
-	/*
-	switch (type) {
-	// For those packet which need an ack
-	case NNG_MQTT_CONNECT:
-	case NNG_MQTT_SUBSCRIBE:
-		qstrm->rwlen = 2;
-		qstrm->rxlen = 0;
-		MsQuic->StreamReceiveSetEnabled(qstrm->stream, TRUE);
-		break;
-	case NNG_MQTT_PUBLISH:
-	default:
-		break;
-	}
-	*/
+	// handling msgs user dont care according to type has been done in protocol layer
 
 	if (!bufs)
 		printf("error in iov.\n");
@@ -669,7 +657,6 @@ quic_strm_recv_start(void *arg)
 	// NNI_ASSERT(qstrm->rxmsg == NULL);
 
 	// TODO recv_start can be called from sender
-	/*
 	if (qstrm->closed) {
 		nni_aio *aio;
 		while ((aio = nni_list_first(&qstrm->recvq)) != NULL) {
@@ -681,7 +668,6 @@ quic_strm_recv_start(void *arg)
 	if (nni_list_empty(&qstrm->recvq)) {
 		return;
 	}
-	*/
 
 	MsQuic->StreamReceiveSetEnabled(qstrm->stream, TRUE);
 }
