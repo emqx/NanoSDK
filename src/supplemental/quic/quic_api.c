@@ -547,7 +547,7 @@ quic_connect(const char *url, nni_sock *sock)
 	nng_url *url_s;
 
 	if (url == NULL)
-		url = "mqtt-quic://54.75.171.11:14567";
+		url = "mqtt-quic://127.0.0.1:14567";
 
 	nng_url_parse(&url_s, url);
 	for (int i = 0; i < strlen(url_s->u_host); ++i)
