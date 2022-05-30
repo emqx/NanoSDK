@@ -1,5 +1,5 @@
 //
-// Copyright 2020 NanoMQ Team, Inc. <jaylin@emqx.io>
+// Copyright 2022 NanoMQ Team, Inc. <jaylin@emqx.io>
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -40,12 +40,17 @@ struct mqtt_sock_s {
 	bool         closed;
 	nni_duration retry;
 	mqtt_pipe_t *pipe;
+#ifdef NNG_SUPP_SQLITE
+	sqlite3 *sqlite_db;
+#endif
 	nni_mtx      mtx; // more fine grained mutual exclusion
 	// mqtt_ctx_t      master; // to which we delegate send/recv calls
 	// mqtt_pipe_t *   mqtt_pipe;
 	nni_list recv_queue;    // aio pending to receive
 	nni_list send_queue;    // aio pending to send
 	nni_lmq  send_messages; // send messages queue
+	nni_aio  time_aio; // timer aio to resend unack msg
+	uint16_t keepalive;
 
 	struct mqtt_client_cb cb; // user cb
 };
@@ -58,13 +63,15 @@ struct mqtt_pipe_s {
 	bool           busy;
 	int 	       next_packet_id; // next packet id to use
 	mqtt_sock_t   *mqtt_sock;
-	nni_id_map     sent_unack;    // send messages unacknowledged
+#ifdef NNG_SUPP_SQLITE
+	sqlite3 *sent_unack;
+#else
+	nni_id_map     sent_unack; // send messages unacknowledged
+#endif
 	nni_id_map     recv_unack;    // recv messages unacknowledged
 	nni_aio        send_aio;      // send aio to the underlying transport
 	nni_aio        recv_aio;      // recv aio to the underlying transport
-	nni_aio        time_aio;      // timer aio to resend unack msg
 	nni_lmq        recv_messages; // recv messages queue
-	nni_lmq        ctx_aios;      // awaiting aio of QoS
 };
 
 /******************************************************************************
@@ -114,6 +121,7 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 	ptype = nni_mqtt_msg_get_packet_type(msg);
 	switch (ptype) {
 	case NNG_MQTT_CONNECT:
+		s->keepalive = nni_mqtt_msg_get_connect_keep_alive(msg);
 	case NNG_MQTT_PINGREQ:
 		break;
 
@@ -152,7 +160,7 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 		break;
 	default:
 		nni_aio_finish_error(aio, NNG_EPROTO);
-		return;
+		return false;
 	}
 	if (!p->busy) {
 		nni_mqtt_msg_encode(msg);
@@ -329,7 +337,14 @@ mqtt_quic_recv_cb(void *arg)
 			nni_id_set(&p->recv_unack, packet_id, msg);
 		}
 		break;
-
+	case NNG_MQTT_PINGRESP:
+		// free msg
+		nni_msg_free(msg);
+		nni_mtx_unlock(&s->mtx);
+		return;
+	case NNG_MQTT_PUBREC:
+		nni_msg_free(msg);
+		break;
 	default:
 		// unexpected packet type, server misbehaviour
 		nni_mtx_unlock(&s->mtx);
@@ -355,7 +370,56 @@ mqtt_quic_recv_cb(void *arg)
 static void
 mqtt_timer_cb(void *arg)
 {
-	NNI_ARG_UNUSED(arg);
+	mqtt_sock_t *s = arg;
+	mqtt_pipe_t *p = s->pipe;
+	nni_msg *  msg;
+	nni_aio *  aio;
+	uint16_t   pid;
+
+	if (nng_aio_result(&s->time_aio) != 0) {
+		return;
+	}
+	nni_mtx_lock(&s->mtx);
+	if (NULL == p || nni_atomic_get_bool(&p->closed)) {
+		
+		return;
+	}
+	// start message resending
+	uint64_t row_id = 0;
+	msg = nni_qos_db_get_one_client_msg(p->sent_unack, row_id, pid);
+	if (msg != NULL) {
+		nni_qos_db_remove_client_msg_by_id(p->sent_unack, row_id);
+		uint16_t ptype;
+		ptype = nni_mqtt_msg_get_packet_type(msg);
+		if (ptype == NNG_MQTT_PUBLISH) {
+			nni_mqtt_msg_set_publish_dup(msg, true);
+		}
+		if (!p->busy) {
+			p->busy = true;
+			nni_msg_clone(msg);
+			nni_mqtt_msg_encode(msg);
+			aio = nni_mqtt_msg_get_aio(msg);
+			if (aio) {
+				nni_aio_bump_count(aio,
+				    nni_msg_header_len(msg) +
+				        nni_msg_len(msg));
+				nni_aio_set_msg(aio, NULL);
+			}
+			nni_aio_set_msg(&p->send_aio, msg);
+			quic_strm_send(p->qstream, &p->send_aio);
+
+			nni_mtx_unlock(&s->mtx);
+			nni_sleep_aio(s->retry, &s->time_aio);
+			return;
+		} else {
+			nni_msg_clone(msg);
+			nni_lmq_put(&s->send_messages, msg);
+		}
+	}
+
+	nni_mtx_unlock(&s->mtx);
+	nni_sleep_aio(s->retry, &s->time_aio);
+	return;
 }
 
 static void
@@ -363,7 +427,11 @@ mqtt_quic_sock_fini(void *arg)
 {
 	mqtt_sock_t *s = arg;
 	nni_plat_printf("sock finit\n");
+#ifdef NNG_SUPP_SQLITE
+	nni_qos_db_fini_sqlite(s->sqlite_db);
+#endif
 	nni_lmq_fini(&s->send_messages);
+	nni_aio_fini(&s->time_aio);
 }
 
 static void
@@ -425,7 +493,7 @@ mqtt_quic_sock_recv(void *arg, nni_aio *aio)
 	mqtt_pipe_t *p   = s->pipe;
 	nni_msg     *msg = NULL;
 
-	nni_plat_printf("sock send!\n");
+	nni_plat_printf("sock recv!\n");
 	if (nni_aio_begin(aio) != 0) {
 		return;
 	}
@@ -440,7 +508,7 @@ mqtt_quic_sock_recv(void *arg, nni_aio *aio)
 		nni_aio_finish_error(aio, NNG_ECLOSED);
 		return;
 	}
-	/**/
+
 	if (nni_lmq_get(&p->recv_messages, &msg) == 0) {
 		nni_aio_set_msg(aio, msg);
 		nni_mtx_unlock(&s->mtx);
@@ -486,6 +554,7 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 	nni_lmq_init(&s->send_messages, NNG_MAX_SEND_LMQ);
 	nni_aio_list_init(&s->send_queue);
 	nni_aio_list_init(&s->recv_queue);
+	nni_aio_init(&s->time_aio, mqtt_timer_cb, s);
 
 	s->pipe = NULL;
 
@@ -511,7 +580,6 @@ quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
 	// p->mqtt_sock = s;
 	nni_aio_init(&p->send_aio, mqtt_quic_send_cb, p);
 	nni_aio_init(&p->recv_aio, mqtt_quic_recv_cb, p);
-	nni_aio_init(&p->time_aio, mqtt_timer_cb, p);
 	// Packet IDs are 16 bits
 	// We start at a random point, to minimize likelihood of
 	// accidental collision across restarts.
@@ -539,7 +607,6 @@ quic_mqtt_stream_fini(void *arg)
 
 	nni_aio_fini(&p->send_aio);
 	nni_aio_fini(&p->recv_aio);
-	nni_aio_fini(&p->time_aio);
 	nni_id_map_fini(&p->sent_unack);
 	nni_id_map_fini(&p->recv_unack);
 	nni_lmq_fini(&p->recv_messages);
