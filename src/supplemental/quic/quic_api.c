@@ -704,6 +704,7 @@ quic_strm_recv(void *arg, nni_aio *raio)
 
 	nni_list_append(&qstrm->recvq, raio);
 	if (nni_list_first(&qstrm->recvq) == raio) {
+		//TODO set different init length for different packet.
 		qstrm->rxlen = 0;
 		qstrm->rwlen = 2; // Minimal RX length
 		quic_strm_recv_start(qstrm);
