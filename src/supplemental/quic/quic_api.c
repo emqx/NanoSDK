@@ -33,6 +33,9 @@ struct quic_strm_s {
 	uint32_t rwlen; // Length wanted
 	uint8_t  rxbuf[5];
 	nni_msg *rxmsg; // nng_msg for received
+
+	uint8_t *rticket;
+	nng_url *url_s;
 };
 
 // Config for msquic
@@ -55,6 +58,7 @@ static void    quic_strm_send_start(quic_strm_t *qstrm);
 static void    quic_strm_recv_cb();
 static int     quic_strm_alloc(quic_strm_t **qstrmp);
 static void    quic_strm_recv_start(void *arg);
+static int     quic_reconnect(quic_strm_t *qstrm);
 
 // Helper function to load a client configuration.
 static BOOLEAN
@@ -62,7 +66,8 @@ LoadConfiguration(BOOLEAN Unsecure)
 {
 	QUIC_SETTINGS Settings = { 0 };
 	// Configures the client's idle timeout.
-	Settings.IdleTimeoutMs       = 5*60*1000;
+	Settings.IdleTimeoutMs       = 5*1000;
+	// Settings.IdleTimeoutMs       = 5*60*1000;
 	Settings.IsSet.IdleTimeoutMs = TRUE;
 
 	// Configures a default client configuration, optionally disabling
@@ -115,6 +120,9 @@ quic_strm_alloc(quic_strm_t **qstrmp)
 
 	qstrm->rxlen = 0;
 	qstrm->rxmsg = NULL;
+
+	qstrm->url_s = NULL;
+	qstrm->rticket = NULL;
 
 	*qstrmp = qstrm;
 
@@ -351,7 +359,7 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
         _Inout_ QUIC_CONNECTION_EVENT *Event)
 {
 	nni_proto_pipe_ops *pipe_ops = g_quic_proto->proto_pipe_ops;
-	quic_strm_t        *qstrm    = NULL;
+	quic_strm_t        *qstrm    = GStream;
 
 	switch (Event->Type) {
 	case QUIC_CONNECTION_EVENT_CONNECTED:
@@ -359,11 +367,11 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		// do not init any var here due to potential frequent reconnect
 		printf("[conn][%p] Connected\n", Connection);
 
-		// Create a pipe for quic client
-		if (0 != quic_strm_alloc(&qstrm)) {
-			printf("Error in alloc quic strm alloc.\n");
+		if (qstrm->rticket != NULL) {
+        	MsQuic->ConnectionSendResumptionTicket(Connection, QUIC_SEND_RESUMPTION_FLAG_NONE, 0, NULL);
+			printf("[conn][%p] resumption ticket is sent\n", Connection);
+			break;
 		}
-		GStream = qstrm; // TODO move init work to quic_strm_init
 
 		qstrm->pipe = nng_alloc(pipe_ops->pipe_size);
 		nni_lmq_init(&qstrm->recv_messages, NNG_MAX_RECV_LMQ);
@@ -398,19 +406,24 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		printf("[conn][%p] Shut down by peer, 0x%llu\n", Connection,
 		    (unsigned long long)
 		        Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
-		pipe_ops->pipe_close(GStream->pipe);
-		pipe_ops->pipe_fini(GStream->pipe);
+		// pipe_ops->pipe_close(qstrm->pipe);
+		// pipe_ops->pipe_fini(qstrm->pipe);
 		break;
 	case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
 		// The connection has completed the shutdown process and is
 		// ready to be safely cleaned up.
-		printf("[conn][%p] All done\n", Connection);
+		// printf("[conn][%p] All done\n", Connection);
 		if (!Event->SHUTDOWN_COMPLETE.AppCloseInProgress) {
 			MsQuic->ConnectionClose(Connection);
 		}
+		if (qstrm->rticket != NULL) {
+			printf("[conn][%p] resume by ticket\n", Connection);
+			quic_reconnect(qstrm);
+			break;
+		}
 
-		pipe_ops->pipe_close(GStream->pipe);
-		pipe_ops->pipe_fini(GStream->pipe);
+		pipe_ops->pipe_close(qstrm->pipe);
+		pipe_ops->pipe_fini(qstrm->pipe);
 		break;
 	case QUIC_CONNECTION_EVENT_RESUMPTION_TICKET_RECEIVED:
 		// A resumption ticket (also called New Session Ticket or NST)
@@ -425,6 +438,9 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 			    (uint8_t) Event->RESUMPTION_TICKET_RECEIVED
 			        .ResumptionTicket[i]);
 		}
+		qstrm->rticket = nng_alloc(sizeof(uint8_t)*2048);
+		memcpy(qstrm->rticket, Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicket,
+			Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength);
 		printf("\n");
 		break;
 	default:
@@ -540,9 +556,11 @@ quic_connect(const char *url, nni_sock *sock)
 		return (-1);
 	}
 
-	QUIC_STATUS Status;
-	const char *ResumptionTicketString = NULL;
-	HQUIC       Connection             = NULL;
+	QUIC_STATUS  Status;
+	HQUIC        Connection = NULL;
+	quic_strm_t *qstrm = NULL;
+
+	nng_url *url_s;
 
 	void  *sock_data = nni_sock_proto_data(sock);
 	// Allocate a new connection object.
@@ -551,8 +569,6 @@ quic_connect(const char *url, nni_sock *sock)
 		printf("ConnectionOpen failed, 0x%x!\n", Status);
 		goto Error;
 	}
-
-	nng_url *url_s;
 
 	if (url == NULL)
 		url = "mqtt-quic://127.0.0.1:14567";
@@ -564,7 +580,102 @@ quic_connect(const char *url, nni_sock *sock)
 			break;
 		}
 
+	// Create a pipe for quic client
+	if (0 != quic_strm_alloc(&qstrm)) {
+		printf("Error in alloc quic strm alloc.\n");
+	}
+	qstrm->url_s = url_s;
+	qstrm->sock = sock;
+	printf("sock is set %p\n", sock);
+	GStream = qstrm; // TODO move init work to quic_strm_init
+
 	printf("[conn] Connecting... %s : %s\n", url_s->u_host, url_s->u_port);
+
+	// Start the connection to the server.
+	if (QUIC_FAILED(Status = MsQuic->ConnectionStart(Connection,
+	                    Configuration, QUIC_ADDRESS_FAMILY_UNSPEC,
+	                    url_s->u_host, atoi(url_s->u_port)))) {
+		printf("ConnectionStart failed, 0x%x!\n", Status);
+		goto Error;
+	}
+
+Error:
+
+	if (QUIC_FAILED(Status) && Connection != NULL) {
+		MsQuic->ConnectionClose(Connection);
+	}
+
+	return 0;
+}
+
+//
+// Helper function to convert a hex character to its decimal value.
+//
+static uint8_t
+DecodeHexChar(
+    _In_ char c
+    )
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'A' && c <= 'F') return 10 + c - 'A';
+    if (c >= 'a' && c <= 'f') return 10 + c - 'a';
+    return 0;
+}
+
+//
+// Helper function to convert a string of hex characters to a byte buffer.
+//
+static uint32_t
+DecodeHexBuffer(
+    _In_z_ const char* HexBuffer,
+    _In_ uint32_t OutBufferLen,
+    _Out_writes_to_(OutBufferLen, return)
+        uint8_t* OutBuffer
+    )
+{
+    uint32_t HexBufferLen = (uint32_t)strlen(HexBuffer) / 2;
+    if (HexBufferLen > OutBufferLen) {
+        return 0;
+    }
+
+    for (uint32_t i = 0; i < HexBufferLen; i++) {
+        OutBuffer[i] =
+            (DecodeHexChar(HexBuffer[i * 2]) << 4) |
+            DecodeHexChar(HexBuffer[i * 2 + 1]);
+    }
+
+    return HexBufferLen;
+}
+
+static int
+quic_reconnect(quic_strm_t *qstrm)
+{
+	// Load the client configuration based on the "unsecure" command line
+	// option.
+	if (!LoadConfiguration(TRUE)) {
+		return (-1);
+	}
+
+	QUIC_STATUS Status;
+	HQUIC       Connection             = NULL;
+	void  *sock_data = nni_sock_proto_data(qstrm->sock);
+	nng_url *url_s = qstrm->url_s;
+
+	// Allocate a new connection object.
+	if (QUIC_FAILED(Status = MsQuic->ConnectionOpen(Registration,
+	                    QuicConnectionCallback, sock_data, &Connection))) {
+		printf("ConnectionOpen failed, 0x%x!\n", Status);
+		goto Error;
+	}
+	if (qstrm->rticket != NULL) {
+        uint16_t TicketLength = (uint16_t)DecodeHexBuffer(qstrm->rticket, 2048, qstrm->rticket);
+        if (QUIC_FAILED(Status = MsQuic->SetParam(Connection, QUIC_PARAM_CONN_RESUMPTION_TICKET, TicketLength, qstrm->rticket))) {
+            printf("SetParam(QUIC_PARAM_CONN_RESUMPTION_TICKET) failed, 0x%x!\n", Status);
+            goto Error;
+        }
+	}
+
+	printf("[conn] ReConnecting... %s : %s\n", url_s->u_host, url_s->u_port);
 
 	// Start the connection to the server.
 	if (QUIC_FAILED(Status = MsQuic->ConnectionStart(Connection,
