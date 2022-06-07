@@ -52,6 +52,7 @@ struct mqtt_sock_s {
 	nni_lmq  send_messages; // send messages queue
 	nni_aio  time_aio;      // timer aio to resend unack msg
 	uint16_t counter;
+	nni_msg *ping_msg;
 
 	struct mqtt_client_cb cb; // user cb
 };
@@ -392,6 +393,18 @@ mqtt_timer_cb(void *arg)
 	if (NULL == p || nni_atomic_get_bool(&p->closed)) {
 		return;
 	}
+	s->counter += s->retry;
+	if (s->counter > p->keepalive) {
+		// send PINGREQ
+		nng_aio_wait(&p->rep_aio);
+		nni_aio_set_msg(&p->rep_aio, s->ping_msg);
+		nni_msg_clone(s->ping_msg);
+		quic_strm_send(p->qstream, &p->rep_aio);
+		s->counter = 0;
+		nni_mtx_unlock(&s->mtx);
+		nni_sleep_aio(s->retry * NNI_SECOND, &s->time_aio);
+		return;
+	}
 	// start message resending
 	uint64_t row_id = 0;
 	msg = nni_qos_db_get_one_client_msg(p->sent_unack, row_id, pid);
@@ -426,7 +439,7 @@ mqtt_timer_cb(void *arg)
 	}
 
 	nni_mtx_unlock(&s->mtx);
-	nni_sleep_aio(s->retry, &s->time_aio);
+	nni_sleep_aio(s->retry * NNI_SECOND, &s->time_aio);
 	return;
 }
 
@@ -550,7 +563,8 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 	nni_atomic_set_bool(&s->closed, false);
 
 	// this is a pre-defined timer for global timer
-	s->retry = NNI_SECOND * 5;  // 5 seconds as default
+	s->retry   = 5;  // 5 seconds as default
+	s->counter = 0;
 
 	nni_mtx_init(&s->mtx);
 	// mqtt_ctx_init(&s->master, s);
@@ -685,7 +699,13 @@ quic_mqtt_stream_close(void *arg)
 static void
 mqtt_quic_sock_open(void *arg)
 {
-	NNI_ARG_UNUSED(arg);
+	mqtt_sock_t *s = arg;
+	uint8_t buf[2] = {0xC0,0x00};
+	nni_sleep_aio(s->retry * NNI_SECOND, &s->time_aio);
+	// alloc Ping msg
+	nng_msg_alloc(&s->ping_msg, 0);
+	nng_msg_header_append(s->ping_msg, buf, 1);
+	nng_msg_append(s->ping_msg, buf+1, 1);
 }
 
 static void
