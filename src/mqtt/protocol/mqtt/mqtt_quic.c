@@ -33,6 +33,7 @@ struct mqtt_client_cb {
 	int (*connect_cb)(void *);
 	int (*msg_send_cb)(void *);
 	int (*msg_recv_cb)(void *);
+	int (*disconnect_cb)(void *);
 };
 
 // A mqtt_sock_s is our per-socket protocol private structure.
@@ -43,14 +44,14 @@ struct mqtt_sock_s {
 #ifdef NNG_SUPP_SQLITE
 	sqlite3 *sqlite_db;
 #endif
-	nni_mtx      mtx; // more fine grained mutual exclusion
+	nni_mtx mtx; // more fine grained mutual exclusion
 	// mqtt_ctx_t      master; // to which we delegate send/recv calls
 	// mqtt_pipe_t *   mqtt_pipe;
 	nni_list recv_queue;    // aio pending to receive
 	nni_list send_queue;    // aio pending to send
 	nni_lmq  send_messages; // send messages queue
-	nni_aio  time_aio; // timer aio to resend unack msg
-	uint16_t keepalive;
+	nni_aio  time_aio;      // timer aio to resend unack msg
+	uint16_t counter;
 
 	struct mqtt_client_cb cb; // user cb
 };
@@ -58,20 +59,22 @@ struct mqtt_sock_s {
 // A mqtt_pipe_s is our per-pipe protocol private structure.
 struct mqtt_pipe_s {
 	void        *stream;
-	void          *qstream; // nni_pipe
-	bool           closed;
-	bool           busy;
-	int 	       next_packet_id; // next packet id to use
-	mqtt_sock_t   *mqtt_sock;
+	void        *qstream; // nni_pipe
+	bool         closed;
+	bool         busy;
+	int          next_packet_id; // next packet id to use
+	mqtt_sock_t *mqtt_sock;
 #ifdef NNG_SUPP_SQLITE
 	sqlite3 *sent_unack;
 #else
-	nni_id_map     sent_unack; // send messages unacknowledged
+	nni_id_map sent_unack; // send messages unacknowledged
 #endif
-	nni_id_map     recv_unack;    // recv messages unacknowledged
-	nni_aio        send_aio;      // send aio to the underlying transport
-	nni_aio        recv_aio;      // recv aio to the underlying transport
-	nni_lmq        recv_messages; // recv messages queue
+	nni_id_map recv_unack;    // recv messages unacknowledged
+	nni_aio    send_aio;      // send aio to the underlying transport
+	nni_aio    recv_aio;      // recv aio to the underlying transport
+	nni_aio	   rep_aio;	  // aio for resending qos msg and PINGREQ  
+	nni_lmq    recv_messages; // recv messages queue
+	uint16_t   keepalive;     // MQTT keepalive
 };
 
 /******************************************************************************
@@ -121,7 +124,8 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 	ptype = nni_mqtt_msg_get_packet_type(msg);
 	switch (ptype) {
 	case NNG_MQTT_CONNECT:
-		s->keepalive = nni_mqtt_msg_get_connect_keep_alive(msg);
+		// TODO : only send CONNECT once
+		p->keepalive = nni_mqtt_msg_get_connect_keep_alive(msg);
 	case NNG_MQTT_PINGREQ:
 		break;
 
@@ -181,6 +185,11 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 		return true;
 	}
 	return false;
+}
+
+static void
+mqtt_qos_send_cb(void *arg)
+{
 }
 static void
 mqtt_quic_send_cb(void *arg)
@@ -366,7 +375,7 @@ mqtt_quic_recv_cb(void *arg)
 			s->cb.msg_recv_cb(msg);
 }
 
-// Timer callback, we use it for retransmitting.
+// Timer callback, we use it for retransmition.
 static void
 mqtt_timer_cb(void *arg)
 {
@@ -381,7 +390,6 @@ mqtt_timer_cb(void *arg)
 	}
 	nni_mtx_lock(&s->mtx);
 	if (NULL == p || nni_atomic_get_bool(&p->closed)) {
-		
 		return;
 	}
 	// start message resending
@@ -541,8 +549,8 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 	nni_atomic_init_bool(&s->closed);
 	nni_atomic_set_bool(&s->closed, false);
 
-	// this is "semi random" start for request IDs.
-	s->retry = NNI_SECOND * 60;
+	// this is a pre-defined timer for global timer
+	s->retry = NNI_SECOND * 5;  // 5 seconds as default
 
 	nni_mtx_init(&s->mtx);
 	// mqtt_ctx_init(&s->master, s);
@@ -559,6 +567,7 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 	s->pipe = NULL;
 
 	s->cb.connect_cb = NULL;
+	s->cb.disconnect_cb = NULL;
 	s->cb.msg_recv_cb = NULL;
 	s->cb.msg_send_cb = NULL;
 }
@@ -579,6 +588,7 @@ quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
 	p->next_packet_id = 0;
 	// p->mqtt_sock = s;
 	nni_aio_init(&p->send_aio, mqtt_quic_send_cb, p);
+	nni_aio_init(&p->rep_aio, mqtt_qos_send_cb, p);
 	nni_aio_init(&p->recv_aio, mqtt_quic_recv_cb, p);
 	// Packet IDs are 16 bits
 	// We start at a random point, to minimize likelihood of
@@ -607,6 +617,7 @@ quic_mqtt_stream_fini(void *arg)
 
 	nni_aio_fini(&p->send_aio);
 	nni_aio_fini(&p->recv_aio);
+	nni_aio_fini(&p->rep_aio);
 	nni_id_map_fini(&p->sent_unack);
 	nni_id_map_fini(&p->recv_unack);
 	nni_lmq_fini(&p->recv_messages);
@@ -641,13 +652,34 @@ static void
 quic_mqtt_stream_stop(void *arg)
 {
 	nni_plat_printf("quic_mqtt_stream_stop.\n");
+	mqtt_pipe_t *p = arg;
 
+	nni_aio_stop(&p->send_aio);
+	nni_aio_stop(&p->recv_aio);
+	nni_aio_stop(&p->rep_aio);
 }
 
 static void
 quic_mqtt_stream_close(void *arg)
 {
 	nni_plat_printf("quic_mqtt_stream_close.\n");
+	mqtt_pipe_t *p = arg;
+	mqtt_sock_t *s = p->mqtt_sock;
+
+	nni_mtx_lock(&s->mtx);
+	s->pipe = NULL;
+	nni_aio_close(&p->send_aio);
+	nni_aio_close(&p->recv_aio);
+	nni_aio_close(&p->rep_aio);
+	nni_lmq_flush(&p->recv_messages);
+	nni_lmq_flush(&s->send_messages);
+// #ifndef NNG_SUPP_SQLITE
+// 	nni_id_map_foreach(&p->sent_unack, mqtt_close_unack_msg_cb);
+// #endif
+// 	nni_id_map_foreach(&p->recv_unack, mqtt_close_unack_msg_cb);
+	nni_mtx_unlock(&s->mtx);
+
+	nni_atomic_set_bool(&p->closed, true);
 }
 
 static void
@@ -677,6 +709,7 @@ mqtt_quic_sock_close(void *arg)
 		// there should be no msg waiting
 		nni_aio_finish_error(aio, NNG_ECLOSED);
 	}
+	nni_aio_close(&s->time_aio);
 }
 
 static nni_proto_pipe_ops mqtt_quic_pipe_ops = {
