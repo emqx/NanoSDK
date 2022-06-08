@@ -88,9 +88,6 @@ mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 
 		nng_mqtt_msg_set_connect_keep_alive(msg, 180);
 		nng_mqtt_msg_set_connect_clean_session(msg, true);
-
-		nng_mqtt_msg_set_connect_keep_alive(msg, 180);
-		nng_mqtt_msg_set_connect_clean_session(msg, true);
 	} else if (type == 2) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_SUBSCRIBE);
 
@@ -227,5 +224,5 @@ main(int argc, char **argv)
 	if (0 == strncmp(argv[1], "pub", 3)  && argc == 6)
 		client(3, argv[2], argv[3], argv[4], argv[5]);
 
-	printf_helper(argv[1]);
+	printf_helper(argv[0]);
 }
