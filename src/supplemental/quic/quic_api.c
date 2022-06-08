@@ -34,7 +34,8 @@ struct quic_strm_s {
 	uint8_t  rxbuf[5];
 	nni_msg *rxmsg; // nng_msg for received
 
-	uint8_t *rticket;
+	uint8_t  rticket[2048];
+	uint16_t rticket_sz;
 	nng_url *url_s;
 };
 
@@ -57,6 +58,7 @@ static void    quic_strm_send_cancel(nni_aio *aio, void *arg, int rv);
 static void    quic_strm_send_start(quic_strm_t *qstrm);
 static void    quic_strm_recv_cb();
 static int     quic_strm_alloc(quic_strm_t **qstrmp);
+static int     quic_strm_free(quic_strm_t *qstrm);
 static void    quic_strm_recv_start(void *arg);
 static int     quic_reconnect(quic_strm_t *qstrm);
 
@@ -122,7 +124,7 @@ quic_strm_alloc(quic_strm_t **qstrmp)
 	qstrm->rxmsg = NULL;
 
 	qstrm->url_s = NULL;
-	qstrm->rticket = NULL;
+	qstrm->rticket_sz = 0;
 
 	*qstrmp = qstrm;
 
@@ -367,9 +369,11 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		// do not init any var here due to potential frequent reconnect
 		printf("[conn][%p] Connected\n", Connection);
 
-		if (qstrm->rticket != NULL) {
-        	MsQuic->ConnectionSendResumptionTicket(Connection, QUIC_SEND_RESUMPTION_FLAG_NONE, 0, NULL);
-			printf("[conn][%p] resumption ticket is sent\n", Connection);
+		if (qstrm->rticket_sz != 0) {
+			MsQuic->ConnectionSendResumptionTicket(Connection,
+			    QUIC_SEND_RESUMPTION_FLAG_NONE, 0, NULL);
+			printf("[conn][%p] resumption ticket is sent\n",
+			    Connection);
 			break;
 		}
 
@@ -416,14 +420,17 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		if (!Event->SHUTDOWN_COMPLETE.AppCloseInProgress) {
 			MsQuic->ConnectionClose(Connection);
 		}
-		if (qstrm->rticket != NULL) {
+		if (qstrm->rticket_sz != 0) {
 			printf("[conn][%p] resume by ticket\n", Connection);
 			quic_reconnect(qstrm);
 			break;
 		}
 
-		pipe_ops->pipe_close(qstrm->pipe);
-		pipe_ops->pipe_fini(qstrm->pipe);
+		if (qstrm->pipe) {
+			pipe_ops->pipe_close(qstrm->pipe);
+			pipe_ops->pipe_fini(qstrm->pipe);
+		}
+		quic_strm_free(qstrm);
 		break;
 	case QUIC_CONNECTION_EVENT_RESUMPTION_TICKET_RECEIVED:
 		// A resumption ticket (also called New Session Ticket or NST)
@@ -434,11 +441,11 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		for (uint32_t i = 0; i <
 		     Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength;
 		     i++) {
-			printf("%.2X",
+			printf("%x",
 			    (uint8_t) Event->RESUMPTION_TICKET_RECEIVED
 			        .ResumptionTicket[i]);
 		}
-		qstrm->rticket = nng_alloc(sizeof(uint8_t)*2048);
+		qstrm->rticket_sz = Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength;
 		memcpy(qstrm->rticket, Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicket,
 			Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength);
 		printf("\n");
@@ -667,12 +674,15 @@ quic_reconnect(quic_strm_t *qstrm)
 		printf("ConnectionOpen failed, 0x%x!\n", Status);
 		goto Error;
 	}
-	if (qstrm->rticket != NULL) {
-        uint16_t TicketLength = (uint16_t)DecodeHexBuffer(qstrm->rticket, 2048, qstrm->rticket);
-        if (QUIC_FAILED(Status = MsQuic->SetParam(Connection, QUIC_PARAM_CONN_RESUMPTION_TICKET, TicketLength, qstrm->rticket))) {
-            printf("SetParam(QUIC_PARAM_CONN_RESUMPTION_TICKET) failed, 0x%x!\n", Status);
-            goto Error;
-        }
+	if (qstrm->rticket_sz != 0) {
+		if (QUIC_FAILED(Status = MsQuic->SetParam(Connection,
+		                    QUIC_PARAM_CONN_RESUMPTION_TICKET,
+		                    qstrm->rticket_sz, qstrm->rticket))) {
+			printf("SetParam(QUIC_PARAM_CONN_RESUMPTION_TICKET) "
+			       "failed, 0x%x!\n",
+			    Status);
+			goto Error;
+		}
 	}
 
 	printf("[conn] ReConnecting... %s : %s\n", url_s->u_host, url_s->u_port);
