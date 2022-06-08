@@ -51,14 +51,14 @@ quic_strm_t *GStream;
 
 nni_proto *g_quic_proto;
 
-static int quic_pipe_start(
-    _In_ HQUIC Connection, _In_ void *Context, _Out_ HQUIC *Streamp);
+static int quic_strm_start(HQUIC Connection, void *Context, HQUIC *Streamp);
+static int quic_strm_close(HQUIC Connection, HQUIC Stream);
 static BOOLEAN LoadConfiguration(BOOLEAN Unsecure);
 static void    quic_strm_send_cancel(nni_aio *aio, void *arg, int rv);
 static void    quic_strm_send_start(quic_strm_t *qstrm);
 static void    quic_strm_recv_cb();
-static int     quic_strm_alloc(quic_strm_t **qstrmp);
-static int     quic_strm_free(quic_strm_t *qstrm);
+static void    quic_strm_init(quic_strm_t *qstrm);
+static void    quic_strm_fini(quic_strm_t *qstrm);
 static void    quic_strm_recv_start(void *arg);
 static int     quic_reconnect(quic_strm_t *qstrm);
 
@@ -68,7 +68,7 @@ LoadConfiguration(BOOLEAN Unsecure)
 {
 	QUIC_SETTINGS Settings = { 0 };
 	// Configures the client's idle timeout.
-	Settings.IdleTimeoutMs       = 5*1000;
+	Settings.IdleTimeoutMs       = 25*1000;
 	// Settings.IdleTimeoutMs       = 5*60*1000;
 	Settings.IsSet.IdleTimeoutMs = TRUE;
 
@@ -105,18 +105,18 @@ LoadConfiguration(BOOLEAN Unsecure)
 	return TRUE;
 }
 
-static int
-quic_strm_alloc(quic_strm_t **qstrmp)
+static void
+quic_strm_init(quic_strm_t *qstrm)
 {
-	quic_strm_t *qstrm;
-	qstrm = nng_alloc(sizeof(quic_strm_t));
-
 	qstrm->closed = false;
 	qstrm->rxaio  = NULL;
 	qstrm->txaio  = NULL;
 	nni_mtx_init(&qstrm->mtx);
 	nni_aio_list_init(&qstrm->sendq);
 	nni_aio_list_init(&qstrm->recvq);
+
+	nni_lmq_init(&qstrm->recv_messages, NNG_MAX_RECV_LMQ);
+	nni_lmq_init(&qstrm->send_messages, NNG_MAX_SEND_LMQ);
 
 	nni_aio_init(&qstrm->rraio, quic_strm_recv_start, qstrm);
 
@@ -125,18 +125,14 @@ quic_strm_alloc(quic_strm_t **qstrmp)
 
 	qstrm->url_s = NULL;
 	qstrm->rticket_sz = 0;
-
-	*qstrmp = qstrm;
-
-	return 0;
 }
 
-static int
-quic_strm_free(quic_strm_t *qstrm)
+static void
+quic_strm_fini(quic_strm_t *qstrm)
 {
-	nng_free(qstrm, sizeof(quic_strm_t));
-
-	return 0;
+	if (qstrm->rxmsg)
+		free(qstrm->rxmsg);
+	return;
 }
 
 // The clients's callback for stream events from MsQuic.
@@ -307,31 +303,12 @@ upload:		// get aio and trigger cb of protocol layer
 		if (aio != NULL) {
 			// Set msg and remove from list and finish
 			nni_aio_set_msg(aio, qstrm->rxmsg);
+			qstrm->rxmsg = NULL;
 			nni_aio_list_remove(aio);
 			nni_aio_finish(aio, 0, 0);
 		}
 		return QUIC_STATUS_PENDING;
 
-		// TODO Another idea. Store to lmq
-		//
-		/*
-		nni_aio *aio;
-		nng_msg *msg;
-		nng_msg_alloc(&msg, 0);
-		if ((aio = nni_list_first(&qstrm->recvq)) == NULL) {
-		        // store to lmq
-		        if (0 != nni_lmq_put(&qstrm->recv_messages, msg)) {
-		                nni_msg_free(msg);
-		        }
-		        nni_mtx_unlock(&qstrm->mtx);
-		        break;
-		}
-		nni_list_remove(&qstrm->recvq, aio);
-		nni_aio_set_msg(aio, msg);
-		nni_mtx_unlock(&qstrm->mtx);
-		nni_aio_finish_sync(aio, 0, 0);
-		break;
-		*/
 	case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
 		// The peer gracefully shut down its send direction of the
 		// stream.
@@ -377,17 +354,18 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 			break;
 		}
 
-		qstrm->pipe = nng_alloc(pipe_ops->pipe_size);
-		nni_lmq_init(&qstrm->recv_messages, NNG_MAX_RECV_LMQ);
-		nni_lmq_init(&qstrm->send_messages, NNG_MAX_SEND_LMQ);
-		pipe_ops->pipe_init(qstrm->pipe, qstrm, Context);
-
-		if (0 != quic_pipe_start(Connection, qstrm, &qstrm->stream)) {
-			printf("Error in quic pipe start.\n");
-			pipe_ops->pipe_fini(qstrm->pipe);
+		// Start the quic stream
+		if (0 != quic_strm_start(Connection, qstrm, &qstrm->stream)) {
+			printf("Error in quic strm start.\n");
+			break;
 		}
 		MsQuic->StreamReceiveSetEnabled(qstrm->stream, FALSE);
 
+		// Start the nng pipe
+		if ((qstrm->pipe = nng_alloc(pipe_ops->pipe_size)) == NULL) {
+			printf("error in alloc pipe.\n");
+		}
+		pipe_ops->pipe_init(qstrm->pipe, qstrm, Context);
 		pipe_ops->pipe_start(qstrm->pipe);
 		break;
 	case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
@@ -420,6 +398,7 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		if (!Event->SHUTDOWN_COMPLETE.AppCloseInProgress) {
 			MsQuic->ConnectionClose(Connection);
 		}
+
 		if (qstrm->rticket_sz != 0) {
 			printf("[conn][%p] resume by ticket\n", Connection);
 			quic_reconnect(qstrm);
@@ -430,7 +409,8 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 			pipe_ops->pipe_close(qstrm->pipe);
 			pipe_ops->pipe_fini(qstrm->pipe);
 		}
-		quic_strm_free(qstrm);
+		quic_strm_fini(qstrm);
+		nng_free(qstrm, sizeof(quic_strm_t));
 		break;
 	case QUIC_CONNECTION_EVENT_RESUMPTION_TICKET_RECEIVED:
 		// A resumption ticket (also called New Session Ticket or NST)
@@ -456,6 +436,15 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 	return QUIC_STATUS_SUCCESS;
 }
 
+static int
+quic_strm_close(HQUIC Connection, HQUIC Stream)
+{
+	if (Stream)
+		MsQuic->StreamClose(Stream);
+	if (Connection)
+		MsQuic->ConnectionShutdown(Connection, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
+}
+
 /**
  * @brief
  *
@@ -465,8 +454,7 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
  * @return int
  */
 static int
-quic_pipe_start(
-    _In_ HQUIC Connection, _In_ void *Context, _Out_ HQUIC *Streamp)
+quic_strm_start(HQUIC Connection, void *Context, HQUIC *Streamp)
 {
 	HQUIC       Stream = NULL;
 	QUIC_STATUS Status;
@@ -569,16 +557,13 @@ quic_connect(const char *url, nni_sock *sock)
 
 	nng_url *url_s;
 
-	void  *sock_data = nni_sock_proto_data(sock);
+	void *sock_data = nni_sock_proto_data(sock);
 	// Allocate a new connection object.
 	if (QUIC_FAILED(Status = MsQuic->ConnectionOpen(Registration,
 	                    QuicConnectionCallback, sock_data, &Connection))) {
 		printf("ConnectionOpen failed, 0x%x!\n", Status);
 		goto Error;
 	}
-
-	if (url == NULL)
-		url = "mqtt-quic://127.0.0.1:14567";
 
 	nng_url_parse(&url_s, url);
 	for (int i = 0; i < strlen(url_s->u_host); ++i)
@@ -588,13 +573,14 @@ quic_connect(const char *url, nni_sock *sock)
 		}
 
 	// Create a pipe for quic client
-	if (0 != quic_strm_alloc(&qstrm)) {
-		printf("Error in alloc quic strm alloc.\n");
+	if ((qstrm = nng_alloc(sizeof(quic_strm_t))) == NULL) {
+		printf("Error in alloc quic strm.\n");
 	}
+	quic_strm_init(qstrm);
+
 	qstrm->url_s = url_s;
 	qstrm->sock = sock;
-	printf("sock is set %p\n", sock);
-	GStream = qstrm; // TODO move init work to quic_strm_init
+	GStream = qstrm; // It should be stored in sock, but...
 
 	printf("[conn] Connecting... %s : %s\n", url_s->u_host, url_s->u_port);
 
@@ -613,45 +599,6 @@ Error:
 	}
 
 	return 0;
-}
-
-//
-// Helper function to convert a hex character to its decimal value.
-//
-static uint8_t
-DecodeHexChar(
-    _In_ char c
-    )
-{
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'A' && c <= 'F') return 10 + c - 'A';
-    if (c >= 'a' && c <= 'f') return 10 + c - 'a';
-    return 0;
-}
-
-//
-// Helper function to convert a string of hex characters to a byte buffer.
-//
-static uint32_t
-DecodeHexBuffer(
-    _In_z_ const char* HexBuffer,
-    _In_ uint32_t OutBufferLen,
-    _Out_writes_to_(OutBufferLen, return)
-        uint8_t* OutBuffer
-    )
-{
-    uint32_t HexBufferLen = (uint32_t)strlen(HexBuffer) / 2;
-    if (HexBufferLen > OutBufferLen) {
-        return 0;
-    }
-
-    for (uint32_t i = 0; i < HexBufferLen; i++) {
-        OutBuffer[i] =
-            (DecodeHexChar(HexBuffer[i * 2]) << 4) |
-            DecodeHexChar(HexBuffer[i * 2 + 1]);
-    }
-
-    return HexBufferLen;
 }
 
 static int
@@ -744,6 +691,9 @@ quic_strm_send_start(quic_strm_t *qstrm)
 
 	uint8_t type = (((uint8_t *)nni_msg_header(msg))[0] & 0xf0) >> 4;
 	printf("type is 0x%x.\n", type);
+	if (type == 1) {
+		printf("clientid is %s.\n", nng_mqtt_msg_get_connect_client_id(msg));
+	}
 
 	if (!buf)
 		printf("error in iov.\n");
@@ -785,7 +735,6 @@ quic_strm_recv_start(void *arg)
 {
 	printf("quic_strm_recv_start.\n");
 	quic_strm_t *qstrm = arg;
-	// NNI_ASSERT(qstrm->rxmsg == NULL);
 
 	// TODO recv_start can be called from sender
 	if (qstrm->closed) {
