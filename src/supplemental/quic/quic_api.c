@@ -605,25 +605,19 @@ quic_strm_send_start(quic_strm_t *qstrm)
 	// This runs to send the message.
 	msg = nni_aio_get_msg(aio);
 
-	// QUIC_BUFFER *buf[2];
 	QUIC_BUFFER *buf=(QUIC_BUFFER*)malloc(sizeof(QUIC_BUFFER)*2);
 	int          hl   = nni_msg_header_len(msg);
 	int          bl   = nni_msg_len(msg);
 
 	if (hl > 0) {
 		QUIC_BUFFER *buf1 = &buf[0];
-		// buf[0] = malloc(sizeof(QUIC_BUFFER) + hl);
-		// memcpy((char *) (bufs + 1), nni_msg_header(msg), hl);
 		buf1->Length = hl;
-		// bufs->Buffer = bufs + 1;
 		buf1->Buffer = nni_msg_header(msg);
 	}
 
 	if (bl > 0) {
 		QUIC_BUFFER *buf2 = &buf[1];
-		// memcpy((char *) (bufs2 + 1), nni_msg_body(msg), bl);
 		buf2->Length = bl;
-		// bufs2->Buffer = bufs2 + 1;
 		buf2->Buffer = nni_msg_body(msg);
 	}
 
@@ -639,11 +633,6 @@ quic_strm_send_start(quic_strm_t *qstrm)
 		printf("StreamSend failed, 0x%x!\n", Status);
 		free(buf);
 	}
-	// if (QUIC_FAILED(Status = MsQuic->StreamSend(qstrm->stream, bufs2, 1,
-	//                     QUIC_SEND_FLAG_ALLOW_0_RTT, bufs2))) {
-	// 	printf("StreamSend failed, 0x%x!\n", Status);
-	// 	free(bufs2);
-	// }
 }
 
 static void
