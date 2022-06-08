@@ -185,8 +185,14 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			qstrm->rxlen = 0 + n;
 			MsQuic->StreamReceiveComplete(qstrm->stream, n);
 			if (qstrm->rxbuf[1] == 0) {
-				// TODO PING back
-				return QUIC_STATUS_PENDING;
+				// 0 remaining length could be
+				// PINGRESP/DISCONNECT
+				if (0 != nng_msg_alloc(&qstrm->rxmsg, 0)) {
+					printf("error in msg allocated.\n");
+				}
+				nni_msg_header_append(
+				    qstrm->rxmsg, qstrm->rxbuf, 2);
+				goto upload;
 			}
 			if (qstrm->rxbuf[1] == 2)
 				qstrm->rwlen = n + 2; // Only this case exclude
@@ -281,7 +287,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		}
 		printf("4after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 
-		// get aio and trigger cb of protocol layer
+upload:		// get aio and trigger cb of protocol layer
 		nni_mtx_lock(&qstrm->mtx);
 		nni_aio *aio = nni_list_first(&qstrm->recvq);
 		nni_mtx_unlock(&qstrm->mtx);
