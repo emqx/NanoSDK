@@ -287,6 +287,7 @@ mqtt_quic_recv_cb(void *arg)
 	
 	switch (packet_type) {
 	case NNG_MQTT_CONNACK:
+		nni_msg_free(msg);
 		break;
 	case NNG_MQTT_PUBACK:
 		// we have received a PUBACK, successful delivery of a QoS 1
