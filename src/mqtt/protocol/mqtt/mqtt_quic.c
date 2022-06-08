@@ -348,6 +348,8 @@ mqtt_quic_recv_cb(void *arg)
 		}
 		break;
 	case NNG_MQTT_PINGRESP:
+		// PINGRESP is ignored in protocol layer
+		// Rely on health checker of Quic stream
 		// free msg
 		nni_msg_free(msg);
 		nni_mtx_unlock(&s->mtx);
@@ -401,9 +403,6 @@ mqtt_timer_cb(void *arg)
 		nni_msg_clone(s->ping_msg);
 		quic_strm_send(p->qstream, &p->rep_aio);
 		s->counter = 0;
-		nni_mtx_unlock(&s->mtx);
-		nni_sleep_aio(s->retry * NNI_SECOND, &s->time_aio);
-		return;
 	}
 	// start message resending
 	uint64_t row_id = 0;
