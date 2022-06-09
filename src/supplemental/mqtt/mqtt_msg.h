@@ -382,6 +382,7 @@ extern void                nni_mqtt_topic_qos_array_set(
                    nni_mqtt_topic_qos *, size_t, const char *, uint8_t);
 extern void nni_mqtt_topic_qos_array_free(nni_mqtt_topic_qos *, size_t);
 
+extern void mqtt_close_unack_msg_cb(void *key, void *val);
 #ifdef __cplusplus
 }
 #endif
