@@ -49,7 +49,7 @@ const QUIC_API_TABLE *MsQuic;
 HQUIC                 Registration;
 HQUIC                 Configuration;
 
-quic_strm_t *GStream;
+quic_strm_t *GStream = NULL;
 
 nni_proto *g_quic_proto;
 
