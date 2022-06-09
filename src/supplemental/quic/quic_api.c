@@ -13,6 +13,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#define QUIC_0_RTT_SUPPORTED 0
+
 typedef struct quic_strm_s quic_strm_t;
 
 struct quic_strm_s {
@@ -51,9 +53,9 @@ quic_strm_t *GStream;
 
 nni_proto *g_quic_proto;
 
-static int quic_strm_start(HQUIC Connection, void *Context, HQUIC *Streamp);
-static int quic_strm_close(HQUIC Connection, HQUIC Stream);
 static BOOLEAN LoadConfiguration(BOOLEAN Unsecure);
+static int     quic_strm_start(HQUIC Connection, void *Context, HQUIC *Streamp);
+static int     quic_strm_close(HQUIC Connection, HQUIC Stream);
 static void    quic_strm_send_cancel(nni_aio *aio, void *arg, int rv);
 static void    quic_strm_send_start(quic_strm_t *qstrm);
 static void    quic_strm_recv_cb();
@@ -68,8 +70,7 @@ LoadConfiguration(BOOLEAN Unsecure)
 {
 	QUIC_SETTINGS Settings = { 0 };
 	// Configures the client's idle timeout.
-	Settings.IdleTimeoutMs       = 25*1000;
-	// Settings.IdleTimeoutMs       = 5*60*1000;
+	Settings.IdleTimeoutMs       = 5*60*1000;
 	Settings.IsSet.IdleTimeoutMs = TRUE;
 
 	// Configures a default client configuration, optionally disabling
@@ -144,8 +145,8 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 {
 	quic_strm_t *qstrm = Context;
 	int rlen, n;
-	uint32_t usedbytes, remain_len;
-	uint8_t *rbuf;
+	uint32_t remain_len;
+	uint8_t *rbuf, usedbytes;
 	nni_msg *rmsg, *smsg;
 	nni_aio *aio;
 
@@ -204,7 +205,6 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			}
 			if (qstrm->rxbuf[1] == 2)
 				qstrm->rwlen = n + 2; // Only this case exclude
-			// if (qstrm->rxbuf[1] > 0x7f)
 			else
 				qstrm->rwlen = n + 3;
 
@@ -346,13 +346,16 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		// do not init any var here due to potential frequent reconnect
 		printf("[conn][%p] Connected\n", Connection);
 
+#if QUIC_0_RTT_SUPPORTED
 		if (qstrm->rticket_sz != 0) {
 			MsQuic->ConnectionSendResumptionTicket(Connection,
-			    QUIC_SEND_RESUMPTION_FLAG_NONE, 0, NULL);
-			printf("[conn][%p] resumption ticket is sent\n",
-			    Connection);
+			    QUIC_SEND_RESUMPTION_FLAG_NONE, qstrm->rticket_sz, qstrm->rticket);
+			// QUIC_SEND_RESUMPTION_FLAG_NONE
+			printf("[conn][%p] resumption ticket(%u bytes) is sent\n",
+			    Connection, qstrm->rticket_sz);
 			break;
 		}
+#endif
 
 		// Start the quic stream
 		if (0 != quic_strm_start(Connection, qstrm, &qstrm->stream)) {
@@ -365,7 +368,7 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		if ((qstrm->pipe = nng_alloc(pipe_ops->pipe_size)) == NULL) {
 			printf("error in alloc pipe.\n");
 		}
-		pipe_ops->pipe_init(qstrm->pipe, qstrm, Context);
+		pipe_ops->pipe_init(qstrm->pipe, (nni_pipe *)qstrm, Context);
 		pipe_ops->pipe_start(qstrm->pipe);
 		break;
 	case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
@@ -386,24 +389,23 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 	case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
 		// The connection was explicitly shut down by the peer.
 		printf("[conn][%p] Shut down by peer, 0x%llu\n", Connection,
-		    (unsigned long long)
-		        Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
-		// pipe_ops->pipe_close(qstrm->pipe);
-		// pipe_ops->pipe_fini(qstrm->pipe);
+		    (unsigned long long) Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
 		break;
 	case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
 		// The connection has completed the shutdown process and is
 		// ready to be safely cleaned up.
-		// printf("[conn][%p] All done\n", Connection);
+		printf("[conn][%p] All done\n", Connection);
 		if (!Event->SHUTDOWN_COMPLETE.AppCloseInProgress) {
 			MsQuic->ConnectionClose(Connection);
 		}
 
+#if QUIC_0_RTT_SUPPORTED
 		if (qstrm->rticket_sz != 0) {
 			printf("[conn][%p] resume by ticket\n", Connection);
 			quic_reconnect(qstrm);
 			break;
 		}
+#endif
 
 		if (qstrm->pipe) {
 			pipe_ops->pipe_close(qstrm->pipe);
@@ -416,8 +418,8 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		// A resumption ticket (also called New Session Ticket or NST)
 		// was received from the server.
 		printf("[conn][%p] Resumption ticket received (%u bytes):\n",
-		    Connection,
-		    Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength);
+		    Connection, Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength);
+		/*
 		for (uint32_t i = 0; i <
 		     Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength;
 		     i++) {
@@ -425,10 +427,13 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 			    (uint8_t) Event->RESUMPTION_TICKET_RECEIVED
 			        .ResumptionTicket[i]);
 		}
+		printf("\n");
+		*/
+#if QUIC_0_RTT_SUPPORTED
 		qstrm->rticket_sz = Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength;
 		memcpy(qstrm->rticket, Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicket,
-			Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength);
-		printf("\n");
+		        Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength);
+#endif
 		break;
 	default:
 		break;
@@ -575,6 +580,7 @@ quic_connect(const char *url, nni_sock *sock)
 	// Create a pipe for quic client
 	if ((qstrm = nng_alloc(sizeof(quic_strm_t))) == NULL) {
 		printf("Error in alloc quic strm.\n");
+		goto Error;
 	}
 	quic_strm_init(qstrm);
 
@@ -621,6 +627,7 @@ quic_reconnect(quic_strm_t *qstrm)
 		printf("ConnectionOpen failed, 0x%x!\n", Status);
 		goto Error;
 	}
+	/*
 	if (qstrm->rticket_sz != 0) {
 		if (QUIC_FAILED(Status = MsQuic->SetParam(Connection,
 		                    QUIC_PARAM_CONN_RESUMPTION_TICKET,
@@ -631,6 +638,7 @@ quic_reconnect(quic_strm_t *qstrm)
 			goto Error;
 		}
 	}
+	*/
 
 	printf("[conn] ReConnecting... %s : %s\n", url_s->u_host, url_s->u_port);
 
