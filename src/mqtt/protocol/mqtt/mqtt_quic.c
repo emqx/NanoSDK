@@ -116,15 +116,14 @@ mqtt_pipe_get_next_packet_id(mqtt_pipe_t *p)
 }
 
 // Should be called with mutex lock hold after pipe is secured
-// return true when aio should be finished
-static inline bool
+// return rv>0 when aio should be finished (error or successed)
+static inline int
 mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 {
 	mqtt_pipe_t *p   = s->pipe;
 	nni_msg *    *tmsg;
 	uint16_t     ptype, packet_id;
 	uint8_t      qos = 0;
-	bool 	     rv = false;
 
 	ptype = nni_mqtt_msg_get_packet_type(msg);
 	switch (ptype) {
@@ -168,12 +167,13 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 		}
 		break;
 	default:
-		nni_aio_finish_error(aio, NNG_EPROTO);
-		return false;
+		return NNG_EPROTO;
 	}
 	if (!p->busy) {
 		nni_mqtt_msg_encode(msg);
 		nni_aio_set_msg(&p->send_aio, msg);
+		nni_aio_bump_count(
+		    aio, nni_msg_header_len(msg) + nni_msg_len(msg));
 		p->busy = true;
 		quic_strm_send(p->qstream, &p->send_aio);
 	} else {
@@ -187,9 +187,9 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 	}
 	if (0 == qos && ptype != NNG_MQTT_SUBSCRIBE &&
 	    ptype != NNG_MQTT_UNSUBSCRIBE) {
-		return true;
+		return 0;
 	}
-	return false;
+	return -1;
 }
 
 static void
@@ -226,7 +226,12 @@ mqtt_quic_send_cb(void *arg)
 	if ((aio = nni_list_first(&s->send_queue)) != NULL) {
 		nni_list_remove(&s->send_queue, aio);
 		msg = nni_aio_get_msg(aio);
-		mqtt_send_msg(aio, msg, s);
+		int rv = 0;
+		if ((rv = mqtt_send_msg(aio, msg, s)) >= 0){
+			nni_mtx_unlock(&s->mtx);
+			nni_aio_finish(aio, rv, 0);
+			return;
+		}
 		nni_mtx_unlock(&s->mtx);
 		return;
 	}
@@ -448,16 +453,87 @@ mqtt_timer_cb(void *arg)
 	return;
 }
 
+/*       MQTT over Quic Sock        */
+
+static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
+{
+	NNI_ARG_UNUSED(arg);
+	NNI_ARG_UNUSED(sock);
+	mqtt_sock_t *s = arg;
+
+	nni_atomic_init_bool(&s->closed);
+	nni_atomic_set_bool(&s->closed, false);
+
+	// this is a pre-defined timer for global timer
+	s->retry   = 5;  // 5 seconds as default
+	s->counter = 0;
+
+	nni_mtx_init(&s->mtx);
+	// mqtt_ctx_init(&s->master, s);
+
+#ifdef NNG_SUPP_SQLITE
+	nni_qos_db_init_sqlite(s->sqlite_db, DB_NAME, false);
+	nni_qos_db_reset_client_msg_pipe_id(s->sqlite_db);
+#endif
+	nni_lmq_init(&s->send_messages, NNG_MAX_SEND_LMQ);
+	nni_aio_list_init(&s->send_queue);
+	nni_aio_list_init(&s->recv_queue);
+	nni_aio_init(&s->time_aio, mqtt_timer_cb, s);
+
+	s->pipe = NULL;
+
+	s->cb.connect_cb = NULL;
+	s->cb.disconnect_cb = NULL;
+	s->cb.msg_recv_cb = NULL;
+	s->cb.msg_send_cb = NULL;
+}
+
 static void
 mqtt_quic_sock_fini(void *arg)
 {
 	mqtt_sock_t *s = arg;
-	nni_plat_printf("sock finit\n");
 #ifdef NNG_SUPP_SQLITE
 	nni_qos_db_fini_sqlite(s->sqlite_db);
 #endif
+	// mqtt_ctx_fini(&s->master);
 	nni_lmq_fini(&s->send_messages);
 	nni_aio_fini(&s->time_aio);
+}
+
+static void
+mqtt_quic_sock_open(void *arg)
+{
+	mqtt_sock_t *s = arg;
+	uint8_t buf[2] = {0xC0,0x00};
+	nni_sleep_aio(s->retry * NNI_SECOND, &s->time_aio);
+	// alloc Ping msg
+	nng_msg_alloc(&s->ping_msg, 0);
+	nng_msg_header_append(s->ping_msg, buf, 1);
+	nng_msg_append(s->ping_msg, buf+1, 1);
+}
+
+static void
+mqtt_quic_sock_close(void *arg)
+{
+	mqtt_sock_t *s = arg;
+	nni_msg *msg;
+	nni_aio *aio;
+	while ((aio = nni_list_first(&s->send_queue)) != NULL) {
+		nni_list_remove(&s->send_queue, aio);
+		msg = nni_aio_get_msg(aio);
+		if (msg != NULL) {
+			nni_msg_free(msg);
+		}
+		nni_aio_finish_error(aio, NNG_ECLOSED);
+	}
+	while ((aio = nni_list_first(&s->recv_queue)) != NULL) {
+		// Pipe was closed.  just push an error back to the
+		// entire socket, because we only have one pipe
+		nni_list_remove(&s->recv_queue, aio);
+		// there should be no msg waiting
+		nni_aio_finish_error(aio, NNG_ECLOSED);
+	}
+	nni_aio_close(&s->time_aio);
 }
 
 static void
@@ -467,6 +543,7 @@ mqtt_quic_sock_send(void *arg, nni_aio *aio)
 	mqtt_sock_t *s   = arg;
 	mqtt_pipe_t *p   = s->pipe;
 	nni_msg *    msg, *tmsg;
+	int rv = 0;
 
 	if (nni_aio_begin(aio) != 0) {
 		return;
@@ -488,23 +565,24 @@ mqtt_quic_sock_send(void *arg, nni_aio *aio)
 		return;
 	}
 	if (p == NULL) {
-		nni_plat_printf("connection lost! caching aio \n");
+		// nni_plat_printf("connection lost! caching aio \n");
 		if (!nni_list_active(&s->send_queue, aio)) {
 			// cache aio
 			nni_list_append(&s->send_queue, aio);
 			nni_mtx_unlock(&s->mtx);
 		} else {
+			// aio is already on the list. Wrong behaviour from user
 			nni_msg_free(msg);
 			nni_mtx_unlock(&s->mtx);
 			nni_aio_set_msg(aio, NULL);
-			nni_aio_finish_error(aio, NNG_ECLOSED);
+			nni_aio_finish_error(aio, NNG_EBUSY);
 		}
 		return;
 	}
-	if (mqtt_send_msg(aio, msg, s)) {
+	if ((rv = mqtt_send_msg(aio, msg, s)) >= 0) {
 		nni_mtx_unlock(&s->mtx);
 		// nni_aio_set_msg(aio, NULL);
-		nni_aio_finish(aio, 0, 0);
+		nni_aio_finish(aio, rv, 0);
 		return;
 	}
 	nni_mtx_unlock(&s->mtx);
@@ -556,39 +634,6 @@ wait:
 		nni_aio_finish_error(aio, NNG_ECLOSED);
 	}
 	return;
-}
-
-static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
-{
-	NNI_ARG_UNUSED(arg);
-	NNI_ARG_UNUSED(sock);
-	mqtt_sock_t *s = arg;
-
-	nni_atomic_init_bool(&s->closed);
-	nni_atomic_set_bool(&s->closed, false);
-
-	// this is a pre-defined timer for global timer
-	s->retry   = 5;  // 5 seconds as default
-	s->counter = 0;
-
-	nni_mtx_init(&s->mtx);
-	// mqtt_ctx_init(&s->master, s);
-
-#ifdef NNG_SUPP_SQLITE
-	nni_qos_db_init_sqlite(s->sqlite_db, DB_NAME, false);
-	nni_qos_db_reset_client_msg_pipe_id(s->sqlite_db);
-#endif
-	nni_lmq_init(&s->send_messages, NNG_MAX_SEND_LMQ);
-	nni_aio_list_init(&s->send_queue);
-	nni_aio_list_init(&s->recv_queue);
-	nni_aio_init(&s->time_aio, mqtt_timer_cb, s);
-
-	s->pipe = NULL;
-
-	s->cb.connect_cb = NULL;
-	s->cb.disconnect_cb = NULL;
-	s->cb.msg_recv_cb = NULL;
-	s->cb.msg_send_cb = NULL;
 }
 
 /* Stream EQ Pipe */
@@ -659,15 +704,18 @@ quic_mqtt_stream_start(void *arg)
 	if ((aio = nni_list_first(&s->send_queue)) != NULL) {
 		nni_list_remove(&s->send_queue, aio);
 		msg = nni_aio_get_msg(aio);
-		if (mqtt_send_msg(aio, msg, s)) {
-			nni_aio_finish(aio, 0, 0);
+		int rv = 0;
+		if ((rv = mqtt_send_msg(aio, msg, s)) >= 0) {
+			nni_mtx_unlock(&s->mtx);
+			nni_aio_finish(aio, rv, 0);
+			quic_strm_recv(p->qstream, &p->recv_aio);
+			return;
 		}
 	}
 	nni_mtx_unlock(&s->mtx);
-	//initiate the global resend timer
-	// nni_sleep_aio(s->retry, &p->time_aio);
+	// initiate the global resend timer
+	//  nni_sleep_aio(s->retry, &p->time_aio);
 	quic_strm_recv(p->qstream, &p->recv_aio);
-
 	return;
 }
 
@@ -703,42 +751,6 @@ quic_mqtt_stream_close(void *arg)
 	nni_mtx_unlock(&s->mtx);
 
 	nni_atomic_set_bool(&p->closed, true);
-}
-
-static void
-mqtt_quic_sock_open(void *arg)
-{
-	mqtt_sock_t *s = arg;
-	uint8_t buf[2] = {0xC0,0x00};
-	nni_sleep_aio(s->retry * NNI_SECOND, &s->time_aio);
-	// alloc Ping msg
-	nng_msg_alloc(&s->ping_msg, 0);
-	nng_msg_header_append(s->ping_msg, buf, 1);
-	nng_msg_append(s->ping_msg, buf+1, 1);
-}
-
-static void
-mqtt_quic_sock_close(void *arg)
-{
-	mqtt_sock_t *s = arg;
-	nni_msg *msg;
-	nni_aio *aio;
-	while ((aio = nni_list_first(&s->send_queue)) != NULL) {
-		nni_list_remove(&s->send_queue, aio);
-		msg = nni_aio_get_msg(aio);
-		if (msg != NULL) {
-			nni_msg_free(msg);
-		}
-		nni_aio_finish_error(aio, NNG_ECLOSED);
-	}
-	while ((aio = nni_list_first(&s->recv_queue)) != NULL) {
-		// Pipe was closed.  just push an error back to the
-		// entire socket, because we only have one pipe
-		nni_list_remove(&s->recv_queue, aio);
-		// there should be no msg waiting
-		nni_aio_finish_error(aio, NNG_ECLOSED);
-	}
-	nni_aio_close(&s->time_aio);
 }
 
 static nni_proto_pipe_ops mqtt_quic_pipe_ops = {
