@@ -30,10 +30,14 @@ static void mqtt_quic_recv_cb(void *arg);
 static void mqtt_timer_cb(void *arg);
 
 struct mqtt_client_cb {
-	int (*connect_cb)(void *);
-	int (*msg_send_cb)(void *);
-	int (*msg_recv_cb)(void *);
-	int (*disconnect_cb)(void *);
+	int (*connect_cb)(void *, void *);
+	void *connarg;
+	int (*msg_send_cb)(void *, void *);
+	void *sendarg;
+	int (*msg_recv_cb)(void *, void *);
+	void *recvarg;
+	int (*disconnect_cb)(void *, void *);
+	void *discarg;
 };
 
 // A mqtt_sock_s is our per-socket protocol private structure.
@@ -192,6 +196,7 @@ static void
 mqtt_qos_send_cb(void *arg)
 {
 }
+
 static void
 mqtt_quic_send_cb(void *arg)
 {
@@ -236,7 +241,7 @@ mqtt_quic_send_cb(void *arg)
 	nni_mtx_unlock(&s->mtx);
 
 	if (s->cb.msg_send_cb)
-		s->cb.msg_send_cb(NULL);
+		s->cb.msg_send_cb(NULL, s->cb.sendarg);
 
 	return;
 }
@@ -373,10 +378,10 @@ mqtt_quic_recv_cb(void *arg)
 
 	if (packet_type == NNG_MQTT_CONNACK)
 		if (s->cb.connect_cb) // Trigger cb
-			s->cb.connect_cb(msg);
+			s->cb.connect_cb(msg, s->cb.connarg);
 	if (packet_type == NNG_MQTT_PUBLISH)
 		if (s->cb.msg_recv_cb) // Trigger cb
-			s->cb.msg_recv_cb(msg);
+			s->cb.msg_recv_cb(msg, s->cb.recvarg);
 }
 
 // Timer callback, we use it for retransmition.
@@ -619,6 +624,8 @@ quic_mqtt_stream_fini(void *arg)
 {
 	nni_plat_printf("quic_mqtt_stream_finit.\n");
 	mqtt_pipe_t *p = arg;
+	mqtt_sock_t *s = p->mqtt_sock;
+
 	nni_msg * msg;
 	if ((msg = nni_aio_get_msg(&p->recv_aio)) != NULL) {
 		nni_aio_set_msg(&p->recv_aio, NULL);
@@ -635,6 +642,8 @@ quic_mqtt_stream_fini(void *arg)
 	nni_id_map_fini(&p->sent_unack);
 	nni_id_map_fini(&p->recv_unack);
 	nni_lmq_fini(&p->recv_messages);
+
+	s->cb.disconnect_cb(s->cb.discarg, NULL);
 }
 
 static void
@@ -802,7 +811,7 @@ nng_mqtt_quic_client_open(nng_socket *sock, const char *url)
 }
 
 int
-nng_mqtt_quic_set_connect_cb(nng_socket *sock, int (*cb)(void *))
+nng_mqtt_quic_set_connect_cb(nng_socket *sock, int (*cb)(void *, void *), void *arg)
 {
 	nni_sock *nsock = NULL;
 
@@ -810,6 +819,7 @@ nng_mqtt_quic_set_connect_cb(nng_socket *sock, int (*cb)(void *))
 	if (nsock) {
 		mqtt_sock_t *mqtt_sock = nni_sock_proto_data(nsock);
 		mqtt_sock->cb.connect_cb = cb;
+		mqtt_sock->cb.connarg = arg;
 	} else {
 		return -1;
 	}
@@ -817,7 +827,23 @@ nng_mqtt_quic_set_connect_cb(nng_socket *sock, int (*cb)(void *))
 }
 
 int
-nng_mqtt_quic_set_msg_recv_cb(nng_socket *sock, int (*cb)(void *))
+nng_mqtt_quic_set_disconnect_cb(nng_socket *sock, int (*cb)(void *, void *), void *arg)
+{
+	nni_sock *nsock = NULL;
+
+	nni_sock_find(&nsock, sock->id);
+	if (nsock) {
+		mqtt_sock_t *mqtt_sock = nni_sock_proto_data(nsock);
+		mqtt_sock->cb.disconnect_cb = cb;
+		mqtt_sock->cb.discarg = arg;
+	} else {
+		return -1;
+	}
+	return 0;
+}
+
+int
+nng_mqtt_quic_set_msg_recv_cb(nng_socket *sock, int (*cb)(void *, void *), void *arg)
 {
 	nni_sock *nsock = NULL;
 
@@ -825,6 +851,7 @@ nng_mqtt_quic_set_msg_recv_cb(nng_socket *sock, int (*cb)(void *))
 	if (nsock) {
 		mqtt_sock_t *mqtt_sock = nni_sock_proto_data(nsock);
 		mqtt_sock->cb.msg_recv_cb = cb;
+		mqtt_sock->cb.recvarg = arg;
 	} else {
 		return -1;
 	}
@@ -832,7 +859,7 @@ nng_mqtt_quic_set_msg_recv_cb(nng_socket *sock, int (*cb)(void *))
 }
 
 int
-nng_mqtt_quic_set_msg_send_cb(nng_socket *sock, int (*cb)(void *))
+nng_mqtt_quic_set_msg_send_cb(nng_socket *sock, int (*cb)(void *, void *), void *arg)
 {
 	nni_sock *nsock = NULL;
 
@@ -840,6 +867,7 @@ nng_mqtt_quic_set_msg_send_cb(nng_socket *sock, int (*cb)(void *))
 	if (nsock) {
 		mqtt_sock_t *mqtt_sock = nni_sock_proto_data(nsock);
 		mqtt_sock->cb.msg_send_cb = cb;
+		mqtt_sock->cb.sendarg = arg;
 	} else {
 		return -1;
 	}

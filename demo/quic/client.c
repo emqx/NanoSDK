@@ -119,9 +119,9 @@ mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 }
 
 static int
-connect_cb(void * arg)
+connect_cb(void *rmsg, void * arg)
 {
-	printf("[Connected]...\n");
+	printf("[Connected][%s]...\n", (char *)arg);
 
 	nng_msg *msg;
 	while (send_q_sz > 0) {
@@ -131,16 +131,22 @@ connect_cb(void * arg)
 }
 
 static int
-msg_send_cb(void * arg)
+disconnect_cb(void *rmsg, void * arg)
 {
-	printf("[Msg Sent]...\n");
+	printf("[Disconnected][%s]...\n", (char *)arg);
 }
 
 static int
-msg_recv_cb(void * arg)
+msg_send_cb(void *rmsg, void * arg)
 {
-	printf("[Msg Arrived]...\n");
-	nng_msg *msg = arg;
+	printf("[Msg Sent][%s]...\n", (char *)arg);
+}
+
+static int
+msg_recv_cb(void *rmsg, void * arg)
+{
+	printf("[Msg Arrived][%s]...\n", (char *)arg);
+	nng_msg *msg = rmsg;
 	uint32_t topicsz, payloadsz;
 
 	char *topic   = (char *)nng_mqtt_msg_get_publish_topic(msg, &topicsz);
@@ -153,16 +159,18 @@ msg_recv_cb(void * arg)
 int
 client(int type, const char *url, const char *qos, const char *topic, const char *data)
 {
-	nng_socket sock;
-	int        rv, sz, q;
-	nng_msg *  msg;
+	nng_socket  sock;
+	int         rv, sz, q;
+	nng_msg *   msg;
+	const char *arg = "CLIENT FOR QUIC";
 
 	if ((rv = nng_mqtt_quic_client_open(&sock, url)) != 0) {
 		printf("error in quic client open.\n");
 	}
-	if (0 != nng_mqtt_quic_set_connect_cb(&sock, connect_cb) ||
-	    0 != nng_mqtt_quic_set_msg_recv_cb(&sock, msg_recv_cb) ||
-	    0 != nng_mqtt_quic_set_msg_send_cb(&sock, msg_send_cb)) {
+	if (0 != nng_mqtt_quic_set_connect_cb(&sock, connect_cb, (void *)arg) ||
+	    0 != nng_mqtt_quic_set_disconnect_cb(&sock, disconnect_cb, (void *)arg) ||
+	    0 != nng_mqtt_quic_set_msg_recv_cb(&sock, msg_recv_cb, (void *)arg) ||
+	    0 != nng_mqtt_quic_set_msg_send_cb(&sock, msg_send_cb, (void *)arg)) {
 		printf("error in quic client cb set.\n");
 	}
 	g_sock = &sock;
