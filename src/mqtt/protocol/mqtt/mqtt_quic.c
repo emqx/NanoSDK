@@ -205,7 +205,6 @@ mqtt_quic_send_cb(void *arg)
 	nni_msg *    msg = NULL;
 	nni_aio * aio;
 
-	nni_plat_printf("Quic send callback\n");
 
 	if (nni_aio_result(&p->send_aio) != 0) {
 		// We failed to send... clean up and deal with it.
@@ -233,14 +232,21 @@ mqtt_quic_send_cb(void *arg)
 			return;
 		}
 		nni_mtx_unlock(&s->mtx);
+		if (s->cb.msg_send_cb)
+			s->cb.msg_send_cb(NULL);
 		return;
 	}
 	// Check cached msg in lmq later
+	// this msg is already proessed by mqtt_send_msg
 	if (nni_lmq_get(&s->send_messages, &msg) == 0) {
 		p->busy = true;
 		nni_mqtt_msg_encode(msg);
 		nni_aio_set_msg(&p->send_aio, msg);
 		quic_strm_send(p->qstream, &p->send_aio);
+		nni_mtx_unlock(&s->mtx);
+		if (s->cb.msg_send_cb)
+			s->cb.msg_send_cb(NULL);
+		return;
 	}
 	p->busy = false;
 	nni_mtx_unlock(&s->mtx);
@@ -254,7 +260,6 @@ mqtt_quic_send_cb(void *arg)
 static void
 mqtt_quic_recv_cb(void *arg)
 {
-	nni_plat_printf("Quic recv callback\n");
 	mqtt_pipe_t *p = arg;
 	mqtt_sock_t *s = p->mqtt_sock;
 	nni_aio * user_aio = NULL;
@@ -321,6 +326,29 @@ mqtt_quic_recv_cb(void *arg)
 		}
 		nni_msg_free(msg);
 		break;
+	case NNG_MQTT_PUBREL:
+		packet_id = nni_mqtt_msg_get_pubrel_packet_id(msg);
+		cached_msg = nni_id_get(&p->recv_unack, packet_id);
+		nni_msg_free(msg);
+		if (cached_msg == NULL) {
+			nni_plat_printf("ERROR! packet id %d not found\n", packet_id);
+			break;
+		}
+		nni_id_remove(&p->recv_unack, packet_id);
+
+		if ((aio = nni_list_first(&s->recv_queue)) == NULL) {
+			// No one waiting to receive yet, putting msg
+			// into lmq
+			mqtt_pipe_recv_msgq_putq(p, cached_msg);
+			nni_mtx_unlock(&s->mtx);
+			// nni_println("ERROR: no ctx found!! create more ctxs!");
+			return;
+		}
+		nni_list_remove(&s->recv_queue, aio);
+		nni_aio_set_msg(aio, cached_msg);
+		nni_mtx_unlock(&s->mtx);
+		nni_aio_finish(aio, 0, 0);
+		return;
 	case NNG_MQTT_PUBLISH:
 		// we have received a PUBLISH
 		qos = nni_mqtt_msg_get_publish_qos(msg);
@@ -505,7 +533,8 @@ mqtt_quic_sock_open(void *arg)
 {
 	mqtt_sock_t *s = arg;
 	uint8_t buf[2] = {0xC0,0x00};
-	nni_sleep_aio(s->retry * NNI_SECOND, &s->time_aio);
+	// enable time aio in sock open when utlize 0RTT to unbind MQTT with Gstream
+	// nni_sleep_aio(s->retry * NNI_SECOND, &s->time_aio);
 	// alloc Ping msg
 	nng_msg_alloc(&s->ping_msg, 0);
 	nng_msg_header_append(s->ping_msg, buf, 1);
@@ -597,7 +626,6 @@ mqtt_quic_sock_recv(void *arg, nni_aio *aio)
 	mqtt_pipe_t *p   = s->pipe;
 	nni_msg     *msg = NULL;
 
-	nni_plat_printf("sock recv!\n");
 	if (nni_aio_begin(aio) != 0) {
 		return;
 	}
@@ -622,7 +650,7 @@ mqtt_quic_sock_recv(void *arg, nni_aio *aio)
 	}
 	// no open pipe or msg wating
 wait:
-	nni_plat_printf("connection lost! caching aio \n");
+	// nni_plat_printf("connection lost! caching aio \n");
 	if (!nni_list_active(&s->recv_queue, aio)) {
 		// cache aio
 		nni_list_append(&s->recv_queue, aio);
@@ -631,12 +659,12 @@ wait:
 		nni_mtx_unlock(&s->mtx);
 		nni_aio_set_msg(aio, NULL);
 		// nni_println("ERROR! former aio not finished!");
-		nni_aio_finish_error(aio, NNG_ECLOSED);
+		nni_aio_finish_error(aio, NNG_EBUSY);
 	}
 	return;
 }
 
-/* Stream EQ Pipe */
+/* Stream = Pipe */
 
 static int
 quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
@@ -649,7 +677,7 @@ quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
 
 	p->closed = false;
 	p->busy   = false;
-	p->next_packet_id = 0;
+	p->next_packet_id = 1;
 	// p->mqtt_sock = s;
 	nni_aio_init(&p->send_aio, mqtt_quic_send_cb, p);
 	nni_aio_init(&p->rep_aio, mqtt_qos_send_cb, p);
@@ -657,7 +685,12 @@ quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
 	// Packet IDs are 16 bits
 	// We start at a random point, to minimize likelihood of
 	// accidental collision across restarts.
+#ifdef NNG_SUPP_SQLITE
+	p->sent_unack = p->mqtt_sock->sqlite_db;
+#else
 	nni_id_map_init(&p->sent_unack, 0x0000u, 0xffffu, true);
+#endif
+	nni_id_map_init(&p->recv_unack, 0x0000u, 0xffffu, true);
 	nni_id_map_init(&p->recv_unack, 0x0000u, 0xffffu, true);
 	nni_lmq_init(&p->recv_messages, NNG_MAX_RECV_LMQ);
 
@@ -684,7 +717,9 @@ quic_mqtt_stream_fini(void *arg)
 	nni_aio_fini(&p->send_aio);
 	nni_aio_fini(&p->recv_aio);
 	nni_aio_fini(&p->rep_aio);
+#ifndef NNG_SUPP_SQLITE
 	nni_id_map_fini(&p->sent_unack);
+#endif
 	nni_id_map_fini(&p->recv_unack);
 	nni_lmq_fini(&p->recv_messages);
 
@@ -694,11 +729,10 @@ quic_mqtt_stream_fini(void *arg)
 static void
 quic_mqtt_stream_start(void *arg)
 {
-	nni_plat_printf("quic_mqtt_stream_start.\n");
 	mqtt_pipe_t *p = arg;
 	mqtt_sock_t *s = p->mqtt_sock;
-	nni_aio   *aio;
-	nni_msg *msg;
+	nni_aio     *aio;
+	nni_msg     *msg;
 
 	nni_mtx_lock(&s->mtx);
 	if ((aio = nni_list_first(&s->send_queue)) != NULL) {
@@ -708,13 +742,14 @@ quic_mqtt_stream_start(void *arg)
 		if ((rv = mqtt_send_msg(aio, msg, s)) >= 0) {
 			nni_mtx_unlock(&s->mtx);
 			nni_aio_finish(aio, rv, 0);
+			nni_sleep_aio(s->retry * NNI_SECOND, &s->time_aio);
 			quic_strm_recv(p->qstream, &p->recv_aio);
 			return;
 		}
 	}
 	nni_mtx_unlock(&s->mtx);
 	// initiate the global resend timer
-	//  nni_sleep_aio(s->retry, &p->time_aio);
+	nni_sleep_aio(s->retry * NNI_SECOND, &s->time_aio);
 	quic_strm_recv(p->qstream, &p->recv_aio);
 	return;
 }
@@ -722,7 +757,6 @@ quic_mqtt_stream_start(void *arg)
 static void
 quic_mqtt_stream_stop(void *arg)
 {
-	nni_plat_printf("quic_mqtt_stream_stop.\n");
 	mqtt_pipe_t *p = arg;
 
 	nni_aio_stop(&p->send_aio);
@@ -730,10 +764,25 @@ quic_mqtt_stream_stop(void *arg)
 	nni_aio_stop(&p->rep_aio);
 }
 
+void
+mqtt_close_unack_msg_cb(void *key, void *val)
+{
+	NNI_ARG_UNUSED(key);
+
+	nni_msg * msg = val;
+	nni_aio * aio = NULL;
+
+	aio = nni_mqtt_msg_get_aio(msg);
+	if (aio) {
+		nni_aio_finish_error(aio, NNG_ECLOSED);
+	}
+	nni_msg_free(msg);
+
+}
+
 static void
 quic_mqtt_stream_close(void *arg)
 {
-	nni_plat_printf("quic_mqtt_stream_close.\n");
 	mqtt_pipe_t *p = arg;
 	mqtt_sock_t *s = p->mqtt_sock;
 
@@ -744,10 +793,10 @@ quic_mqtt_stream_close(void *arg)
 	nni_aio_close(&p->rep_aio);
 	nni_lmq_flush(&p->recv_messages);
 	nni_lmq_flush(&s->send_messages);
-// #ifndef NNG_SUPP_SQLITE
-// 	nni_id_map_foreach(&p->sent_unack, mqtt_close_unack_msg_cb);
-// #endif
-// 	nni_id_map_foreach(&p->recv_unack, mqtt_close_unack_msg_cb);
+#ifndef NNG_SUPP_SQLITE
+	nni_id_map_foreach(&p->sent_unack, mqtt_close_unack_msg_cb);
+#endif
+	nni_id_map_foreach(&p->recv_unack, mqtt_close_unack_msg_cb);
 	nni_mtx_unlock(&s->mtx);
 
 	nni_atomic_set_bool(&p->closed, true);
