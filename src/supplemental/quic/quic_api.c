@@ -29,8 +29,8 @@ struct quic_strm_s {
 	nni_lmq  send_messages; // send messages queue
 
 	nni_aio  rraio; // Use for re-receive when packet length is not enough
-	int      rxlen; // Length received
-	int      rwlen; // Length wanted
+	uint32_t rxlen; // Length received
+	uint32_t rwlen; // Length wanted
 	uint8_t  rxbuf[5];
 	nni_msg *rxmsg; // nng_msg for received
 };
@@ -147,19 +147,20 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 	case QUIC_STREAM_EVENT_SEND_COMPLETE:
 		// A previous StreamSend call has completed, and the context is
 		// being returned back to the app.
-		// free(Event->SEND_COMPLETE.ClientContext);
+		free(Event->SEND_COMPLETE.ClientContext);
 		printf("[strm][%p] Data sent\n", Stream);
 
 		// Get aio from sendq and finish
 		nni_mtx_lock(&qstrm->mtx);
-		if ((aio = nni_list_first(&qstrm->sendq)) != NULL)
+		if ((aio = nni_list_first(&qstrm->sendq)) != NULL) {
 			nni_aio_list_remove(aio);
+			nni_mtx_unlock(&qstrm->mtx);
+			smsg = nni_aio_get_msg(aio);
+			nni_msg_free(smsg);
+			nni_aio_finish(aio, 0, 0);
+			break;
+		}
 		nni_mtx_unlock(&qstrm->mtx);
-
-		smsg = nni_aio_get_msg(aio);
-		nni_msg_free(smsg);
-		nni_aio_finish(aio, 0, 0);
-
 		break;
 	case QUIC_STREAM_EVENT_RECEIVE:
 		// Data was received from the peer on the stream.
@@ -604,31 +605,45 @@ quic_strm_send_start(quic_strm_t *qstrm)
 	// This runs to send the message.
 	msg = nni_aio_get_msg(aio);
 
-	QUIC_BUFFER *bufs = NULL;
+	// QUIC_BUFFER *buf[2];
+	QUIC_BUFFER *buf=(QUIC_BUFFER*)malloc(sizeof(QUIC_BUFFER)*2);
 	int          hl   = nni_msg_header_len(msg);
 	int          bl   = nni_msg_len(msg);
 
-	if (hl > 0 && bl > 0) {
-		bufs = malloc(sizeof(QUIC_BUFFER) + bl + hl);
-		memcpy((char *) (bufs + 1), nni_msg_header(msg), hl);
-		memcpy((char *) (bufs + 1) + hl, nni_msg_body(msg), bl);
-		bufs->Length = hl + bl;
-		bufs->Buffer = bufs + 1;
+	if (hl > 0) {
+		QUIC_BUFFER *buf1 = &buf[0];
+		// buf[0] = malloc(sizeof(QUIC_BUFFER) + hl);
+		// memcpy((char *) (bufs + 1), nni_msg_header(msg), hl);
+		buf1->Length = hl;
+		// bufs->Buffer = bufs + 1;
+		buf1->Buffer = nni_msg_header(msg);
+	}
+
+	if (bl > 0) {
+		QUIC_BUFFER *buf2 = &buf[1];
+		// memcpy((char *) (bufs2 + 1), nni_msg_body(msg), bl);
+		buf2->Length = bl;
+		// bufs2->Buffer = bufs2 + 1;
+		buf2->Buffer = nni_msg_body(msg);
 	}
 
 	uint8_t type = (((uint8_t *)nni_msg_header(msg))[0] & 0xf0) >> 4;
 	printf("type is 0x%x.\n", type);
 
-	// handling msgs user dont care according to type has been done in protocol layer
-
-	if (!bufs)
+	if (!buf)
 		printf("error in iov.\n");
+	printf(" body len: %d header len: %d \n", buf[1].Length, buf[0].Length);
 
-	if (QUIC_FAILED(Status = MsQuic->StreamSend(qstrm->stream, bufs, 1,
-	                    QUIC_SEND_FLAG_NONE, bufs))) {
+	if (QUIC_FAILED(Status = MsQuic->StreamSend(qstrm->stream, buf, bl > 0 ? 2:1,
+	                    QUIC_SEND_FLAG_ALLOW_0_RTT, buf))) {
 		printf("StreamSend failed, 0x%x!\n", Status);
-		free(bufs);
+		free(buf);
 	}
+	// if (QUIC_FAILED(Status = MsQuic->StreamSend(qstrm->stream, bufs2, 1,
+	//                     QUIC_SEND_FLAG_ALLOW_0_RTT, bufs2))) {
+	// 	printf("StreamSend failed, 0x%x!\n", Status);
+	// 	free(bufs2);
+	// }
 }
 
 static void
