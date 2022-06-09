@@ -20,9 +20,10 @@ extern "C" {
 
 NNG_DECL int nng_mqtt_quic_client_open(nng_socket *, const char *url);
 
-NNG_DECL int nng_mqtt_quic_set_connect_cb(nng_socket *, int (*cb)(void *));
-NNG_DECL int nng_mqtt_quic_set_msg_recv_cb(nng_socket *, int (*cb)(void *));
-NNG_DECL int nng_mqtt_quic_set_msg_send_cb(nng_socket *, int (*cb)(void *));
+NNG_DECL int nng_mqtt_quic_set_connect_cb(nng_socket *, int (*cb)(void *, void *), void *arg);
+NNG_DECL int nng_mqtt_quic_set_disconnect_cb(nng_socket *, int (*cb)(void *, void *), void *arg);
+NNG_DECL int nng_mqtt_quic_set_msg_recv_cb(nng_socket *, int (*cb)(void *, void *), void *arg);
+NNG_DECL int nng_mqtt_quic_set_msg_send_cb(nng_socket *, int (*cb)(void *, void *), void *arg);
 
 #ifdef __cplusplus
 }
