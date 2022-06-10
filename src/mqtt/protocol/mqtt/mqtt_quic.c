@@ -340,15 +340,12 @@ mqtt_quic_recv_cb(void *arg)
 			// No one waiting to receive yet, putting msg
 			// into lmq
 			mqtt_pipe_recv_msgq_putq(p, cached_msg);
-			nni_mtx_unlock(&s->mtx);
-			// nni_println("ERROR: no ctx found!! create more ctxs!");
-			return;
+			break;
 		}
 		nni_list_remove(&s->recv_queue, aio);
-		nni_aio_set_msg(aio, cached_msg);
-		nni_mtx_unlock(&s->mtx);
-		nni_aio_finish(aio, 0, 0);
-		return;
+		user_aio  = aio;
+		nni_aio_set_msg(user_aio, cached_msg);
+		break;
 	case NNG_MQTT_PUBLISH:
 		// we have received a PUBLISH
 		qos = nni_mqtt_msg_get_publish_qos(msg);
@@ -762,22 +759,6 @@ quic_mqtt_stream_stop(void *arg)
 	nni_aio_stop(&p->send_aio);
 	nni_aio_stop(&p->recv_aio);
 	nni_aio_stop(&p->rep_aio);
-}
-
-void
-mqtt_close_unack_msg_cb(void *key, void *val)
-{
-	NNI_ARG_UNUSED(key);
-
-	nni_msg * msg = val;
-	nni_aio * aio = NULL;
-
-	aio = nni_mqtt_msg_get_aio(msg);
-	if (aio) {
-		nni_aio_finish_error(aio, NNG_ECLOSED);
-	}
-	nni_msg_free(msg);
-
 }
 
 static void
