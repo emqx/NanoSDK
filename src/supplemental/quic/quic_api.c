@@ -13,7 +13,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define QUIC_0_RTT_SUPPORTED 0
+#define QUIC_0_RTT_SUPPORTED 1
 
 typedef struct quic_strm_s quic_strm_t;
 
@@ -38,6 +38,7 @@ struct quic_strm_s {
 
 	uint8_t  rticket[2048];
 	uint16_t rticket_sz;
+	bool     rticket_active;
 	nng_url *url_s;
 };
 
@@ -70,7 +71,7 @@ LoadConfiguration(BOOLEAN Unsecure)
 {
 	QUIC_SETTINGS Settings = { 0 };
 	// Configures the client's idle timeout.
-	Settings.IdleTimeoutMs       = 5*60*1000;
+	Settings.IdleTimeoutMs       = 15*1000;
 	Settings.IsSet.IdleTimeoutMs = TRUE;
 
 	// Configures a default client configuration, optionally disabling
@@ -126,6 +127,7 @@ quic_strm_init(quic_strm_t *qstrm)
 
 	qstrm->url_s = NULL;
 	qstrm->rticket_sz = 0;
+	qstrm->rticket_active = false;
 }
 
 static void
@@ -348,25 +350,24 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		// do not init any var here due to potential frequent reconnect
 		printf("[conn][%p] Connected\n", Connection);
 
-#if QUIC_0_RTT_SUPPORTED
-		if (qstrm->rticket_sz != 0) {
+		if (qstrm->rticket_active && qstrm->rticket_sz != 0) {
 			MsQuic->ConnectionSendResumptionTicket(Connection,
 			    QUIC_SEND_RESUMPTION_FLAG_NONE, qstrm->rticket_sz, qstrm->rticket);
 			// QUIC_SEND_RESUMPTION_FLAG_NONE
 			printf("[conn][%p] resumption ticket(%u bytes) is sent\n",
 			    Connection, qstrm->rticket_sz);
-			break;
 		}
-#endif
 
-		// Start the quic stream
-		if (0 != quic_strm_start(Connection, qstrm, &qstrm->stream)) {
-			printf("Error in quic strm start.\n");
-			break;
+		// First starting the quic stream
+		if (!qstrm->rticket_active) {
+			if (0 != quic_strm_start(Connection, qstrm, &qstrm->stream)) {
+				printf("Error in quic strm start.\n");
+				break;
+			}
+			MsQuic->StreamReceiveSetEnabled(qstrm->stream, FALSE);
 		}
-		MsQuic->StreamReceiveSetEnabled(qstrm->stream, FALSE);
 
-		// Start the nng pipe
+		// Start/ReStart the nng pipe
 		if ((qstrm->pipe = nng_alloc(pipe_ops->pipe_size)) == NULL) {
 			printf("error in alloc pipe.\n");
 		}
@@ -401,20 +402,20 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 			MsQuic->ConnectionClose(Connection);
 		}
 
-#if QUIC_0_RTT_SUPPORTED
-		if (qstrm->rticket_sz != 0) {
-			printf("[conn][%p] resume by ticket\n", Connection);
-			quic_reconnect(qstrm);
-			break;
-		}
-#endif
-
+		// Close and finite nng pipe ONCE disconnect
 		if (qstrm->pipe) {
 			pipe_ops->pipe_close(qstrm->pipe);
 			pipe_ops->pipe_fini(qstrm->pipe);
 		}
-		quic_strm_fini(qstrm);
-		nng_free(qstrm, sizeof(quic_strm_t));
+
+		if (qstrm->rticket_active) {
+			printf("[conn][%p] try to resume by ticket\n", Connection);
+			quic_reconnect(qstrm);
+		} else { // No rticket
+			quic_strm_fini(qstrm);
+			nng_free(qstrm, sizeof(quic_strm_t));
+		}
+
 		break;
 	case QUIC_CONNECTION_EVENT_RESUMPTION_TICKET_RECEIVED:
 		// A resumption ticket (also called New Session Ticket or NST)
@@ -431,11 +432,10 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		}
 		printf("\n");
 		*/
-#if QUIC_0_RTT_SUPPORTED
+		qstrm->rticket_active = true;
 		qstrm->rticket_sz = Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength;
 		memcpy(qstrm->rticket, Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicket,
 		        Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength);
-#endif
 		break;
 	default:
 		break;
