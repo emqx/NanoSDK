@@ -130,6 +130,11 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 	case NNG_MQTT_CONNECT:
 		// TODO : only send CONNECT once
 		p->keepalive = nni_mqtt_msg_get_connect_keep_alive(msg);
+	case NNG_MQTT_PUBACK:
+	case NNG_MQTT_PUBREC:
+	case NNG_MQTT_PUBREL:
+	case NNG_MQTT_PUBCOMP:
+		// TODO MQTT V5
 	case NNG_MQTT_PINGREQ:
 		break;
 
@@ -172,8 +177,6 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 	if (!p->busy) {
 		nni_mqtt_msg_encode(msg);
 		nni_aio_set_msg(&p->send_aio, msg);
-		nni_aio_bump_count(
-		    aio, nni_msg_header_len(msg) + nni_msg_len(msg));
 		p->busy = true;
 		quic_strm_send(p->qstream, &p->send_aio);
 	} else {
@@ -349,9 +352,38 @@ mqtt_quic_recv_cb(void *arg)
 	case NNG_MQTT_PUBLISH:
 		// we have received a PUBLISH
 		qos = nni_mqtt_msg_get_publish_qos(msg);
+		uint8_t  buf[4];
+		// switch (qos)
+		// {
+		// case 2:
+		// 	/* code */
+		// 	break;
+		// case 1:
+		// case 0:
+		// 	break;
+		// default:
+		// 	break;
+		// }
+
 		if (2 > qos) {
-			// QoS 0, successful receipt
-			// QoS 1, the transport handled sending a PUBACK
+			if (qos == 1) {
+				// QoS 1 return PUBACK
+				nni_msg *ack;
+				nni_mqtt_msg_alloc(&ack, 0);
+				uint8_t *payload;
+				uint32_t payload_len;
+				payload = nng_mqtt_msg_get_publish_payload(msg, &payload_len);
+				printf("############## qos 1 msg received %s\n", payload);
+				packet_id = nni_mqtt_msg_get_publish_packet_id(msg);
+				nni_mqtt_msg_set_packet_type(ack, NNG_MQTT_PUBACK);
+				nni_mqtt_msg_set_puback_packet_id(ack, packet_id);
+				nni_mqtt_msg_encode(ack);
+				// ignore result of this send ?
+				mqtt_send_msg(NULL, ack, s);
+				// nng_aio_wait(&p->rep_aio);
+				// nni_aio_set_msg(&p->rep_aio, ack);
+				// quic_strm_send(p->qstream, &p->rep_aio);
+			}
 			if ((aio = nni_list_first(&s->recv_queue)) == NULL) {
 				// No one waiting to receive yet, putting msg
 				// into lmq
@@ -364,9 +396,7 @@ mqtt_quic_recv_cb(void *arg)
 			user_aio  = aio;
 			nni_aio_set_msg(user_aio, msg);
 			break;
-
 		} else {
-			// TODO check if this packetid already there
 			packet_id = nni_mqtt_msg_get_publish_packet_id(msg);
 			if ((cached_msg = nni_id_get(
 			         &p->recv_unack, packet_id)) != NULL) {
@@ -381,6 +411,15 @@ mqtt_quic_recv_cb(void *arg)
 				// pid);
 			}
 			nni_id_set(&p->recv_unack, packet_id, msg);
+			// return PUBREC
+							nni_msg *ack;
+				nng_msg_alloc(&ack, 0);
+				packet_id = nni_mqtt_msg_get_publish_packet_id(msg);
+				nng_msg_header_append(ack, 0x50, 1);
+				nng_msg_header_append(ack, 0x02, 1);
+				NNI_PUT16(buf, packet_id);
+				// ignore result of this send ?
+				mqtt_send_msg(NULL, ack, s);
 		}
 		break;
 	case NNG_MQTT_PINGRESP:
@@ -677,7 +716,7 @@ quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
 	p->next_packet_id = 1;
 	// p->mqtt_sock = s;
 	nni_aio_init(&p->send_aio, mqtt_quic_send_cb, p);
-	nni_aio_init(&p->rep_aio, mqtt_qos_send_cb, p);
+	nni_aio_init(&p->rep_aio, NULL, p);
 	nni_aio_init(&p->recv_aio, mqtt_quic_recv_cb, p);
 	// Packet IDs are 16 bits
 	// We start at a random point, to minimize likelihood of
