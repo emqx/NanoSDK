@@ -29,7 +29,7 @@ struct mqtt_tcptran_pipe {
 	nni_pipe *       npipe;
 	uint16_t         peer;
 	uint16_t         proto;
-	uint16_t         keepalive;
+	uint16_t         keepalive;	//keepalive time Second
 	size_t           rcvmax;
 	bool             closed;
 	bool             busy;
@@ -149,7 +149,7 @@ mqtt_pipe_timer_cb(void *arg)
 		nng_stream_send(p->conn, p->qsaio);
 	}
 	nni_mtx_unlock(&p->mtx);
-	nni_sleep_aio(p->keepalive, &p->tmaio);
+	nni_sleep_aio(p->keepalive * NNI_SECOND, &p->tmaio);
 }
 
 static void
@@ -191,7 +191,7 @@ mqtt_tcptran_pipe_init(void *arg, nni_pipe *npipe)
 
 	nni_lmq_init(&p->rslmq, 16);
 	p->busy = false;
-	nni_sleep_aio(p->keepalive, &p->tmaio);
+	nni_sleep_aio(p->keepalive * NNI_SECOND, &p->tmaio);
 	return (0);
 }
 
@@ -876,7 +876,7 @@ mqtt_tcptran_pipe_start(
 	if (!connmsg) {
 		nni_list_append(&ep->waitpipes, p);
 		// 60s as the default keepalive timeout.
-		p->keepalive = 60 * 1000;
+		p->keepalive = 60;
 		mqtt_tcptran_ep_match(ep);
 		return;
 	}
@@ -892,7 +892,7 @@ mqtt_tcptran_pipe_start(
 	p->wantrxhead = 2;
 	p->wanttxhead = nni_msg_header_len(connmsg) + nni_msg_len(connmsg);
 	p->rxmsg      = NULL;
-	p->keepalive  = nni_mqtt_msg_get_connect_keep_alive(connmsg) * 1000;
+	p->keepalive  = nni_mqtt_msg_get_connect_keep_alive(connmsg);
 
 	if (nni_msg_header_len(connmsg) > 0) {
 		iov[niov].iov_buf = nni_msg_header(connmsg);
