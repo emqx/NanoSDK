@@ -773,7 +773,7 @@ quic_mqtt_stream_fini(void *arg)
 	nni_id_map_fini(&p->recv_unack);
 	nni_lmq_fini(&p->recv_messages);
 
-	s->cb.disconnect_cb(s->cb.discarg, NULL);
+	s->cb.disconnect_cb(NULL, s->cb.discarg);
 }
 
 static void
