@@ -339,6 +339,16 @@ mqtt_quic_recv_cb(void *arg)
 		}
 		nni_id_remove(&p->recv_unack, packet_id);
 
+		// return PUBCOMP
+		nni_msg *ack;
+		nni_mqtt_msg_alloc(&ack, 0);
+		packet_id = nni_mqtt_msg_get_pubrel_packet_id(msg);
+		nni_mqtt_msg_set_packet_type(ack, NNG_MQTT_PUBCOMP);
+		nni_mqtt_msg_set_puback_packet_id(ack, packet_id);
+		nni_mqtt_msg_encode(ack);
+		// ignore result of this send ?
+		mqtt_send_msg(NULL, ack, s);
+		// return msg to user
 		if ((aio = nni_list_first(&s->recv_queue)) == NULL) {
 			// No one waiting to receive yet, putting msg
 			// into lmq
@@ -380,9 +390,6 @@ mqtt_quic_recv_cb(void *arg)
 				nni_mqtt_msg_encode(ack);
 				// ignore result of this send ?
 				mqtt_send_msg(NULL, ack, s);
-				// nng_aio_wait(&p->rep_aio);
-				// nni_aio_set_msg(&p->rep_aio, ack);
-				// quic_strm_send(p->qstream, &p->rep_aio);
 			}
 			if ((aio = nni_list_first(&s->recv_queue)) == NULL) {
 				// No one waiting to receive yet, putting msg
@@ -412,14 +419,19 @@ mqtt_quic_recv_cb(void *arg)
 			}
 			nni_id_set(&p->recv_unack, packet_id, msg);
 			// return PUBREC
-							nni_msg *ack;
-				nng_msg_alloc(&ack, 0);
-				packet_id = nni_mqtt_msg_get_publish_packet_id(msg);
-				nng_msg_header_append(ack, 0x50, 1);
-				nng_msg_header_append(ack, 0x02, 1);
-				NNI_PUT16(buf, packet_id);
-				// ignore result of this send ?
-				mqtt_send_msg(NULL, ack, s);
+			nni_msg *ack;
+			nni_mqtt_msg_alloc(&ack, 0);
+			uint8_t *payload;
+			uint32_t payload_len;
+			payload = nng_mqtt_msg_get_publish_payload(
+			    msg, &payload_len);
+			printf(
+			    "############## qos 2 msg received %s\n", payload);
+			nni_mqtt_msg_set_packet_type(ack, NNG_MQTT_PUBREC);
+			nni_mqtt_msg_set_puback_packet_id(ack, packet_id);
+			nni_mqtt_msg_encode(ack);
+			// ignore result of this send ?
+			mqtt_send_msg(NULL, ack, s);
 		}
 		break;
 	case NNG_MQTT_PINGRESP:
@@ -431,7 +443,7 @@ mqtt_quic_recv_cb(void *arg)
 		return;
 	case NNG_MQTT_PUBREC:
 		nni_msg_free(msg);
-		break;
+		return;
 	default:
 		// unexpected packet type, server misbehaviour
 		nni_mtx_unlock(&s->mtx);
