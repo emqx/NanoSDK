@@ -443,9 +443,11 @@ mqtt_quic_recv_cb(void *arg)
 		return;
 	case NNG_MQTT_PUBREC:
 		nni_msg_free(msg);
+		nni_mtx_unlock(&s->mtx);
 		return;
 	default:
 		// unexpected packet type, server misbehaviour
+		nni_msg_free(msg);
 		nni_mtx_unlock(&s->mtx);
 		// close quic stream
 		// nni_pipe_close(p->pipe);
