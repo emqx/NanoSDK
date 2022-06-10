@@ -168,8 +168,8 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			nni_aio_finish(aio, 0, 0);
 			break;
 		}
-		nni_mtx_unlock(&qstrm->mtx);
 		quic_strm_send_start(qstrm);
+		nni_mtx_unlock(&qstrm->mtx);
 		break;
 	case QUIC_STREAM_EVENT_RECEIVE:
 		// Data was received from the peer on the stream.
