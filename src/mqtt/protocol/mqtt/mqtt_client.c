@@ -1,5 +1,5 @@
 //
-// Copyright 2020 NanoMQ Team, Inc. <jaylin@emqx.io>
+// Copyright 2022 NanoMQ Team, Inc. <jaylin@emqx.io>
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -77,7 +77,6 @@ struct mqtt_pipe_s {
 	nni_aio         time_aio;      // timer aio to resend unack msg
 	nni_lmq         recv_messages; // recv messages queue
 	nni_lmq         send_messages; // send messages queue
-	nni_lmq         ctx_aios;      // awaiting aio of QoS
 	bool            busy;
 };
 
@@ -375,22 +374,6 @@ mqtt_pipe_stop(void *arg)
 	nni_aio_stop(&p->time_aio);
 }
 
-void
-mqtt_close_unack_msg_cb(void *key, void *val)
-{
-	NNI_ARG_UNUSED(key);
-
-	nni_msg * msg = val;
-	nni_aio * aio = NULL;
-
-	aio = nni_mqtt_msg_get_aio(msg);
-	if (aio) {
-		nni_aio_finish_error(aio, NNG_ECLOSED);
-	}
-	nni_msg_free(msg);
-
-}
-
 static void
 mqtt_pipe_close(void *arg)
 {
@@ -431,7 +414,7 @@ mqtt_pipe_recv_msgq_putq(mqtt_pipe_t *p, nni_msg *msg)
 	}
 }
 
-// Timer callback, we use it for retransmitting.
+// Timer callback, we use it for retransmition.
 static void
 mqtt_timer_cb(void *arg)
 {
