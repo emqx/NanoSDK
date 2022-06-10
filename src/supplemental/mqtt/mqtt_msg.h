@@ -383,6 +383,8 @@ extern void                nni_mqtt_topic_qos_array_set(
 extern void nni_mqtt_topic_qos_array_free(nni_mqtt_topic_qos *, size_t);
 
 extern void mqtt_close_unack_msg_cb(void *key, void *val);
+
+extern uint16_t nni_msg_get_pub_pid(nni_msg *m);
 #ifdef __cplusplus
 }
 #endif

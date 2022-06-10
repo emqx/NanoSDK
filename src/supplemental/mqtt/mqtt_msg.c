@@ -701,3 +701,15 @@ mqtt_close_unack_msg_cb(void *key, void *val)
 	}
 	nni_msg_free(msg);
 }
+
+uint16_t
+nni_msg_get_pub_pid(nni_msg *m)
+{
+	uint16_t pid;
+	uint8_t *pos, len;
+
+	pos = nni_msg_body(m);
+	NNI_GET16(pos, len);
+	NNI_GET16(pos + len + 2, pid);
+	return pid;
+}
