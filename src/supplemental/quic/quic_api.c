@@ -62,6 +62,7 @@ static void    quic_strm_send_start(quic_strm_t *qstrm);
 static void    quic_strm_recv_cb();
 static void    quic_strm_init(quic_strm_t *qstrm);
 static void    quic_strm_fini(quic_strm_t *qstrm);
+static void    quic_strm_stop(quic_strm_t *qstrm);
 static void    quic_strm_recv_start(void *arg);
 static int     quic_reconnect(quic_strm_t *qstrm);
 
@@ -131,8 +132,19 @@ quic_strm_init(quic_strm_t *qstrm)
 }
 
 static void
+quic_strm_stop(quic_strm_t *qstrm)
+{
+	nni_aio_stop(qstrm->txaio);
+	nni_aio_stop(qstrm->rxaio);
+}
+
+static void
 quic_strm_fini(quic_strm_t *qstrm)
 {
+	quic_strm_stop(qstrm);
+
+	nni_aio_stop(&qstrm->rraio);
+
 	if (qstrm->rxmsg)
 		free(qstrm->rxmsg);
 	return;
@@ -413,7 +425,12 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 
 		// Close and finite nng pipe ONCE disconnect
 		if (qstrm->pipe) {
+			quic_strm_stop(qstrm);
+			pipe_ops->pipe_stop(qstrm->pipe);
+			pipe_ops->pipe_close(qstrm->pipe);
 			pipe_ops->pipe_fini(qstrm->pipe);
+			nng_free(qstrm->pipe, pipe_ops->pipe_size);
+			qstrm->pipe = NULL;
 		}
 
 		if (qstrm->rticket_active) {
