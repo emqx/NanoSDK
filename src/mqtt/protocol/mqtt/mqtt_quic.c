@@ -233,7 +233,7 @@ mqtt_quic_send_cb(void *arg)
 		}
 		nni_mtx_unlock(&s->mtx);
 		if (s->cb.msg_send_cb)
-			s->cb.msg_send_cb(NULL);
+			s->cb.msg_send_cb(NULL, s->cb.sendarg);
 		return;
 	}
 	// Check cached msg in lmq later
@@ -245,7 +245,7 @@ mqtt_quic_send_cb(void *arg)
 		quic_strm_send(p->qstream, &p->send_aio);
 		nni_mtx_unlock(&s->mtx);
 		if (s->cb.msg_send_cb)
-			s->cb.msg_send_cb(NULL);
+			s->cb.msg_send_cb(NULL, s->cb.sendarg);
 		return;
 	}
 	p->busy = false;
