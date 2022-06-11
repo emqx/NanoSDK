@@ -278,8 +278,8 @@ mqtt_quic_recv_cb(void *arg)
 	nni_msg *msg = nni_aio_get_msg(&p->recv_aio);
 	nni_aio_set_msg(&p->recv_aio, NULL);
 	if (msg == NULL) {
-		quic_strm_recv(p->qstream, &p->recv_aio);
 		nni_mtx_unlock(&s->mtx);
+		quic_strm_recv(p->qstream, &p->recv_aio);
 		return;
 	}
 	if (nni_atomic_get_bool(&s->closed) ||
@@ -772,8 +772,9 @@ quic_mqtt_stream_fini(void *arg)
 #endif
 	nni_id_map_fini(&p->recv_unack);
 	nni_lmq_fini(&p->recv_messages);
-
-	s->cb.disconnect_cb(s->cb.discarg, NULL);
+	if (s->cb.disconnect_cb != NULL) {
+		s->cb.disconnect_cb(NULL, s->cb.discarg);
+	}
 }
 
 static void
