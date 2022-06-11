@@ -302,13 +302,13 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 upload:		// get aio and trigger cb of protocol layer
 		nni_mtx_lock(&qstrm->mtx);
 		nni_aio *aio = nni_list_first(&qstrm->recvq);
+		nni_aio_list_remove(aio);
 		nni_mtx_unlock(&qstrm->mtx);
 
 		if (aio != NULL) {
 			// Set msg and remove from list and finish
 			nni_aio_set_msg(aio, qstrm->rxmsg);
 			qstrm->rxmsg = NULL;
-			nni_aio_list_remove(aio);
 			nni_aio_finish(aio, 0, 0);
 		}
 		return QUIC_STATUS_PENDING;
@@ -388,11 +388,20 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 			    Connection,
 			    Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
 		}
+		if (qstrm->pipe) {
+			pipe_ops->pipe_close(qstrm->pipe);
+			pipe_ops->pipe_stop(qstrm->pipe);
+		}
+		printf("pipe stop\n");
 		break;
 	case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
 		// The connection was explicitly shut down by the peer.
 		printf("[conn][%p] Shut down by peer, 0x%llu\n", Connection,
 		    (unsigned long long) Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
+		if (qstrm->pipe) {
+			pipe_ops->pipe_close(qstrm->pipe);
+			pipe_ops->pipe_stop(qstrm->pipe);
+		}
 		break;
 	case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
 		// The connection has completed the shutdown process and is
@@ -404,7 +413,6 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 
 		// Close and finite nng pipe ONCE disconnect
 		if (qstrm->pipe) {
-			pipe_ops->pipe_close(qstrm->pipe);
 			pipe_ops->pipe_fini(qstrm->pipe);
 		}
 
@@ -762,6 +770,21 @@ quic_strm_recv_start(void *arg)
 	MsQuic->StreamReceiveSetEnabled(qstrm->stream, TRUE);
 }
 
+static void
+mqtt_quic_strm_recv_cancel(nni_aio *aio, void *arg, int rv)
+{
+	quic_strm_t *p = arg;
+
+	nni_mtx_lock(&p->mtx);
+	if (!nni_aio_list_active(aio)) {
+		nni_mtx_unlock(&p->mtx);
+		return;
+	}
+	nni_aio_list_remove(aio);
+	nni_mtx_unlock(&p->mtx);
+	nni_aio_finish_error(aio, rv);
+}
+
 int
 quic_strm_recv(void *arg, nni_aio *raio)
 {
@@ -772,11 +795,11 @@ quic_strm_recv(void *arg, nni_aio *raio)
 		return;
 	}
 	nni_mtx_lock(&qstrm->mtx);
-	// if ((rv = nni_aio_schedule(aio, mqtt_tcptran_pipe_recv_cancel, p)) !=
-	//     0) {
-	// 	nni_aio_finish_error(aio, rv);
-	// 	return;
-	// }
+	if ((rv = nni_aio_schedule(raio, mqtt_quic_strm_recv_cancel, qstrm)) !=
+	    0) {
+		nni_aio_finish_error(raio, rv);
+		return;
+	}
 
 	nni_list_append(&qstrm->recvq, raio);
 	if (nni_list_first(&qstrm->recvq) == raio) {
