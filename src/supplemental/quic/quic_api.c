@@ -13,8 +13,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#define QUIC_0_RTT_SUPPORTED 1
-
 typedef struct quic_strm_s quic_strm_t;
 
 struct quic_strm_s {
@@ -56,10 +54,8 @@ nni_proto *g_quic_proto;
 
 static BOOLEAN LoadConfiguration(BOOLEAN Unsecure);
 static int     quic_strm_start(HQUIC Connection, void *Context, HQUIC *Streamp);
-static int     quic_strm_close(HQUIC Connection, HQUIC Stream);
 static void    quic_strm_send_cancel(nni_aio *aio, void *arg, int rv);
 static void    quic_strm_send_start(quic_strm_t *qstrm);
-static void    quic_strm_recv_cb();
 static void    quic_strm_init(quic_strm_t *qstrm);
 static void    quic_strm_fini(quic_strm_t *qstrm);
 static void    quic_strm_stop(quic_strm_t *qstrm);
@@ -134,16 +130,15 @@ quic_strm_init(quic_strm_t *qstrm)
 static void
 quic_strm_stop(quic_strm_t *qstrm)
 {
-	nni_aio_stop(qstrm->txaio);
-	nni_aio_stop(qstrm->rxaio);
+	// nni_aio_stop(qstrm->txaio);
+	// nni_aio_stop(qstrm->rxaio);
+	nni_aio_stop(&qstrm->rraio);
 }
 
 static void
 quic_strm_fini(quic_strm_t *qstrm)
 {
 	quic_strm_stop(qstrm);
-
-	nni_aio_stop(&qstrm->rraio);
 
 	if (qstrm->rxmsg)
 		free(qstrm->rxmsg);
@@ -163,6 +158,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 	uint8_t *rbuf, usedbytes;
 	nni_msg *rmsg, *smsg;
 	nni_aio *aio;
+	int rv;
 
 	switch (Event->Type) {
 	case QUIC_STREAM_EVENT_SEND_COMPLETE:
@@ -186,6 +182,18 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		nni_mtx_unlock(&qstrm->mtx);
 		break;
 	case QUIC_STREAM_EVENT_RECEIVE:
+		nni_mtx_lock(&qstrm->mtx);
+		if ((rv = nni_aio_result(&qstrm->rraio)) != 0) {
+			aio = nni_list_first(&qstrm->recvq);
+			nni_aio_list_remove(aio);
+			nni_mtx_lock(&qstrm->mtx);
+			if (qstrm->rxmsg) {
+				nng_msg_free(qstrm->rxmsg);
+			}
+			nni_aio_finish_error(aio, rv);
+			return QUIC_STATUS_PENDING;
+		}
+		nni_mtx_unlock(&qstrm->mtx);
 		// Data was received from the peer on the stream.
 		rbuf = Event->RECEIVE.Buffers->Buffer;
 		rlen = Event->RECEIVE.Buffers->Length;
@@ -362,6 +370,7 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		// do not init any var here due to potential frequent reconnect
 		printf("[conn][%p] Connected\n", Connection);
 
+		/*
 		if (qstrm->rticket_active && qstrm->rticket_sz != 0) {
 			MsQuic->ConnectionSendResumptionTicket(Connection,
 			    QUIC_SEND_RESUMPTION_FLAG_NONE, qstrm->rticket_sz, qstrm->rticket);
@@ -369,6 +378,7 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 			printf("[conn][%p] resumption ticket(%u bytes) is sent\n",
 			    Connection, qstrm->rticket_sz);
 		}
+		*/
 
 		// First starting the quic stream
 		if (!qstrm->rticket_active) {
@@ -424,8 +434,11 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		}
 
 		// Close and finite nng pipe ONCE disconnect
+		qstrm->closed = true;
 		if (qstrm->pipe) {
 			quic_strm_stop(qstrm);
+			nni_aio_abort(&qstrm->rraio, NNG_ECANCELED);
+			nni_aio_stop(&qstrm->rraio);
 			pipe_ops->pipe_stop(qstrm->pipe);
 			pipe_ops->pipe_close(qstrm->pipe);
 			pipe_ops->pipe_fini(qstrm->pipe);
@@ -468,13 +481,18 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 	return QUIC_STATUS_SUCCESS;
 }
 
-static int
-quic_strm_close(HQUIC Connection, HQUIC Stream)
+void
+quic_strm_close(void *arg)
 {
+	quic_strm_t *qstrm = arg;
+	nni_aio_close(&qstrm->rraio);
+
+	/*
 	if (Stream)
 		MsQuic->StreamClose(Stream);
 	if (Connection)
 		MsQuic->ConnectionShutdown(Connection, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
+	*/
 }
 
 /**
@@ -654,8 +672,8 @@ quic_reconnect(quic_strm_t *qstrm)
 		printf("ConnectionOpen failed, 0x%x!\n", Status);
 		goto Error;
 	}
-	/*
-	if (qstrm->rticket_sz != 0) {
+
+	if (qstrm->rticket_active && qstrm->rticket_sz != 0) {
 		if (QUIC_FAILED(Status = MsQuic->SetParam(Connection,
 		                    QUIC_PARAM_CONN_RESUMPTION_TICKET,
 		                    qstrm->rticket_sz, qstrm->rticket))) {
@@ -665,7 +683,6 @@ quic_reconnect(quic_strm_t *qstrm)
 			goto Error;
 		}
 	}
-	*/
 
 	printf("[conn] ReConnecting... %s : %s\n", url_s->u_host, url_s->u_port);
 
