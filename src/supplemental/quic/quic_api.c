@@ -177,12 +177,13 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		// Data was received from the peer on the stream.
 		rbuf = Event->RECEIVE.Buffers->Buffer;
 		rlen = Event->RECEIVE.Buffers->Length;
+		uint8_t count = Event->RECEIVE.BufferCount;
 
 		printf("[strm][%p] Data received\n", Stream);
 		printf("Body is [%d]-[0x%x 0x%x].\n", rlen, *(rbuf), *(rbuf + 1));
 
 		// Not get enough len, wait to be re-schedule
-		if (Event->RECEIVE.Buffers->Length + qstrm->rxlen < qstrm->rwlen) {
+		if (Event->RECEIVE.Buffers->Length + qstrm->rxlen < qstrm->rwlen || count == 0) {
 			nni_aio * aio = &qstrm->rraio;
 			nni_aio_finish(aio, 0, 1);
 			// TODO I'am not sure if the buffer in msquic would be free
@@ -571,6 +572,18 @@ quic_connect(const char *url, nni_sock *sock)
 	if (QUIC_FAILED(Status = MsQuic->ConnectionOpen(Registration,
 	                    QuicConnectionCallback, sock_data, &Connection))) {
 		printf("ConnectionOpen failed, 0x%x!\n", Status);
+		goto Error;
+	}
+	QUIC_ADDR Address = { 0 };
+	// Address.Ip.sa_family = QUIC_ADDRESS_FAMILY_UNSPEC;
+	Address.Ip.sa_family = QUIC_ADDRESS_FAMILY_INET;
+	// Address.Ipv4 = 
+	Address.Ipv4.sin_port = htons(0);
+	// QuicAddrSetFamily(&Address, QUIC_ADDRESS_FAMILY_UNSPEC);
+	// QuicAddrSetPort(&Address, 0);
+	if (QUIC_FAILED(Status = MsQuic->SetParam(Connection, QUIC_PARAM_CONN_LOCAL_ADDRESS,
+	    sizeof(QUIC_ADDR), &Address))) {
+		printf("address setting failed, 0x%x!\n", Status);
 		goto Error;
 	}
 
