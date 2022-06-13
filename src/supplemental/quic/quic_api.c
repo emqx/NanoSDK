@@ -182,18 +182,6 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		nni_mtx_unlock(&qstrm->mtx);
 		break;
 	case QUIC_STREAM_EVENT_RECEIVE:
-		nni_mtx_lock(&qstrm->mtx);
-		if ((rv = nni_aio_result(&qstrm->rraio)) != 0) {
-			aio = nni_list_first(&qstrm->recvq);
-			nni_aio_list_remove(aio);
-			nni_mtx_lock(&qstrm->mtx);
-			if (qstrm->rxmsg) {
-				nng_msg_free(qstrm->rxmsg);
-			}
-			nni_aio_finish_error(aio, rv);
-			return QUIC_STATUS_PENDING;
-		}
-		nni_mtx_unlock(&qstrm->mtx);
 		// Data was received from the peer on the stream.
 		rbuf = Event->RECEIVE.Buffers->Buffer;
 		rlen = Event->RECEIVE.Buffers->Length;
@@ -437,7 +425,6 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		qstrm->closed = true;
 		if (qstrm->pipe) {
 			quic_strm_stop(qstrm);
-			nni_aio_abort(&qstrm->rraio, NNG_ECANCELED);
 			nni_aio_stop(&qstrm->rraio);
 			pipe_ops->pipe_stop(qstrm->pipe);
 			pipe_ops->pipe_close(qstrm->pipe);
