@@ -481,6 +481,7 @@ mqtt_timer_cb(void *arg)
 		return;
 	}
 	nni_mtx_lock(&s->mtx);
+	printf("timer cb\n");
 	if (NULL == p || nni_atomic_get_bool(&p->closed)) {
 		return;
 	}
@@ -589,6 +590,10 @@ mqtt_quic_sock_open(void *arg)
 	nng_msg_alloc(&s->ping_msg, 0);
 	nng_msg_header_append(s->ping_msg, buf, 1);
 	nng_msg_append(s->ping_msg, buf+1, 1);
+
+	// initiate the global resend timer
+	printf("start time aio!\n");
+	nni_sleep_aio(s->retry * NNI_SECOND, &s->time_aio);
 }
 
 static void
@@ -612,6 +617,7 @@ mqtt_quic_sock_close(void *arg)
 		// there should be no msg waiting
 		nni_aio_finish_error(aio, NNG_ECLOSED);
 	}
+	nni_aio_stop(&s->time_aio);
 	nni_aio_close(&s->time_aio);
 }
 
@@ -775,6 +781,7 @@ quic_mqtt_stream_fini(void *arg)
 	if (s->cb.disconnect_cb != NULL) {
 		s->cb.disconnect_cb(NULL, s->cb.discarg);
 	}
+	printf("wangha no1!\n");
 }
 
 static void
@@ -793,14 +800,11 @@ quic_mqtt_stream_start(void *arg)
 		if ((rv = mqtt_send_msg(aio, msg, s)) >= 0) {
 			nni_mtx_unlock(&s->mtx);
 			nni_aio_finish(aio, rv, 0);
-			nni_sleep_aio(s->retry * NNI_SECOND, &s->time_aio);
 			quic_strm_recv(p->qstream, &p->recv_aio);
 			return;
 		}
 	}
 	nni_mtx_unlock(&s->mtx);
-	// initiate the global resend timer
-	nni_sleep_aio(s->retry * NNI_SECOND, &s->time_aio);
 	quic_strm_recv(p->qstream, &p->recv_aio);
 	return;
 }
