@@ -87,7 +87,7 @@ mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
 
 		nng_mqtt_msg_set_connect_keep_alive(msg, 60);
-		nng_mqtt_msg_set_connect_clean_session(msg, true);
+		nng_mqtt_msg_set_connect_clean_session(msg, false);
 	} else if (type == 2) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_SUBSCRIBE);
 

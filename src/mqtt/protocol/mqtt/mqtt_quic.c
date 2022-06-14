@@ -779,7 +779,6 @@ quic_mqtt_stream_fini(void *arg)
 	if (s->cb.disconnect_cb != NULL) {
 		s->cb.disconnect_cb(NULL, s->cb.discarg);
 	}
-	printf("wangha no1!\n");
 }
 
 static void
