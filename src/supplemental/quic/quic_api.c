@@ -466,15 +466,12 @@ quic_strm_start(HQUIC Connection, void *Context, HQUIC *Streamp, bool active)
 {
 	HQUIC       Stream = NULL;
 	QUIC_STATUS Status;
-	if (active)
-		Stream = *Streamp;
 
 	// Create/allocate a new bidirectional stream. The stream is just
 	// allocated and no QUIC stream identifier is assigned until it's
 	// started.
 	if (QUIC_FAILED(Status = MsQuic->StreamOpen(Connection,
-	                    active ? QUIC_STREAM_OPEN_FLAG_0_RTT : QUIC_STREAM_OPEN_FLAG_NONE,
-						QuicStreamCallback, Context, &Stream))) {
+	                    QUIC_STREAM_OPEN_FLAG_NONE, QuicStreamCallback, Context, &Stream))) {
 		printf("StreamOpen failed, 0x%x!\n", Status);
 		goto Error;
 	}
