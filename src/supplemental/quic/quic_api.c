@@ -13,7 +13,26 @@
 #include <time.h>
 #include <unistd.h>
 
-#define QUIC_0_RTT_SUPPORTED 1
+#define QUIC_API_C_DEBUG 0
+#define QUIC_API_C_INFO 1
+
+#if QUIC_API_C_DEBUG
+#define qdebug(fmt, ...)                                                 \
+	do {                                                            \
+		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
+	} while (0)
+#else
+#define qdebug(fmt, ...) do {} while(0)
+#endif
+
+#if QUIC_API_C_INFO
+#define qinfo(fmt, ...)                                                 \
+	do {                                                            \
+		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
+	} while (0)
+#else
+#define qinfo(fmt, ...) do {} while(0)
+#endif
 
 typedef struct quic_strm_s quic_strm_t;
 
@@ -91,7 +110,7 @@ LoadConfiguration(BOOLEAN Unsecure)
 	if (QUIC_FAILED(
 	        Status = MsQuic->ConfigurationOpen(Registration, &Alpn, 1,
 	            &Settings, sizeof(Settings), NULL, &Configuration))) {
-		printf("ConfigurationOpen failed, 0x%x!\n", Status);
+		qdebug("ConfigurationOpen failed, 0x%x!\n", Status);
 		return FALSE;
 	}
 
@@ -100,7 +119,7 @@ LoadConfiguration(BOOLEAN Unsecure)
 	// not.
 	if (QUIC_FAILED(Status = MsQuic->ConfigurationLoadCredential(
 	                    Configuration, &CredConfig))) {
-		printf("ConfigurationLoadCredential failed, 0x%x!\n", Status);
+		qdebug("ConfigurationLoadCredential failed, 0x%x!\n", Status);
 		return FALSE;
 	}
 
@@ -157,7 +176,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		// A previous StreamSend call has completed, and the context is
 		// being returned back to the app.
 		free(Event->SEND_COMPLETE.ClientContext);
-		printf("[strm][%p] Data sent\n", Stream);
+		qinfo("[strm][%p] Data sent\n", Stream);
 
 		// Get aio from sendq and finish
 		nni_mtx_lock(&qstrm->mtx);
@@ -179,8 +198,8 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		rlen = Event->RECEIVE.Buffers->Length;
 		uint8_t count = Event->RECEIVE.BufferCount;
 
-		printf("[strm][%p] Data received\n", Stream);
-		printf("Body is [%d]-[0x%x 0x%x].\n", rlen, *(rbuf), *(rbuf + 1));
+		qinfo("[strm][%p] Data received\n", Stream);
+		qdebug("Body is [%d]-[0x%x 0x%x].\n", rlen, *(rbuf), *(rbuf + 1));
 
 		// Not get enough len, wait to be re-schedule
 		if (Event->RECEIVE.Buffers->Length + qstrm->rxlen < qstrm->rwlen || count == 0) {
@@ -190,7 +209,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			return QUIC_STATUS_PENDING;
 		}
 
-		printf("before rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+		qdebug("before rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 
 		// Already get 2 Bytes
 		if (qstrm->rxlen == 0) {
@@ -202,7 +221,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 				// 0 remaining length could be
 				// PINGRESP/DISCONNECT
 				if (0 != nng_msg_alloc(&qstrm->rxmsg, 0)) {
-					printf("error in msg allocated.\n");
+					qdebug("error in msg allocated.\n");
 				}
 				nni_msg_header_append(
 				    qstrm->rxmsg, qstrm->rxbuf, 2);
@@ -217,7 +236,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			aio = &qstrm->rraio;
 			nni_aio_finish(aio, 0, 1);
 			// TODO I'am not sure if the buffer in msquic would be free
-			printf("1after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+			qdebug("1after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 			return QUIC_STATUS_PENDING;
 		}
 
@@ -231,7 +250,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 
 			// Compose msg
 			if (0 != nng_msg_alloc(&qstrm->rxmsg, 4)) {
-				printf("error in msg allocated.\n");
+				qdebug("error in msg allocated.\n");
 			}
 
 			nni_msg_header_clear(qstrm->rxmsg);
@@ -242,7 +261,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			nni_msg_append(qstrm->rxmsg, qstrm->rxbuf + 2, 2);
 
 			// Done
-			printf("2after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+			qdebug("2after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 		}
 
 		// Already get 5 Bytes
@@ -254,10 +273,10 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 
 			usedbytes = 0;
 			if (0 != mqtt_get_remaining_length(qstrm->rxbuf, qstrm->rxlen, &remain_len, &usedbytes)) {
-				printf("error in get remain_len.\n");
+				qdebug("error in get remain_len.\n");
 			}
 			if (0 != nng_msg_alloc(&qstrm->rxmsg, 1 + usedbytes + remain_len)) {
-				printf("error in msg allocated.\n");
+				qdebug("error in msg allocated.\n");
 			}
 			qstrm->rwlen = remain_len + usedbytes + 1;
 
@@ -273,7 +292,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 				nni_aio * aio = &qstrm->rraio;
 				nni_aio_finish(aio, 0, 1);
 				// TODO I'am not sure if the buffer in msquic would be free
-				printf("3after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+				qdebug("3after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 				return QUIC_STATUS_PENDING;
 			}
 		}
@@ -282,7 +301,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		if (qstrm->rwlen > 0x05 && qstrm->rxmsg != NULL) {
 			usedbytes = 0;
 			if (0 != mqtt_get_remaining_length(qstrm->rxbuf, qstrm->rxlen, &remain_len, &usedbytes)) {
-				printf("error in get remain_len.\n");
+				qdebug("error in get remain_len.\n");
 			}
 			n = 1 + usedbytes + remain_len - 5; // new
 
@@ -298,7 +317,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			qstrm->rxlen += n;
 			MsQuic->StreamReceiveComplete(qstrm->stream, n);
 		}
-		printf("4after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+		qdebug("4after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 
 upload:		// get aio and trigger cb of protocol layer
 		nni_mtx_lock(&qstrm->mtx);
@@ -317,16 +336,16 @@ upload:		// get aio and trigger cb of protocol layer
 	case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
 		// The peer gracefully shut down its send direction of the
 		// stream.
-		printf("[strm][%p] Peer aborted\n", Stream);
+		qinfo("[strm][%p] Peer aborted\n", Stream);
 		break;
 	case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
 		// The peer aborted its send direction of the stream.
-		printf("[strm][%p] Peer shut down\n", Stream);
+		qinfo("[strm][%p] Peer shut down\n", Stream);
 		break;
 	case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
 		// Both directions of the stream have been shut down and MsQuic
 		// is done with the stream. It can now be safely cleaned up.
-		printf("[strm][%p] All done\n", Stream);
+		qinfo("[strm][%p] All done\n", Stream);
 		if (!Event->SHUTDOWN_COMPLETE.AppCloseInProgress) {
 			MsQuic->StreamClose(Stream);
 		}
@@ -349,12 +368,12 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 	case QUIC_CONNECTION_EVENT_CONNECTED:
 		// The handshake has completed for the connection.
 		// do not init any var here due to potential frequent reconnect
-		printf("[conn][%p] Connected\n", Connection);
+		qinfo("[conn][%p] Connected\n", Connection);
 
 		// First starting the quic stream
 		// if (!qstrm->rticket_active) {
 			if (0 != quic_strm_start(Connection, qstrm, &qstrm->stream, qstrm->rticket_active)) {
-				printf("Error in quic strm start.\n");
+				qdebug("Error in quic strm start.\n");
 				break;
 			}
 			MsQuic->StreamReceiveSetEnabled(qstrm->stream, FALSE);
@@ -362,7 +381,7 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 
 		// Start/ReStart the nng pipe
 		if ((qstrm->pipe = nng_alloc(pipe_ops->pipe_size)) == NULL) {
-			printf("error in alloc pipe.\n");
+			qdebug("error in alloc pipe.\n");
 		}
 		pipe_ops->pipe_init(qstrm->pipe, (nni_pipe *)qstrm, Context);
 		pipe_ops->pipe_start(qstrm->pipe);
@@ -374,10 +393,10 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		// the connection.
 		if (Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status ==
 		    QUIC_STATUS_CONNECTION_IDLE) {
-			printf("[conn][%p] Successfully shut down on idle.\n",
+			qinfo("[conn][%p] Successfully shut down on idle.\n",
 			    Connection);
 		} else {
-			printf("[conn][%p] Shut down by transport, 0x%x\n",
+			qinfo("[conn][%p] Shut down by transport, 0x%x\n",
 			    Connection,
 			    Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
 		}
@@ -385,11 +404,11 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 			pipe_ops->pipe_close(qstrm->pipe);
 			pipe_ops->pipe_stop(qstrm->pipe);
 		}
-		printf("pipe stop\n");
+		qdebug("pipe stop\n");
 		break;
 	case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
 		// The connection was explicitly shut down by the peer.
-		printf("[conn][%p] Shut down by peer, 0x%llu\n", Connection,
+		qinfo("[conn][%p] Shut down by peer, 0x%llu\n", Connection,
 		    (unsigned long long) Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
 		if (qstrm->pipe) {
 			pipe_ops->pipe_close(qstrm->pipe);
@@ -399,7 +418,7 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 	case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
 		// The connection has completed the shutdown process and is
 		// ready to be safely cleaned up.
-		printf("[conn][%p] All done\n", Connection);
+		qinfo("[conn][%p] All done\n\n", Connection);
 		if (!Event->SHUTDOWN_COMPLETE.AppCloseInProgress) {
 			MsQuic->ConnectionClose(Connection);
 		}
@@ -410,7 +429,7 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		}
 
 		if (qstrm->rticket_active) {
-			printf("[conn][%p] try to resume by ticket\n", Connection);
+			qinfo("[conn][%p] try to resume by ticket\n", Connection);
 			quic_reconnect(qstrm);
 		} else { // No rticket
 			quic_strm_fini(qstrm);
@@ -421,17 +440,17 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 	case QUIC_CONNECTION_EVENT_RESUMPTION_TICKET_RECEIVED:
 		// A resumption ticket (also called New Session Ticket or NST)
 		// was received from the server.
-		printf("[conn][%p] Resumption ticket received (%u bytes):\n",
+		qinfo("[conn][%p] Resumption ticket received (%u bytes):\n",
 		    Connection, Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength);
 		/*
 		for (uint32_t i = 0; i <
 		     Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength;
 		     i++) {
-			printf("%x",
+			qdebug("%x",
 			    (uint8_t) Event->RESUMPTION_TICKET_RECEIVED
 			        .ResumptionTicket[i]);
 		}
-		printf("\n");
+		qdebug("\n");
 		*/
 		qstrm->rticket_active = true;
 		qstrm->rticket_sz = Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength;
@@ -472,23 +491,23 @@ quic_strm_start(HQUIC Connection, void *Context, HQUIC *Streamp, bool active)
 	// started.
 	if (QUIC_FAILED(Status = MsQuic->StreamOpen(Connection,
 	                    QUIC_STREAM_OPEN_FLAG_NONE, QuicStreamCallback, Context, &Stream))) {
-		printf("StreamOpen failed, 0x%x!\n", Status);
+		qdebug("StreamOpen failed, 0x%x!\n", Status);
 		goto Error;
 	}
 
-	printf("[strm][%p] Starting...\n", Stream);
+	qinfo("[strm][%p] Starting...\n", Stream);
 
 	// Starts the bidirectional stream. By default, the peer is not
 	// notified of the stream being started until data is sent on the
 	// stream.
 	if (QUIC_FAILED(Status = MsQuic->StreamStart(
 	                    Stream, QUIC_STREAM_START_FLAG_NONE))) {
-		printf("StreamStart failed, 0x%x!\n", Status);
+		qdebug("StreamStart failed, 0x%x!\n", Status);
 		MsQuic->StreamClose(Stream);
 		goto Error;
 	}
 
-	printf("[strm][%p] Done...\n", Stream);
+	qdebug("[strm][%p] Done...\n", Stream);
 	*Streamp = Stream;
 	return 0;
 
@@ -519,18 +538,18 @@ quic_open()
 	QUIC_STATUS Status = QUIC_STATUS_SUCCESS;
 
 	if (QUIC_FAILED(Status = MsQuicOpen2(&MsQuic))) {
-		printf("MsQuicOpen2 failed, 0x%x!\n", Status);
+		qdebug("MsQuicOpen2 failed, 0x%x!\n", Status);
 		goto Error;
 	}
 
 	// Create a registration for the app's connections.
 	if (QUIC_FAILED(Status = MsQuic->RegistrationOpen(
 	                    &RegConfig, &Registration))) {
-		printf("RegistrationOpen failed, 0x%x!\n", Status);
+		qdebug("RegistrationOpen failed, 0x%x!\n", Status);
 		goto Error;
 	}
 
-	printf("msquic is init.\n");
+	qdebug("msquic is init.\n");
 
 	return;
 
@@ -568,7 +587,7 @@ quic_connect(const char *url, nni_sock *sock)
 	// Allocate a new connection object.
 	if (QUIC_FAILED(Status = MsQuic->ConnectionOpen(Registration,
 	                    QuicConnectionCallback, sock_data, &Connection))) {
-		printf("ConnectionOpen failed, 0x%x!\n", Status);
+		qdebug("ConnectionOpen failed, 0x%x!\n", Status);
 		goto Error;
 	}
 	QUIC_ADDR Address = { 0 };
@@ -580,7 +599,7 @@ quic_connect(const char *url, nni_sock *sock)
 	// QuicAddrSetPort(&Address, 0);
 	if (QUIC_FAILED(Status = MsQuic->SetParam(Connection, QUIC_PARAM_CONN_LOCAL_ADDRESS,
 	    sizeof(QUIC_ADDR), &Address))) {
-		printf("address setting failed, 0x%x!\n", Status);
+		qdebug("address setting failed, 0x%x!\n", Status);
 		goto Error;
 	}
 
@@ -593,7 +612,7 @@ quic_connect(const char *url, nni_sock *sock)
 
 	// Create a pipe for quic client
 	if ((qstrm = nng_alloc(sizeof(quic_strm_t))) == NULL) {
-		printf("Error in alloc quic strm.\n");
+		qdebug("Error in alloc quic strm.\n");
 		goto Error;
 	}
 	quic_strm_init(qstrm);
@@ -602,13 +621,13 @@ quic_connect(const char *url, nni_sock *sock)
 	qstrm->sock = sock;
 	GStream = qstrm; // It should be stored in sock, but...
 
-	printf("[conn] Connecting... %s : %s\n", url_s->u_host, url_s->u_port);
+	qinfo("[conn] Connecting... %s : %s\n", url_s->u_host, url_s->u_port);
 
 	// Start the connection to the server.
 	if (QUIC_FAILED(Status = MsQuic->ConnectionStart(Connection,
 	                    Configuration, QUIC_ADDRESS_FAMILY_UNSPEC,
 	                    url_s->u_host, atoi(url_s->u_port)))) {
-		printf("ConnectionStart failed, 0x%x!\n", Status);
+		qdebug("ConnectionStart failed, 0x%x!\n", Status);
 		goto Error;
 	}
 
@@ -638,7 +657,7 @@ quic_reconnect(quic_strm_t *qstrm)
 	// Allocate a new connection object.
 	if (QUIC_FAILED(Status = MsQuic->ConnectionOpen(Registration,
 	                    QuicConnectionCallback, sock_data, &Connection))) {
-		printf("ConnectionOpen failed, 0x%x!\n", Status);
+		qdebug("ConnectionOpen failed, 0x%x!\n", Status);
 		goto Error;
 	}
 
@@ -646,20 +665,20 @@ quic_reconnect(quic_strm_t *qstrm)
 		if (QUIC_FAILED(Status = MsQuic->SetParam(Connection,
 		                    QUIC_PARAM_CONN_RESUMPTION_TICKET,
 		                    qstrm->rticket_sz, qstrm->rticket))) {
-			printf("SetParam(QUIC_PARAM_CONN_RESUMPTION_TICKET) "
+			qdebug("SetParam(QUIC_PARAM_CONN_RESUMPTION_TICKET) "
 			       "failed, 0x%x!\n",
 			    Status);
 			goto Error;
 		}
 	}
 
-	printf("[conn] ReConnecting... %s : %s\n", url_s->u_host, url_s->u_port);
+	qinfo("[conn] ReConnecting... %s : %s\n", url_s->u_host, url_s->u_port);
 
 	// Start the connection to the server.
 	if (QUIC_FAILED(Status = MsQuic->ConnectionStart(Connection,
 	                    Configuration, QUIC_ADDRESS_FAMILY_UNSPEC,
 	                    url_s->u_host, atoi(url_s->u_port)))) {
-		printf("ConnectionStart failed, 0x%x!\n", Status);
+		qdebug("ConnectionStart failed, 0x%x!\n", Status);
 		goto Error;
 	}
 
@@ -711,18 +730,18 @@ quic_strm_send_start(quic_strm_t *qstrm)
 	}
 
 	uint8_t type = (((uint8_t *)nni_msg_header(msg))[0] & 0xf0) >> 4;
-	printf("type is 0x%x.\n", type);
+	qdebug("type is 0x%x %x.\n", type, ((uint8_t *)nni_msg_header(msg))[0]);
 	if (type == 1) {
-		printf("clientid is %s.\n", nng_mqtt_msg_get_connect_client_id(msg));
+		qdebug("clientid is %s.\n", nng_mqtt_msg_get_connect_client_id(msg));
 	}
 
 	if (!buf)
-		printf("error in iov.\n");
-	printf(" body len: %d header len: %d \n", buf[1].Length, buf[0].Length);
+		qdebug("error in iov.\n");
+	qdebug(" body len: %d header len: %d \n", buf[1].Length, buf[0].Length);
 
 	if (QUIC_FAILED(Status = MsQuic->StreamSend(qstrm->stream, buf, bl > 0 ? 2:1,
 	                    QUIC_SEND_FLAG_NONE, buf))) {
-		printf("StreamSend failed, 0x%x!\n", Status);
+		qdebug("StreamSend failed, 0x%x!\n", Status);
 		free(buf);
 	}
 }
@@ -754,7 +773,7 @@ quic_strm_send_cancel(nni_aio *aio, void *arg, int rv)
 static void
 quic_strm_recv_start(void *arg)
 {
-	printf("quic_strm_recv_start.\n");
+	qdebug("quic_strm_recv_start.\n");
 	quic_strm_t *qstrm = arg;
 
 	// TODO recv_start can be called from sender
