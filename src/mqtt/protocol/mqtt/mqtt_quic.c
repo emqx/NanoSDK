@@ -56,7 +56,8 @@ struct mqtt_sock_s {
 	nni_lmq  send_messages; // send messages queue
 	nni_aio  time_aio;      // timer aio to resend unack msg
 	uint16_t counter;
-	nni_msg *ping_msg;
+	uint16_t   keepalive;     // MQTT keepalive
+	nni_msg *ping_msg, *connmsg;
 
 	struct mqtt_client_cb cb; // user cb
 };
@@ -79,7 +80,6 @@ struct mqtt_pipe_s {
 	nni_aio    recv_aio;      // recv aio to the underlying transport
 	nni_aio	   rep_aio;	  // aio for resending qos msg and PINGREQ  
 	nni_lmq    recv_messages; // recv messages queue
-	uint16_t   keepalive;     // MQTT keepalive
 };
 
 /******************************************************************************
@@ -129,7 +129,9 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 	switch (ptype) {
 	case NNG_MQTT_CONNECT:
 		// TODO : only send CONNECT once
-		p->keepalive = nni_mqtt_msg_get_connect_keep_alive(msg);
+		s->connmsg = msg;
+		nni_msg_clone(s->connmsg);
+		s->keepalive = nni_mqtt_msg_get_connect_keep_alive(msg);
 	case NNG_MQTT_PUBACK:
 	case NNG_MQTT_PUBREC:
 	case NNG_MQTT_PUBREL:
@@ -383,7 +385,6 @@ mqtt_quic_recv_cb(void *arg)
 				uint8_t *payload;
 				uint32_t payload_len;
 				payload = nng_mqtt_msg_get_publish_payload(msg, &payload_len);
-				printf("############## qos 1 msg received %s\n", payload);
 				packet_id = nni_mqtt_msg_get_publish_packet_id(msg);
 				nni_mqtt_msg_set_packet_type(ack, NNG_MQTT_PUBACK);
 				nni_mqtt_msg_set_puback_packet_id(ack, packet_id);
@@ -425,8 +426,6 @@ mqtt_quic_recv_cb(void *arg)
 			uint32_t payload_len;
 			payload = nng_mqtt_msg_get_publish_payload(
 			    msg, &payload_len);
-			printf(
-			    "############## qos 2 msg received %s\n", payload);
 			nni_mqtt_msg_set_packet_type(ack, NNG_MQTT_PUBREC);
 			nni_mqtt_msg_set_puback_packet_id(ack, packet_id);
 			nni_mqtt_msg_encode(ack);
@@ -485,7 +484,7 @@ mqtt_timer_cb(void *arg)
 		return;
 	}
 	s->counter += s->retry;
-	if (s->counter > p->keepalive) {
+	if (s->counter > s->keepalive) {
 		// send PINGREQ
 		nng_aio_wait(&p->rep_aio);
 		nni_aio_set_msg(&p->rep_aio, s->ping_msg);
@@ -545,6 +544,7 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 	// this is a pre-defined timer for global timer
 	s->retry   = 5;  // 5 seconds as default
 	s->counter = 0;
+	s->connmsg = NULL;
 
 	nni_mtx_init(&s->mtx);
 	// mqtt_ctx_init(&s->master, s);
@@ -589,6 +589,9 @@ mqtt_quic_sock_open(void *arg)
 	nng_msg_alloc(&s->ping_msg, 0);
 	nng_msg_header_append(s->ping_msg, buf, 1);
 	nng_msg_append(s->ping_msg, buf+1, 1);
+
+	// initiate the global resend timer
+	nni_sleep_aio(s->retry * NNI_SECOND, &s->time_aio);
 }
 
 static void
@@ -612,6 +615,7 @@ mqtt_quic_sock_close(void *arg)
 		// there should be no msg waiting
 		nni_aio_finish_error(aio, NNG_ECLOSED);
 	}
+	nni_aio_stop(&s->time_aio);
 	nni_aio_close(&s->time_aio);
 }
 
@@ -775,6 +779,7 @@ quic_mqtt_stream_fini(void *arg)
 	if (s->cb.disconnect_cb != NULL) {
 		s->cb.disconnect_cb(NULL, s->cb.discarg);
 	}
+	printf("wangha no1!\n");
 }
 
 static void
@@ -786,6 +791,11 @@ quic_mqtt_stream_start(void *arg)
 	nni_msg     *msg;
 
 	nni_mtx_lock(&s->mtx);
+	if (s->connmsg!= NULL) {
+		nni_msg_clone(s->connmsg);
+		mqtt_send_msg(NULL, s->connmsg, s);
+	}
+
 	if ((aio = nni_list_first(&s->send_queue)) != NULL) {
 		nni_list_remove(&s->send_queue, aio);
 		msg = nni_aio_get_msg(aio);
@@ -793,14 +803,11 @@ quic_mqtt_stream_start(void *arg)
 		if ((rv = mqtt_send_msg(aio, msg, s)) >= 0) {
 			nni_mtx_unlock(&s->mtx);
 			nni_aio_finish(aio, rv, 0);
-			nni_sleep_aio(s->retry * NNI_SECOND, &s->time_aio);
 			quic_strm_recv(p->qstream, &p->recv_aio);
 			return;
 		}
 	}
 	nni_mtx_unlock(&s->mtx);
-	// initiate the global resend timer
-	nni_sleep_aio(s->retry * NNI_SECOND, &s->time_aio);
 	quic_strm_recv(p->qstream, &p->recv_aio);
 	return;
 }

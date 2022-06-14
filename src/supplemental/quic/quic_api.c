@@ -55,7 +55,7 @@ quic_strm_t *GStream = NULL;
 nni_proto *g_quic_proto;
 
 static BOOLEAN LoadConfiguration(BOOLEAN Unsecure);
-static int     quic_strm_start(HQUIC Connection, void *Context, HQUIC *Streamp);
+static int     quic_strm_start(HQUIC Connection, void *Context, HQUIC *Streamp, bool active);
 static int     quic_strm_close(HQUIC Connection, HQUIC Stream);
 static void    quic_strm_send_cancel(nni_aio *aio, void *arg, int rv);
 static void    quic_strm_send_start(quic_strm_t *qstrm);
@@ -177,12 +177,13 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		// Data was received from the peer on the stream.
 		rbuf = Event->RECEIVE.Buffers->Buffer;
 		rlen = Event->RECEIVE.Buffers->Length;
+		uint8_t count = Event->RECEIVE.BufferCount;
 
 		printf("[strm][%p] Data received\n", Stream);
 		printf("Body is [%d]-[0x%x 0x%x].\n", rlen, *(rbuf), *(rbuf + 1));
 
 		// Not get enough len, wait to be re-schedule
-		if (Event->RECEIVE.Buffers->Length + qstrm->rxlen < qstrm->rwlen) {
+		if (Event->RECEIVE.Buffers->Length + qstrm->rxlen < qstrm->rwlen || count == 0) {
 			nni_aio * aio = &qstrm->rraio;
 			nni_aio_finish(aio, 0, 1);
 			// TODO I'am not sure if the buffer in msquic would be free
@@ -350,22 +351,14 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		// do not init any var here due to potential frequent reconnect
 		printf("[conn][%p] Connected\n", Connection);
 
-		if (qstrm->rticket_active && qstrm->rticket_sz != 0) {
-			MsQuic->ConnectionSendResumptionTicket(Connection,
-			    QUIC_SEND_RESUMPTION_FLAG_NONE, qstrm->rticket_sz, qstrm->rticket);
-			// QUIC_SEND_RESUMPTION_FLAG_NONE
-			printf("[conn][%p] resumption ticket(%u bytes) is sent\n",
-			    Connection, qstrm->rticket_sz);
-		}
-
 		// First starting the quic stream
-		if (!qstrm->rticket_active) {
-			if (0 != quic_strm_start(Connection, qstrm, &qstrm->stream)) {
+		// if (!qstrm->rticket_active) {
+			if (0 != quic_strm_start(Connection, qstrm, &qstrm->stream, qstrm->rticket_active)) {
 				printf("Error in quic strm start.\n");
 				break;
 			}
 			MsQuic->StreamReceiveSetEnabled(qstrm->stream, FALSE);
-		}
+		// }
 
 		// Start/ReStart the nng pipe
 		if ((qstrm->pipe = nng_alloc(pipe_ops->pipe_size)) == NULL) {
@@ -469,7 +462,7 @@ quic_strm_close(HQUIC Connection, HQUIC Stream)
  * @return int
  */
 static int
-quic_strm_start(HQUIC Connection, void *Context, HQUIC *Streamp)
+quic_strm_start(HQUIC Connection, void *Context, HQUIC *Streamp, bool active)
 {
 	HQUIC       Stream = NULL;
 	QUIC_STATUS Status;
@@ -478,8 +471,7 @@ quic_strm_start(HQUIC Connection, void *Context, HQUIC *Streamp)
 	// allocated and no QUIC stream identifier is assigned until it's
 	// started.
 	if (QUIC_FAILED(Status = MsQuic->StreamOpen(Connection,
-	                    QUIC_STREAM_OPEN_FLAG_NONE, QuicStreamCallback,
-	                    Context, &Stream))) {
+	                    QUIC_STREAM_OPEN_FLAG_NONE, QuicStreamCallback, Context, &Stream))) {
 		printf("StreamOpen failed, 0x%x!\n", Status);
 		goto Error;
 	}
@@ -579,6 +571,18 @@ quic_connect(const char *url, nni_sock *sock)
 		printf("ConnectionOpen failed, 0x%x!\n", Status);
 		goto Error;
 	}
+	QUIC_ADDR Address = { 0 };
+	// Address.Ip.sa_family = QUIC_ADDRESS_FAMILY_UNSPEC;
+	Address.Ip.sa_family = QUIC_ADDRESS_FAMILY_INET;
+	// Address.Ipv4 = 
+	Address.Ipv4.sin_port = htons(0);
+	// QuicAddrSetFamily(&Address, QUIC_ADDRESS_FAMILY_UNSPEC);
+	// QuicAddrSetPort(&Address, 0);
+	if (QUIC_FAILED(Status = MsQuic->SetParam(Connection, QUIC_PARAM_CONN_LOCAL_ADDRESS,
+	    sizeof(QUIC_ADDR), &Address))) {
+		printf("address setting failed, 0x%x!\n", Status);
+		goto Error;
+	}
 
 	nng_url_parse(&url_s, url);
 	for (int i = 0; i < strlen(url_s->u_host); ++i)
@@ -637,7 +641,7 @@ quic_reconnect(quic_strm_t *qstrm)
 		printf("ConnectionOpen failed, 0x%x!\n", Status);
 		goto Error;
 	}
-	/*
+
 	if (qstrm->rticket_sz != 0) {
 		if (QUIC_FAILED(Status = MsQuic->SetParam(Connection,
 		                    QUIC_PARAM_CONN_RESUMPTION_TICKET,
@@ -648,7 +652,6 @@ quic_reconnect(quic_strm_t *qstrm)
 			goto Error;
 		}
 	}
-	*/
 
 	printf("[conn] ReConnecting... %s : %s\n", url_s->u_host, url_s->u_port);
 
@@ -718,7 +721,7 @@ quic_strm_send_start(quic_strm_t *qstrm)
 	printf(" body len: %d header len: %d \n", buf[1].Length, buf[0].Length);
 
 	if (QUIC_FAILED(Status = MsQuic->StreamSend(qstrm->stream, buf, bl > 0 ? 2:1,
-	                    QUIC_SEND_FLAG_ALLOW_0_RTT, buf))) {
+	                    QUIC_SEND_FLAG_NONE, buf))) {
 		printf("StreamSend failed, 0x%x!\n", Status);
 		free(buf);
 	}
