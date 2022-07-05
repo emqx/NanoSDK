@@ -9,7 +9,7 @@
 nng_directory(mqtt)
 
 nng_sources_if(NNG_PROTO_MQTT_CLIENT mqtt_client.c)
-nng_sources_if(NNG_PROTO_MQTT_CLIENT mqtt_client_v5.c)
+nng_sources_if(NNG_PROTO_MQTT_CLIENT mqtt_v5_client.c)
 nng_headers_if(NNG_PROTO_MQTT_CLIENT nng/mqtt/mqtt_client.h)
 nng_defines_if(NNG_PROTO_MQTT_CLIENT NNG_HAVE_MQTT_CLIENT)
 
