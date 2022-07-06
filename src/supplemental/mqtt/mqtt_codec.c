@@ -90,6 +90,37 @@ static mqtt_msg_codec_handler codec_handler[] = {
 	    nni_mqtt_msg_decode_base }
 };
 
+static mqtt_msg_codec_handler codec_v5_handler[] = {
+	{ NNG_MQTT_CONNECT, nni_mqttv5_msg_encode_connect,
+	    nni_mqtt_msg_decode_connect },
+	{ NNG_MQTT_CONNACK, nni_mqttv5_msg_encode_connack,
+	    nni_mqtt_msg_decode_connack },
+	{ NNG_MQTT_PUBLISH, nni_mqttv5_msg_encode_publish,
+	    nni_mqtt_msg_decode_publish },
+	{ NNG_MQTT_PUBACK, nni_mqttv5_msg_encode_puback,
+	    nni_mqtt_msg_decode_puback },
+	{ NNG_MQTT_PUBREC, nni_mqttv5_msg_encode_pubrec,
+	    nni_mqtt_msg_decode_pubrec },
+	{ NNG_MQTT_PUBREL, nni_mqttv5_msg_encode_pubrel,
+	    nni_mqtt_msg_decode_pubrel },
+	{ NNG_MQTT_PUBCOMP, nni_mqttv5_msg_encode_pubcomp,
+	    nni_mqtt_msg_decode_pubcomp },
+	{ NNG_MQTT_SUBSCRIBE, nni_mqttv5_msg_encode_subscribe,
+	    nni_mqtt_msg_decode_subscribe },
+	{ NNG_MQTT_SUBACK, nni_mqttv5_msg_encode_suback,
+	    nni_mqtt_msg_decode_suback },
+	{ NNG_MQTT_UNSUBSCRIBE, nni_mqttv5_msg_encode_unsubscribe,
+	    nni_mqtt_msg_decode_unsubscribe },
+	{ NNG_MQTT_UNSUBACK, nni_mqttv5_msg_encode_unsuback,
+	    nni_mqtt_msg_decode_unsuback },
+	{ NNG_MQTT_PINGREQ, nni_mqttv5_msg_encode_base,
+	    nni_mqtt_msg_decode_base },
+	{ NNG_MQTT_PINGRESP, nni_mqttv5_msg_encode_base,
+	    nni_mqtt_msg_decode_base },
+	{ NNG_MQTT_DISCONNECT, nni_mqttv5_msg_encode_base,
+	    nni_mqtt_msg_decode_base }
+};
+
 int
 nni_mqtt_msg_encode(nni_msg *msg)
 {
@@ -105,6 +136,27 @@ nni_mqtt_msg_encode(nni_msg *msg)
 			mqtt->is_decoded = false;
 			mqtt->is_copied  = true;
 			return codec_handler[i].encode(msg);
+		}
+	}
+
+	return MQTT_ERR_PROTOCOL;
+}
+
+int
+nni_mqttv5_msg_encode(nni_msg *msg)
+{
+	nni_msg_clear(msg);
+	nni_msg_header_clear(msg);
+
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+
+	for (size_t i = 0;
+	     i < sizeof(codec_v5_handler) / sizeof(mqtt_msg_codec_handler); i++) {
+		if (codec_v5_handler[i].packet_type ==
+		    mqtt->fixed_header.common.packet_type) {
+			mqtt->is_decoded = false;
+			mqtt->is_copied  = true;
+			return codec_v5_handler[i].encode(msg);
 		}
 	}
 
@@ -129,6 +181,30 @@ nni_mqtt_msg_decode(nni_msg *msg)
 			mqtt->is_copied  = false;
 			mqtt->is_decoded = true;
 			return codec_handler[i].decode(msg);
+		}
+	}
+
+	return MQTT_ERR_PROTOCOL;
+}
+
+int
+nni_mqttv5_msg_decode(nni_msg *msg)
+{
+	int ret;
+	if ((ret = nni_mqtt_msg_decode_fixed_header(msg)) != MQTT_SUCCESS) {
+		// nni_plat_printf("decode_fixed_header failed %d\n", ret);
+		return ret;
+	}
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+
+	for (size_t i = 0;
+	     i < sizeof(codec_v5_handler) / sizeof(mqtt_msg_codec_handler); i++) {
+		if (codec_v5_handler[i].packet_type ==
+		    mqtt->fixed_header.common.packet_type) {
+			mqtt_msg_content_free(mqtt);
+			mqtt->is_copied  = false;
+			mqtt->is_decoded = true;
+			return codec_v5_handler[i].decode(msg);
 		}
 	}
 
