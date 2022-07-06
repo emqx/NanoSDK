@@ -25,6 +25,19 @@ static int  nni_mqtt_msg_encode_unsubscribe(nni_msg *);
 static int  nni_mqtt_msg_encode_unsuback(nni_msg *);
 static int  nni_mqtt_msg_encode_base(nni_msg *);
 
+static int  nni_mqttv5_msg_encode_connect(nni_msg *);
+static int  nni_mqttv5_msg_encode_connack(nni_msg *);
+static int  nni_mqttv5_msg_encode_subscribe(nni_msg *);
+static int  nni_mqttv5_msg_encode_suback(nni_msg *);
+static int  nni_mqttv5_msg_encode_publish(nni_msg *);
+static int  nni_mqttv5_msg_encode_puback(nni_msg *);
+static int  nni_mqttv5_msg_encode_pubrec(nni_msg *);
+static int  nni_mqttv5_msg_encode_pubrel(nni_msg *);
+static int  nni_mqttv5_msg_encode_pubcomp(nni_msg *);
+static int  nni_mqttv5_msg_encode_unsubscribe(nni_msg *);
+static int  nni_mqttv5_msg_encode_unsuback(nni_msg *);
+static int  nni_mqttv5_msg_encode_base(nni_msg *);
+
 static int nni_mqtt_msg_decode_fixed_header(nni_msg *);
 static int nni_mqtt_msg_decode_connect(nni_msg *);
 static int nni_mqtt_msg_decode_connack(nni_msg *);
@@ -38,6 +51,19 @@ static int nni_mqtt_msg_decode_pubcomp(nni_msg *);
 static int nni_mqtt_msg_decode_unsubscribe(nni_msg *);
 static int nni_mqtt_msg_decode_unsuback(nni_msg *);
 static int nni_mqtt_msg_decode_base(nni_msg *);
+
+static int nni_mqttv5_msg_decode_connect(nni_msg *);
+static int nni_mqttv5_msg_decode_connack(nni_msg *);
+static int nni_mqttv5_msg_decode_subscribe(nni_msg *);
+static int nni_mqttv5_msg_decode_suback(nni_msg *);
+static int nni_mqttv5_msg_decode_publish(nni_msg *);
+static int nni_mqttv5_msg_decode_puback(nni_msg *);
+static int nni_mqttv5_msg_decode_pubrec(nni_msg *);
+static int nni_mqttv5_msg_decode_pubrel(nni_msg *);
+static int nni_mqttv5_msg_decode_pubcomp(nni_msg *);
+static int nni_mqttv5_msg_decode_unsubscribe(nni_msg *);
+static int nni_mqttv5_msg_decode_unsuback(nni_msg *);
+static int nni_mqttv5_msg_decode_base(nni_msg *);
 
 static void destory_connect(nni_mqtt_proto_data *);
 static void destory_publish(nni_mqtt_proto_data *);
@@ -92,33 +118,33 @@ static mqtt_msg_codec_handler codec_handler[] = {
 
 static mqtt_msg_codec_handler codec_v5_handler[] = {
 	{ NNG_MQTT_CONNECT, nni_mqttv5_msg_encode_connect,
-	    nni_mqtt_msg_decode_connect },
+	    nni_mqttv5_msg_decode_connect },
 	{ NNG_MQTT_CONNACK, nni_mqttv5_msg_encode_connack,
-	    nni_mqtt_msg_decode_connack },
+	    nni_mqttv5_msg_decode_connack },
 	{ NNG_MQTT_PUBLISH, nni_mqttv5_msg_encode_publish,
-	    nni_mqtt_msg_decode_publish },
+	    nni_mqttv5_msg_decode_publish },
 	{ NNG_MQTT_PUBACK, nni_mqttv5_msg_encode_puback,
-	    nni_mqtt_msg_decode_puback },
+	    nni_mqttv5_msg_decode_puback },
 	{ NNG_MQTT_PUBREC, nni_mqttv5_msg_encode_pubrec,
-	    nni_mqtt_msg_decode_pubrec },
+	    nni_mqttv5_msg_decode_pubrec },
 	{ NNG_MQTT_PUBREL, nni_mqttv5_msg_encode_pubrel,
-	    nni_mqtt_msg_decode_pubrel },
+	    nni_mqttv5_msg_decode_pubrel },
 	{ NNG_MQTT_PUBCOMP, nni_mqttv5_msg_encode_pubcomp,
-	    nni_mqtt_msg_decode_pubcomp },
+	    nni_mqttv5_msg_decode_pubcomp },
 	{ NNG_MQTT_SUBSCRIBE, nni_mqttv5_msg_encode_subscribe,
-	    nni_mqtt_msg_decode_subscribe },
+	    nni_mqttv5_msg_decode_subscribe },
 	{ NNG_MQTT_SUBACK, nni_mqttv5_msg_encode_suback,
-	    nni_mqtt_msg_decode_suback },
+	    nni_mqttv5_msg_decode_suback },
 	{ NNG_MQTT_UNSUBSCRIBE, nni_mqttv5_msg_encode_unsubscribe,
-	    nni_mqtt_msg_decode_unsubscribe },
+	    nni_mqttv5_msg_decode_unsubscribe },
 	{ NNG_MQTT_UNSUBACK, nni_mqttv5_msg_encode_unsuback,
-	    nni_mqtt_msg_decode_unsuback },
+	    nni_mqttv5_msg_decode_unsuback },
 	{ NNG_MQTT_PINGREQ, nni_mqttv5_msg_encode_base,
-	    nni_mqtt_msg_decode_base },
+	    nni_mqttv5_msg_decode_base },
 	{ NNG_MQTT_PINGRESP, nni_mqttv5_msg_encode_base,
-	    nni_mqtt_msg_decode_base },
+	    nni_mqttv5_msg_decode_base },
 	{ NNG_MQTT_DISCONNECT, nni_mqttv5_msg_encode_base,
-	    nni_mqtt_msg_decode_base }
+	    nni_mqttv5_msg_decode_base }
 };
 
 int
@@ -633,6 +659,13 @@ nni_mqtt_msg_encode_connect(nni_msg *msg)
 }
 
 static int
+nni_mqttv5_msg_encode_connect(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
+}
+
+static int
 nni_mqtt_msg_encode_connack(nni_msg *msg)
 {
 	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
@@ -653,6 +686,13 @@ nni_mqtt_msg_encode_connack(nni_msg *msg)
 	    msg, *(uint8_t *) &var_header->conn_return_code);
 
 	return MQTT_SUCCESS;
+}
+
+static int
+nni_mqttv5_msg_encode_connack(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
 }
 
 static int
@@ -695,6 +735,13 @@ nni_mqtt_msg_encode_subscribe(nni_msg *msg)
 }
 
 static int
+nni_mqttv5_msg_encode_subscribe(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
+}
+
+static int
 nni_mqtt_msg_encode_suback(nni_msg *msg)
 {
 	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
@@ -717,6 +764,13 @@ nni_mqtt_msg_encode_suback(nni_msg *msg)
 	nni_msg_append(msg, spld->ret_code_arr, spld->ret_code_count);
 
 	return MQTT_SUCCESS;
+}
+
+static int
+nni_mqttv5_msg_encode_suback(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
 }
 
 static int
@@ -758,6 +812,13 @@ nni_mqtt_msg_encode_publish(nni_msg *msg)
 }
 
 static int
+nni_mqttv5_msg_encode_publish(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
+}
+
+static int
 nni_mqtt_msg_encode_puback(nni_msg *msg)
 {
 	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
@@ -778,6 +839,13 @@ nni_mqtt_msg_encode_puback(nni_msg *msg)
 }
 
 static int
+nni_mqttv5_msg_encode_puback(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
+}
+
+static int
 nni_mqtt_msg_encode_pubrec(nni_msg *msg)
 {
 	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
@@ -793,6 +861,13 @@ nni_mqtt_msg_encode_pubrec(nni_msg *msg)
 	nni_mqtt_msg_append_u16(msg, var_header->packet_id);
 
 	return MQTT_SUCCESS;
+}
+
+static int
+nni_mqttv5_msg_encode_pubrec(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
 }
 
 static int
@@ -816,6 +891,13 @@ nni_mqtt_msg_encode_pubrel(nni_msg *msg)
 }
 
 static int
+nni_mqttv5_msg_encode_pubrel(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
+}
+
+static int
 nni_mqtt_msg_encode_pubcomp(nni_msg *msg)
 {
 	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
@@ -832,6 +914,13 @@ nni_mqtt_msg_encode_pubcomp(nni_msg *msg)
 	nni_mqtt_msg_append_u16(msg, var_header->packet_id);
 
 	return MQTT_SUCCESS;
+}
+
+static int
+nni_mqttv5_msg_encode_pubcomp(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
 }
 
 static int
@@ -872,6 +961,13 @@ nni_mqtt_msg_encode_unsubscribe(nni_msg *msg)
 }
 
 static int
+nni_mqttv5_msg_encode_unsubscribe(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
+}
+
+static int
 nni_mqtt_msg_encode_unsuback(nni_msg *msg)
 {
 	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
@@ -891,6 +987,13 @@ nni_mqtt_msg_encode_unsuback(nni_msg *msg)
 }
 
 static int
+nni_mqttv5_msg_encode_unsuback(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
+}
+
+static int
 nni_mqtt_msg_encode_base(nni_msg *msg)
 {
 	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
@@ -901,6 +1004,13 @@ nni_mqtt_msg_encode_base(nni_msg *msg)
 	nni_mqtt_msg_encode_fixed_header(msg, mqtt);
 
 	return MQTT_SUCCESS;
+}
+
+static int
+nni_mqttv5_msg_encode_base(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
 }
 
 static int
@@ -1002,6 +1112,13 @@ nni_mqtt_msg_decode_connect(nni_msg *msg)
 }
 
 static int
+nni_mqttv5_msg_decode_connect(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
+}
+
+static int
 nni_mqtt_msg_decode_connack(nni_msg *msg)
 {
 	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
@@ -1025,6 +1142,13 @@ nni_mqtt_msg_decode_connack(nni_msg *msg)
 	}
 
 	return MQTT_SUCCESS;
+}
+
+static int
+nni_mqttv5_msg_decode_connack(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
 }
 
 static int
@@ -1096,6 +1220,13 @@ err:
 }
 
 static int
+nni_mqttv5_msg_decode_subscribe(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
+}
+
+static int
 nni_mqtt_msg_decode_suback(nni_msg *msg)
 {
 	int                  ret;
@@ -1135,6 +1266,13 @@ err:
 	nni_free(mqtt->payload.suback.ret_code_arr,
 	    mqtt->payload.suback.ret_code_count);
 	return ret;
+}
+
+static int
+nni_mqttv5_msg_decode_suback(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
 }
 
 static int
@@ -1182,6 +1320,13 @@ nni_mqtt_msg_decode_publish(nni_msg *msg)
 }
 
 static int
+nni_mqttv5_msg_decode_publish(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
+}
+
+static int
 nni_mqtt_msg_decode_base_with_packet_id(nni_msg *msg, uint16_t *packet_id)
 {
 	uint8_t *body   = nni_msg_body(msg);
@@ -1200,6 +1345,13 @@ nni_mqtt_msg_decode_base_with_packet_id(nni_msg *msg, uint16_t *packet_id)
 }
 
 static int
+nni_mqttv5_msg_decode_base_with_packet_id(nni_msg *msg, uint16_t *packet_id)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
+}
+
+static int
 nni_mqtt_msg_decode_puback(nni_msg *msg)
 {
 	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
@@ -1209,12 +1361,26 @@ nni_mqtt_msg_decode_puback(nni_msg *msg)
 }
 
 static int
+nni_mqttv5_msg_decode_puback(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
+}
+
+static int
 nni_mqtt_msg_decode_pubrec(nni_msg *msg)
 {
 	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
 
 	return nni_mqtt_msg_decode_base_with_packet_id(
 	    msg, &mqtt->var_header.pubrec.packet_id);
+}
+
+static int
+nni_mqttv5_msg_decode_pubrec(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
 }
 
 static int
@@ -1234,12 +1400,26 @@ nni_mqtt_msg_decode_pubrel(nni_msg *msg)
 }
 
 static int
+nni_mqttv5_msg_decode_pubrel(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
+}
+
+static int
 nni_mqtt_msg_decode_pubcomp(nni_msg *msg)
 {
 	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
 
 	return nni_mqtt_msg_decode_base_with_packet_id(
 	    msg, &mqtt->var_header.pubcomp.packet_id);
+}
+
+static int
+nni_mqttv5_msg_decode_pubcomp(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
 }
 
 static int
@@ -1305,6 +1485,13 @@ err:
 }
 
 static int
+nni_mqttv5_msg_decode_unsubscribe(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
+}
+
+static int
 nni_mqtt_msg_decode_unsuback(nni_msg *msg)
 {
 	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
@@ -1314,10 +1501,24 @@ nni_mqtt_msg_decode_unsuback(nni_msg *msg)
 }
 
 static int
+nni_mqttv5_msg_decode_unsuback(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
+}
+
+static int
 nni_mqtt_msg_decode_base(nni_msg *msg)
 {
 	NNI_ARG_UNUSED(msg);
 	return MQTT_SUCCESS;
+}
+
+static int
+nni_mqttv5_msg_decode_base(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	return 0;
 }
 
 int
