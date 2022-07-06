@@ -16,10 +16,6 @@ extern "C" {
 #include "nng/mqtt/mqtt_client.h"
 #include "nng/nng.h"
 
-#define MQTT_VERSION_3_1 3
-#define MQTT_VERSION_3_1_1 4
-#define MQTT_VERSION_5_0 5
-
 #define MQTT_PROTOCOL_NAME "MQTT"
 
 #define MQTT_MAX_MSG_LEN 268435455
@@ -40,14 +36,6 @@ typedef nng_mqtt_topic       nni_mqtt_topic;
 #define MQTT_QOS_0_AT_MOST_ONCE 0
 #define MQTT_QOS_1_AT_LEAST_ONCE 1
 #define MQTT_QOS_2_EXACTLY_ONCE 2
-
-/* CONNACK codes */
-#define MQTT_CONNACK_ACCEPTED 0
-#define MQTT_CONNACK_REFUSED_PROTOCOL_VERSION 1
-#define MQTT_CONNACK_REFUSED_IDENTIFIER_REJECTED 2
-#define MQTT_CONNACK_REFUSED_SERVER_UNAVAILABLE 3
-#define MQTT_CONNACK_REFUSED_BAD_USERNAME_PASSWORD 4
-#define MQTT_CONNACK_REFUSED_NOT_AUTHORIZED 5
 
 /* Function return codes */
 #define MQTT_SUCCESS 0
