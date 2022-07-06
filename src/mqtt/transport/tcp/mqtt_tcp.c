@@ -14,6 +14,7 @@
 #include "core/nng_impl.h"
 #include "nng/mqtt/mqtt_client.h"
 #include "supplemental/mqtt/mqtt_msg.h"
+#include "nng/protocol/mqtt/mqtt.h"
 
 // TCP transport.   Platform specific TCP operations must be
 // supplied as well.
@@ -346,14 +347,13 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 		nni_msg_header_append(p->rxmsg, p->rxlen, pos + 1);
 
 		p->wantrxhead = var_int + 1 + pos;
-		// TODO V4 V5
-		// if ((rv = (p->wantrxhead <= 4) ? 0 : NNG_EPROTO) != 0) {
-		// 	// TODO BUG here
-		// 	goto error;
-		// }
-	}
-	// remaining length
-	// TODO CPU Waste
+		if (p->proto == MQTT_PROTOCOL_VERSION_v311 &&
+		    ((rv = (p->wantrxhead <= 4) ? 0 : NNG_EPROTO) != 0)) {
+			// Broker send a invalid CONNACK!
+			goto error;
+		}
+        }
+	// got remaining length
 	if (p->gotrxhead < p->wantrxhead) {
 		nni_iov iov;
 		iov.iov_len = p->wantrxhead - p->gotrxhead;
@@ -868,7 +868,8 @@ mqtt_tcptran_pipe_start(
 		// no valid connmsg from user, use default
 		nni_mqtt_msg_alloc(&connmsg, 0);
 		nni_mqtt_msg_set_packet_type(connmsg, NNG_MQTT_CONNECT);
-		nni_mqtt_msg_set_connect_proto_version(connmsg, MQTT_VERSION_3_1_1);
+		nni_mqtt_msg_set_connect_proto_version(
+		    connmsg, MQTT_PROTOCOL_VERSION_v311);
 		nni_mqtt_msg_set_connect_keep_alive(connmsg, 60);
 		nni_mqtt_msg_set_connect_clean_session(connmsg, true);
 	}
