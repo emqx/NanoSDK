@@ -1,5 +1,5 @@
 //
-// Copyright 2021 NanoMQ Team, Inc. <jaylin@emqx.io>
+// Copyright 2022 NanoMQ Team, Inc. <jaylin@emqx.io>
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -27,9 +27,9 @@ typedef struct mqtt_tcptran_ep   mqtt_tcptran_ep;
 struct mqtt_tcptran_pipe {
 	nng_stream *     conn;
 	nni_pipe *       npipe;
-	uint16_t         peer;
-	uint16_t         proto;
-	uint16_t         keepalive;	//keepalive time Second
+	uint16_t         peer;		// broker info
+	uint16_t         proto;		// MQTT version
+	uint16_t         keepalive;
 	size_t           rcvmax;
 	bool             closed;
 	bool             busy;
@@ -58,7 +58,7 @@ struct mqtt_tcptran_pipe {
 
 struct mqtt_tcptran_ep {
 	nni_mtx              mtx;
-	uint16_t             proto;
+	uint16_t             proto; //socket's 16-bit protocol number
 	size_t               rcvmax;
 	bool                 fini;
 	bool                 started;
@@ -122,6 +122,8 @@ mqtt_pipe_timer_cb(void *arg)
 	if (nng_aio_result(&p->tmaio) != 0) {
 		return;
 	}
+	// send PINGREQ with tmaio itself?
+	// nng_msleep(p->keepalive);
 	nni_mtx_lock(&p->mtx);
 	if (!p->busy) {
 		// send pingreq
@@ -344,10 +346,11 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 		nni_msg_header_append(p->rxmsg, p->rxlen, pos + 1);
 
 		p->wantrxhead = var_int + 1 + pos;
-		if ((rv = (p->wantrxhead <= 4) ? 0 : NNG_EPROTO) != 0) {
-			// TODO BUG here
-			goto error;
-		}
+		// TODO V4 V5
+		// if ((rv = (p->wantrxhead <= 4) ? 0 : NNG_EPROTO) != 0) {
+		// 	// TODO BUG here
+		// 	goto error;
+		// }
 	}
 	// remaining length
 	// TODO CPU Waste
@@ -420,6 +423,7 @@ mqtt_tcptran_pipe_qos_send_cb(void *arg)
 	nni_msg_free(msg);
 	if (nni_lmq_get(&p->rslmq, &msg) == 0) {
 		nni_iov iov;
+		// TODO QOS V5
 		iov.iov_len = 4;
 		iov.iov_buf = nni_msg_header(msg);
 		nni_aio_set_msg(p->qsaio, msg);
@@ -574,7 +578,7 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 		uint8_t  qos_pac;
 		uint16_t pid;
 		// should we seperate the 2 phase work of QoS into 2 aios?
-
+		// TODO MQTT v5 qos
 		qos_pac = nni_msg_get_pub_qos(msg);
 		if (qos_pac > 0) {
 			if (qos_pac == 1) {
@@ -797,6 +801,7 @@ mqtt_tcptran_pipe_recv_start(mqtt_tcptran_pipe *p)
 	// Schedule a read of the header.
 	rxaio         = p->rxaio;
 	p->gotrxhead  = 0;
+	// 2 = MIN_FIXED_HEADER_LEN
 	p->wantrxhead = 2;
 	iov.iov_buf   = p->rxlen;
 	iov.iov_len   = 2;
@@ -849,28 +854,23 @@ mqtt_tcptran_pipe_start(
     mqtt_tcptran_pipe *p, nng_stream *conn, mqtt_tcptran_ep *ep)
 {
 	nni_iov  iov[2];
-	nni_msg *connmsg;
-	int      rv, niov = 0;
+	nni_msg *connmsg = NULL;
+	int      niov = 0;
 
 	ep->refcnt++;
 
 	p->conn  = conn;
 	p->ep    = ep;
-	p->proto = ep->proto;
 
-	rv = nni_dialer_getopt(ep->ndialer, NNG_OPT_MQTT_CONNMSG, &connmsg,
-	    NULL, NNI_TYPE_POINTER);
-	if (!connmsg) {
-		nni_list_append(&ep->waitpipes, p);
-		// 60s as the default keepalive timeout.
-		p->keepalive = 60;
-		mqtt_tcptran_ep_match(ep);
-		return;
-	}
-	if ((rv = nni_mqtt_msg_encode(connmsg)) != 0) {
-		nni_list_append(&ep->waitpipes, p);
-		mqtt_tcptran_ep_match(ep);
-		return;
+	nni_dialer_getopt(ep->ndialer, NNG_OPT_MQTT_CONNMSG, &connmsg, NULL,
+	    NNI_TYPE_POINTER);
+	if (connmsg == NULL || nni_mqtt_msg_encode(connmsg) != 0) {
+		// no valid connmsg from user, use default
+		nni_mqtt_msg_alloc(&connmsg, 0);
+		nni_mqtt_msg_set_packet_type(connmsg, NNG_MQTT_CONNECT);
+		nni_mqtt_msg_set_connect_proto_version(connmsg, MQTT_VERSION_3_1_1);
+		nni_mqtt_msg_set_connect_keep_alive(connmsg, 60);
+		nni_mqtt_msg_set_connect_clean_session(connmsg, true);
 	}
 
 	p->gotrxhead = 0;
@@ -1508,6 +1508,7 @@ static nni_sp_dialer_ops mqtt_tcptran_dialer_ops = {
 	.d_setopt  = mqtt_tcptran_dialer_setopt,
 };
 
+// TODO Remove: MQTT SDK has no listener though
 static nni_sp_listener_ops mqtt_tcptran_listener_ops = {
 	.l_init   = mqtt_tcptran_listener_init,
 	.l_fini   = mqtt_tcptran_ep_fini,
