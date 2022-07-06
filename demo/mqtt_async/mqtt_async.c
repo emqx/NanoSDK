@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include <nng/mqtt/mqtt_client.h>
+#include <nng/protocol/mqtt/mqtt.h>
 #include <nng/nng.h>
 #include <nng/supplemental/util/platform.h>
 
@@ -171,6 +172,8 @@ client(const char *url)
 	nng_mqtt_msg_alloc(&msg, 0);
 	nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
 	nng_mqtt_msg_set_connect_keep_alive(msg, 60);
+	nng_mqtt_msg_set_connect_proto_version(
+	    msg, MQTT_PROTOCOL_VERSION_v311);
 	nng_mqtt_msg_set_connect_clean_session(msg, true);
 
 	nng_mqtt_set_connect_cb(sock, connect_cb, &sock);
