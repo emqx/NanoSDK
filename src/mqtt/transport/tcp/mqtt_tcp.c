@@ -344,10 +344,10 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 		nni_msg_header_append(p->rxmsg, p->rxlen, pos + 1);
 
 		p->wantrxhead = var_int + 1 + pos;
-		if ((rv = (p->wantrxhead <= 4) ? 0 : NNG_EPROTO) != 0) {
-			// TODO BUG here
-			goto error;
-		}
+		// if ((rv = (p->wantrxhead <= 4) ? 0 : NNG_EPROTO) != 0) {
+		// 	// TODO BUG here
+		// 	goto error;
+		// }
 	}
 	// remaining length
 	// TODO CPU Waste
