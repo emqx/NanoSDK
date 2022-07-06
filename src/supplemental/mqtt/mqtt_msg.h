@@ -273,8 +273,13 @@ extern int  nni_mqtt_msg_dup(void **dest, const void *src);
 
 // mqtt message alloc/encode/decode
 extern int nni_mqtt_msg_alloc(nni_msg **, size_t);
+
 extern int nni_mqtt_msg_encode(nni_msg *);
 extern int nni_mqtt_msg_decode(nni_msg *);
+
+// mqtt message encode/decode for v5
+extern int nni_mqttv5_msg_encode(nni_msg *);
+extern int nni_mqttv5_msg_decode(nni_msg *);
 
 // mqtt packet_type
 extern void nni_mqtt_msg_set_packet_type(nni_msg *, nni_mqtt_packet_type);
