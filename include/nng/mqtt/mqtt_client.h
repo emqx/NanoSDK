@@ -152,7 +152,7 @@ extern "C" {
 // Note that MQTT sockets can be connected to at most a single server.
 // Creating the client does not connect it.
 NNG_DECL int nng_mqtt_client_open(nng_socket *);
-NNG_DECL int nng_mqtt_v5_client_open(nng_socket *);
+NNG_DECL int nng_mqttv5_client_open(nng_socket *);
 
 // Note that there is a single implicit dialer for the client,
 // and options may be set on the socket to configure dial options.

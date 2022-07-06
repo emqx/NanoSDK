@@ -1022,7 +1022,7 @@ static nni_proto mqtt_proto = {
 };
 
 int
-nng_mqtt_v5_client_open(nng_socket *sock)
+nng_mqttv5_client_open(nng_socket *sock)
 {
 	return (nni_proto_open(sock, &mqtt_proto));
 }
