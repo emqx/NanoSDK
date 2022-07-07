@@ -115,12 +115,12 @@ nng_mqtt_msg_set_connect_user_name(nng_msg *msg, const char *user_name)
 {
 	nni_mqtt_msg_set_connect_user_name(msg, user_name);
 }
+
 void
 nng_mqtt_msg_set_connect_password(nng_msg *msg, const char *password)
 {
 	nni_mqtt_msg_set_connect_password(msg, password);
 }
-
 uint8_t
 nng_mqtt_msg_get_connect_proto_version(nng_msg *msg)
 {

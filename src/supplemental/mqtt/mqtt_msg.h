@@ -481,6 +481,8 @@ extern property *property_set_value_str( uint8_t prop_id, const char *value, uin
 extern property *property_set_value_strpair(uint8_t prop_id, const char *key, uint32_t key_len, const char *value, uint32_t value_len, bool copy_value);
 extern void      property_append(property *prop_list, property *last);
 
+extern void nni_msg_proto_set_property(nng_msg *msg, void *p);
+
 #ifdef __cplusplus
 }
 #endif
