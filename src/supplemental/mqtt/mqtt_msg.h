@@ -64,6 +64,69 @@ struct pos_buf {
 	uint8_t *endpos;
 };
 
+struct mqtt_string {
+	char *   body;
+	uint32_t len;
+};
+typedef struct mqtt_string mqtt_string;
+
+struct mqtt_string_node {
+	struct mqtt_string_node *next;
+	mqtt_string *            it;
+};
+typedef struct mqtt_string_node mqtt_string_node;
+
+struct mqtt_binary {
+	uint8_t *body;
+	uint32_t len;
+};
+typedef struct mqtt_binary mqtt_binary;
+
+struct mqtt_str_pair {
+	char *   key; // key
+	uint32_t len_key;
+	char *   val; // value
+	uint32_t len_val;
+};
+typedef struct mqtt_str_pair mqtt_str_pair;
+
+union Property_type {
+	uint8_t  u8;
+	uint16_t u16;
+	uint32_t u32;
+	uint32_t varint;
+	mqtt_buf binary;
+	mqtt_buf str;
+	mqtt_kv  strpair;
+};
+
+typedef enum {
+	U8,
+	U16,
+	U32,
+	VARINT,
+	BINARY,
+	STR,
+	STR_PAIR,
+	UNKNOWN
+} property_type_enum;
+
+struct property_data {
+	property_type_enum  p_type;
+	union Property_type p_value;
+	bool                is_copy;
+};
+
+typedef struct property_data property_data;
+
+struct property {
+	uint8_t          id;
+	property_data    data;
+	struct property *next;
+};
+typedef struct property property;
+
+
 /* CONNECT flags */
 typedef struct conn_flags_t {
 	uint8_t reserved : 1;
@@ -135,6 +198,8 @@ typedef struct mqttv5_connect_vhdr_t {
 	uint8_t    protocol_version;
 	conn_flags conn_flags;
 	uint16_t   keep_alive;
+
+	property * properties;
 } mqttv5_connect_vhdr;
 
 typedef struct mqttv5_connack_vhdr_t {
@@ -244,6 +309,7 @@ typedef struct {
  ****************************************************************************/
 typedef struct {
 	mqtt_buf client_id;
+	property *will_properties;
 	mqtt_buf will_topic;
 	mqtt_buf will_msg;
 	mqtt_buf user_name;
@@ -491,68 +557,6 @@ extern void nni_mqtt_topic_qos_array_free(nni_mqtt_topic_qos *, size_t);
 extern void mqtt_close_unack_msg_cb(void *key, void *val);
 
 extern uint16_t nni_msg_get_pub_pid(nni_msg *m);
-
-struct mqtt_string {
-	char *   body;
-	uint32_t len;
-};
-typedef struct mqtt_string mqtt_string;
-
-struct mqtt_string_node {
-	struct mqtt_string_node *next;
-	mqtt_string *            it;
-};
-typedef struct mqtt_string_node mqtt_string_node;
-
-struct mqtt_binary {
-	uint8_t *body;
-	uint32_t len;
-};
-typedef struct mqtt_binary mqtt_binary;
-
-struct mqtt_str_pair {
-	char *   key; // key
-	uint32_t len_key;
-	char *   val; // value
-	uint32_t len_val;
-};
-typedef struct mqtt_str_pair mqtt_str_pair;
-
-union Property_type {
-	uint8_t  u8;
-	uint16_t u16;
-	uint32_t u32;
-	uint32_t varint;
-	mqtt_buf binary;
-	mqtt_buf str;
-	mqtt_kv  strpair;
-};
-
-typedef enum {
-	U8,
-	U16,
-	U32,
-	VARINT,
-	BINARY,
-	STR,
-	STR_PAIR,
-	UNKNOWN
-} property_type_enum;
-
-struct property_data {
-	property_type_enum  p_type;
-	union Property_type p_value;
-	bool                is_copy;
-};
-
-typedef struct property_data property_data;
-
-struct property {
-	uint8_t          id;
-	property_data    data;
-	struct property *next;
-};
-typedef struct property property;
 
 extern reason_code check_properties(property *prop);
 extern property *decode_buf_properties(uint8_t *packet, uint32_t packet_len, uint32_t *pos, uint32_t *len, bool copy_value);

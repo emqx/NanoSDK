@@ -677,7 +677,7 @@ nni_mqttv5_msg_encode_connect(nni_msg *msg)
 	}
 
 	if (var_header->protocol_version == 0) {
-		var_header->protocol_version = 4;
+		var_header->protocol_version = 5;
 	}
 
 	if (mqtt->payload.connect.client_id.length == 0) {
@@ -688,7 +688,7 @@ nni_mqttv5_msg_encode_connect(nni_msg *msg)
 
 	poslength += var_header->protocol_name.length;
 	/* add the length of payload part */
-	mqtt_connect_payload *payload = &mqtt->payload.connect;
+	mqttv5_connect_payload *payload = &mqtt->payload.connect_v5;
 	/* Clientid length */
 	poslength += payload->client_id.length + 2;
 
@@ -713,12 +713,6 @@ nni_mqttv5_msg_encode_connect(nni_msg *msg)
 		var_header->conn_flags.password_flag = 1;
 	}
 
-	mqtt->fixed_header.remaining_length = (uint32_t) poslength;
-	if (mqtt->fixed_header.remaining_length > MQTT_MAX_MSG_LEN) {
-		return MQTT_ERR_PAYLOAD_SIZE;
-	}
-	nni_mqtt_msg_encode_fixed_header(msg, mqtt);
-
 	nni_mqtt_msg_append_byte_str(msg, &var_header->protocol_name);
 
 	nni_mqtt_msg_append_u8(msg, var_header->protocol_version);
@@ -732,11 +726,17 @@ nni_mqttv5_msg_encode_connect(nni_msg *msg)
 	}
 	nni_mqtt_msg_append_u16(msg, var_header->keep_alive);
 
+	/* Encode properties */
+	encode_properties(msg, var_header->properties, CMD_CONNECT);
+
 	/* Now we are in payload part */
 
 	/* Client Identifier */
 	/* Client Identifier is mandatory */
 	nni_mqtt_msg_append_byte_str(msg, &payload->client_id);
+
+	/* Will Properties */
+	encode_properties(msg, payload->will_properties, CMD_CONNECT);
 
 	/* Will Topic */
 	if (payload->will_topic.length) {
@@ -786,10 +786,14 @@ nni_mqttv5_msg_encode_connect(nni_msg *msg)
 		}
 	}
 
-	return MQTT_SUCCESS;
+	/* Encode fix header finally */
+	mqtt->fixed_header.remaining_length = (uint32_t) nni_msg_len(msg);
+	if (mqtt->fixed_header.remaining_length > MQTT_MAX_MSG_LEN) {
+		return MQTT_ERR_PAYLOAD_SIZE;
+	}
+	nni_mqtt_msg_encode_fixed_header(msg, mqtt);
 
-	NNI_ARG_UNUSED(msg);
-	return 0;
+	return MQTT_SUCCESS;
 }
 
 static int
