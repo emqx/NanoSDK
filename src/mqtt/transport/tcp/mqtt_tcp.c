@@ -68,6 +68,7 @@ struct mqtt_tcptran_ep {
 	const char *         host; // for dialers
 	nng_sockaddr         src;
 	int                  refcnt; // active pipes
+	reason_code          reason_code;
 	nni_aio *            useraio;
 	nni_aio *            connaio;
 	nni_aio *            timeaio;
@@ -78,6 +79,7 @@ struct mqtt_tcptran_ep {
 	nng_stream_dialer *  dialer;
 	nng_stream_listener *listener;
 	nni_dialer *         ndialer;
+	property *           property;  // property
 	void *               connmsg;
 
 #ifdef NNG_ENABLE_STATS
@@ -1133,8 +1135,11 @@ mqtt_tcptran_ep_init(mqtt_tcptran_ep **epp, nng_url *url, nni_sock *sock)
 	NNI_LIST_INIT(&ep->waitpipes, mqtt_tcptran_pipe, node);
 	NNI_LIST_INIT(&ep->negopipes, mqtt_tcptran_pipe, node);
 
-	ep->proto = nni_sock_proto_id(sock);
-	ep->url   = url;
+	ep->proto       = nni_sock_proto_id(sock);
+	ep->url         = url;
+	ep->connmsg     = NULL;
+	ep->reason_code = 0;
+	ep->property    = NULL;
 
 #ifdef NNG_ENABLE_STATS
 	static const nni_stat_info rcv_max_info = {
@@ -1309,6 +1314,19 @@ mqtt_tcptran_ep_get_recvmaxsz(void *arg, void *v, size_t *szp, nni_opt_type t)
 	return (rv);
 }
 
+
+static int
+mqtt_tcptran_ep_get_reasoncode(void *arg, void *v, size_t *sz, nni_opt_type t)
+{
+	mqtt_tcptran_ep *ep = arg;
+	int              rv;
+
+	nni_mtx_lock(&ep->mtx);
+	nni_copyin_int(v, &ep->reason_code, sz, 0, 256, t);
+	nni_mtx_unlock(&ep->mtx);
+	return (rv);
+}
+
 static int
 mqtt_tcptran_ep_set_recvmaxsz(
     void *arg, const void *v, size_t sz, nni_opt_type t)
@@ -1344,6 +1362,18 @@ mqtt_tcptran_ep_get_connmsg(void *arg, void *v, size_t *szp, nni_opt_type t)
 	int              rv;
 
 	nni_copyout_ptr(ep->connmsg, v, szp, t);
+	rv = 0;
+
+	return (rv);
+}
+
+static int
+mqtt_tcptran_ep_get_property(void *arg, void *v, size_t *szp, nni_opt_type t)
+{
+	mqtt_tcptran_ep *ep = arg;
+	int              rv;
+
+	nni_copyout_ptr(ep->property, v, szp, t);
 	rv = 0;
 
 	return (rv);
@@ -1425,6 +1455,19 @@ static nni_sp_pipe_ops mqtt_tcptran_pipe_ops = {
 
 static const nni_option mqtt_tcptran_ep_opts[] = {
 	{
+	    .o_name = NNG_OPT_MQTT_REASON_CODE,
+	    .o_get  = mqtt_tcptran_ep_get_reasoncode,
+	},
+	{
+	    .o_name = NNG_OPT_MQTT_PROPERTY,
+	    .o_get  = mqtt_tcptran_ep_get_property,
+	},
+	{
+	    .o_name = NNG_OPT_MQTT_CONNMSG,
+	    .o_get  = mqtt_tcptran_ep_get_connmsg,
+	    .o_set  = mqtt_tcptran_ep_set_connmsg,
+	},
+	{
 	    .o_name = NNG_OPT_RECVMAXSZ,
 	    .o_get  = mqtt_tcptran_ep_get_recvmaxsz,
 	    .o_set  = mqtt_tcptran_ep_set_recvmaxsz,
@@ -1432,11 +1475,6 @@ static const nni_option mqtt_tcptran_ep_opts[] = {
 	{
 	    .o_name = NNG_OPT_URL,
 	    .o_get  = mqtt_tcptran_ep_get_url,
-	},
-	{
-	    .o_name = NNG_OPT_MQTT_CONNMSG,
-	    .o_get  = mqtt_tcptran_ep_get_connmsg,
-	    .o_set  = mqtt_tcptran_ep_set_connmsg,
 	},
 	// terminate list
 	{

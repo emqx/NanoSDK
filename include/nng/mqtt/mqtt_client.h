@@ -49,6 +49,12 @@ extern "C" {
 // (TODO: What about session expiry?)
 #define NNG_OPT_MQTT_EXPIRES "expires"
 
+#define NNG_OPT_MQTT_CONNMSG "mqtt-connect-msg"
+
+#define NNG_OPT_MQTT_PROPERTY "mqtt-property"
+
+#define NNG_OPT_MQTT_REASON_CODE "mqtt-reason-code"
+
 // NNG_OPT_MQTT_QOS is a byte (only lower two bits significant) representing
 // the quality of service.  At this time, only level zero is supported.
 // TODO: level 1 and level 2 QoS
@@ -71,7 +77,7 @@ extern "C" {
 // MQTT published message must have a topic.
 #define NNG_OPT_MQTT_TOPIC "topic"
 
-// NNG_OPT_MQTT_REASon is a reason that can be conveyed with a message.
+// NNG_OPT_MQTT_REASON is a reason that can be conveyed with a message.
 // It is a UTF-8 string.
 #define NNG_OPT_MQTT_REASON "reason"
 
@@ -215,8 +221,6 @@ extern int nng_mqtt_user_props_alloc(nng_mqtt_user_props_t **);
 extern int nng_mqtt_user_props_add(
     nng_mqtt_user_props_t *, const char *, const char *);
 extern void nng_mqtt_user_props_free(nng_mqtt_user_props_t *);
-
-#define NNG_OPT_MQTT_CONNMSG "mqtt-connect-msg"
 
 typedef enum {
 	NNG_MQTT_CONNECT     = 0x01,
