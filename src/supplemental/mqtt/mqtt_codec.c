@@ -668,7 +668,7 @@ nni_mqttv5_msg_encode_connect(nni_msg *msg)
 
 	int poslength = 6;
 
-	mqttv5_connect_vhdr *var_header = &mqtt->var_header.connect_v5;
+	mqtt_connect_vhdr *var_header = &mqtt->var_header.connect;
 
 	if (var_header->protocol_name.length == 0) {
 		mqtt_buf_create(&var_header->protocol_name,
@@ -688,7 +688,7 @@ nni_mqttv5_msg_encode_connect(nni_msg *msg)
 
 	poslength += var_header->protocol_name.length;
 	/* add the length of payload part */
-	mqttv5_connect_payload *payload = &mqtt->payload.connect_v5;
+	mqtt_connect_payload *payload = &mqtt->payload.connect;
 	/* Clientid length */
 	poslength += payload->client_id.length + 2;
 
@@ -825,7 +825,7 @@ nni_mqttv5_msg_encode_connack(nni_msg *msg)
 	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
 	nni_msg_clear(msg);
 
-	mqttv5_connack_vhdr *var_header = &mqtt->var_header.connack_v5;
+	mqtt_connack_vhdr *var_header = &mqtt->var_header.connack;
 
 	/* Connect Acknowledge Flags */
 	nni_mqtt_msg_append_u8(msg, *(uint8_t *) &var_header->connack_flags);
@@ -1266,7 +1266,7 @@ static int
 nni_mqttv5_msg_decode_connect(nni_msg *msg)
 {
 	int                  ret;
-	nni_mqtt_proto_data *mqttv5 = nni_msg_get_proto_data(msg);
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
 
 	uint8_t *body   = nni_msg_body(msg);
 	size_t   length = nni_msg_len(msg);
@@ -1276,24 +1276,24 @@ nni_mqttv5_msg_decode_connect(nni_msg *msg)
 	buf.endpos = &body[length];
 
 	/* Protocol Name */
-	ret = read_str_data(&buf, &mqttv5->var_header.connect_v5.protocol_name);
+	ret = read_str_data(&buf, &mqtt->var_header.connect.protocol_name);
 	if (ret != 0) {
 		return MQTT_ERR_PROTOCOL;
 	}
 	/* Protocol Level */
-	ret = read_byte(&buf, &mqttv5->var_header.connect_v5.protocol_version);
+	ret = read_byte(&buf, &mqtt->var_header.connect.protocol_version);
 	if (ret != 0) {
 		return MQTT_ERR_PROTOCOL;
 	}
 	/* Protocol Level */
 	ret =
-	    read_byte(&buf, (uint8_t *) &mqttv5->var_header.connect_v5.conn_flags);
+	    read_byte(&buf, (uint8_t *) &mqtt->var_header.connect.conn_flags);
 	if (ret != 0) {
 		return MQTT_ERR_PROTOCOL;
 	}
 
 	/* Keep Alive */
-	ret = read_uint16(&buf, &mqttv5->var_header.connect_v5.keep_alive);
+	ret = read_uint16(&buf, &mqtt->var_header.connect.keep_alive);
 	if (ret != 0) {
 		return MQTT_ERR_PROTOCOL;
 	}
@@ -1301,12 +1301,12 @@ nni_mqttv5_msg_decode_connect(nni_msg *msg)
 	/* Properties */
 	uint32_t pos = buf.curpos - &body[0];
 	uint32_t prop_len = 0;
-	mqttv5->var_header.connect_v5.properties =
+	mqtt->var_header.connect.properties =
 	    decode_buf_properties(body, length, &pos, &prop_len, true);
 	buf.curpos = &body[0] + pos;
 
 	/* Client Identifier */
-	ret = read_utf8_str(&buf, &mqttv5->payload.connect_v5.client_id);
+	ret = read_utf8_str(&buf, &mqtt->payload.connect.client_id);
 	if (ret != 0) {
 		return MQTT_ERR_PROTOCOL;
 	}
@@ -1314,32 +1314,32 @@ nni_mqttv5_msg_decode_connect(nni_msg *msg)
 	/* Will Properties */
 	pos = buf.curpos - &body[0];
 	prop_len = 0;
-	mqttv5->var_header.connect_v5.properties =
+	mqtt->var_header.connect.properties =
 	    decode_buf_properties(body, length, &pos, &prop_len, true);
 	buf.curpos = &body[0] + pos;
 
-	if (mqttv5->var_header.connect_v5.conn_flags.will_flag) {
+	if (mqtt->var_header.connect.conn_flags.will_flag) {
 		/* Will Topic */
-		ret = read_utf8_str(&buf, &mqttv5->payload.connect_v5.will_topic);
+		ret = read_utf8_str(&buf, &mqtt->payload.connect.will_topic);
 		if (ret != 0) {
 			return MQTT_ERR_PROTOCOL;
 		}
 		/* Will Message */
-		ret = read_str_data(&buf, &mqttv5->payload.connect_v5.will_msg);
+		ret = read_str_data(&buf, &mqtt->payload.connect.will_msg);
 		if (ret != 0) {
 			return MQTT_ERR_PROTOCOL;
 		}
 	}
-	if (mqttv5->var_header.connect_v5.conn_flags.username_flag) {
+	if (mqtt->var_header.connect.conn_flags.username_flag) {
 		/* Username */
-		ret = read_utf8_str(&buf, &mqttv5->payload.connect_v5.user_name);
+		ret = read_utf8_str(&buf, &mqtt->payload.connect.user_name);
 		if (ret != 0) {
 			return MQTT_ERR_PROTOCOL;
 		}
 	}
-	if (mqttv5->var_header.connect_v5.conn_flags.password_flag) {
+	if (mqtt->var_header.connect.conn_flags.password_flag) {
 		/* Password */
-		ret = read_str_data(&buf, &mqttv5->payload.connect_v5.password);
+		ret = read_str_data(&buf, &mqtt->payload.connect.password);
 		if (ret != 0) {
 			return MQTT_ERR_PROTOCOL;
 		}
@@ -1376,7 +1376,7 @@ nni_mqtt_msg_decode_connack(nni_msg *msg)
 static int
 nni_mqttv5_msg_decode_connack(nni_msg *msg)
 {
-	nni_mqtt_proto_data *mqttv5 = nni_msg_get_proto_data(msg);
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
 
 	uint8_t *body   = nni_msg_body(msg);
 	size_t   length = nni_msg_len(msg);
@@ -1385,13 +1385,13 @@ nni_mqttv5_msg_decode_connack(nni_msg *msg)
 	buf.curpos = &body[0];
 	buf.endpos = &body[length];
 
-	int result = read_byte(&buf, &mqttv5->var_header.connack_v5.connack_flags);
+	int result = read_byte(&buf, &mqtt->var_header.connack.connack_flags);
 	if (result != 0) {
 		return MQTT_ERR_PROTOCOL;
 	}
 
 	/* Connect Return Code */
-	result = read_byte(&buf, &mqttv5->var_header.connack_v5.connack_flags);
+	result = read_byte(&buf, &mqtt->var_header.connack.connack_flags);
 	if (result != 0) {
 		return MQTT_ERR_PROTOCOL;
 	}
@@ -1399,7 +1399,7 @@ nni_mqttv5_msg_decode_connack(nni_msg *msg)
 	/* Properties */
 	uint32_t pos = buf.curpos - &body[0];
 	uint32_t prop_len = 0;
-	mqttv5->var_header.connect_v5.properties =
+	mqtt->var_header.connect.properties =
 	    decode_buf_properties(body, length, &pos, &prop_len, true);
 	buf.curpos = &body[0] + pos;
 
