@@ -491,6 +491,91 @@ extern void nni_mqtt_topic_qos_array_free(nni_mqtt_topic_qos *, size_t);
 extern void mqtt_close_unack_msg_cb(void *key, void *val);
 
 extern uint16_t nni_msg_get_pub_pid(nni_msg *m);
+
+struct mqtt_string {
+	char *   body;
+	uint32_t len;
+};
+typedef struct mqtt_string mqtt_string;
+
+struct mqtt_string_node {
+	struct mqtt_string_node *next;
+	mqtt_string *            it;
+};
+typedef struct mqtt_string_node mqtt_string_node;
+
+struct mqtt_binary {
+	uint8_t *body;
+	uint32_t len;
+};
+typedef struct mqtt_binary mqtt_binary;
+
+struct mqtt_str_pair {
+	char *   key; // key
+	uint32_t len_key;
+	char *   val; // value
+	uint32_t len_val;
+};
+typedef struct mqtt_str_pair mqtt_str_pair;
+
+union Property_type {
+	uint8_t  u8;
+	uint16_t u16;
+	uint32_t u32;
+	uint32_t varint;
+	mqtt_buf binary;
+	mqtt_buf str;
+	mqtt_kv  strpair;
+};
+
+typedef enum {
+	U8,
+	U16,
+	U32,
+	VARINT,
+	BINARY,
+	STR,
+	STR_PAIR,
+	UNKNOWN
+} property_type_enum;
+
+struct property_data {
+	property_type_enum  p_type;
+	union Property_type p_value;
+	bool                is_copy;
+};
+
+typedef struct property_data property_data;
+
+struct property {
+	uint8_t          id;
+	property_data    data;
+	struct property *next;
+};
+typedef struct property property;
+
+extern reason_code check_properties(property *prop);
+extern property *decode_buf_properties(uint8_t *packet, uint32_t packet_len, uint32_t *pos, uint32_t *len, bool copy_value);
+extern property *decode_properties(nng_msg *msg, uint32_t *pos, uint32_t *len, bool copy_value);
+extern int      encode_properties(nng_msg *msg, property *prop, uint8_t cmd);
+extern uint32_t get_properties_len(property *prop);
+extern int      property_free(property *prop);
+extern property_data *property_get_value(property *prop, uint8_t prop_id);
+extern void      property_foreach(property *prop, void (*cb)(property *));
+extern int       property_dup(property **dup, const property *src);
+extern property *property_pub_by_will(property *will_prop);
+
+extern property          *property_alloc(void);
+extern property_type_enum property_get_value_type(uint8_t prop_id);
+extern property *property_set_value_u8(uint8_t prop_id, uint8_t value);
+extern property *property_set_value_u16(uint8_t prop_id, uint16_t value);
+extern property *property_set_value_u32(uint8_t prop_id, uint32_t value);
+extern property *property_set_value_varint(uint8_t prop_id, uint32_t value);
+extern property *property_set_value_binary(uint8_t prop_id, uint8_t *value, uint32_t len, bool copy_value);
+extern property *property_set_value_str( uint8_t prop_id, const char *value, uint32_t len, bool copy_value);
+extern property *property_set_value_strpair(uint8_t prop_id, const char *key, uint32_t key_len, const char *value, uint32_t value_len, bool copy_value);
+extern void      property_append(property *prop_list, property *last);
+
 #ifdef __cplusplus
 }
 #endif
