@@ -205,6 +205,7 @@ typedef struct mqttv5_connect_vhdr_t {
 typedef struct mqttv5_connack_vhdr_t {
 	uint8_t connack_flags;
 	uint8_t conn_return_code;
+	property *properties;
 } mqttv5_connack_vhdr;
 
 typedef struct mqttv5_publish_vhdr_t {

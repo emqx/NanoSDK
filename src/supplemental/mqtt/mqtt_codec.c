@@ -822,8 +822,28 @@ nni_mqtt_msg_encode_connack(nni_msg *msg)
 static int
 nni_mqttv5_msg_encode_connack(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
-	return 0;
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	nni_msg_clear(msg);
+
+	mqttv5_connack_vhdr *var_header = &mqtt->var_header.connack_v5;
+
+	/* Connect Acknowledge Flags */
+	nni_mqtt_msg_append_u8(msg, *(uint8_t *) &var_header->connack_flags);
+
+	/* Connect Return Code */
+	nni_mqtt_msg_append_u8(
+	    msg, *(uint8_t *) &var_header->conn_return_code);
+
+	encode_properties(msg, var_header->properties, CMD_CONNACK);
+
+	/* Encode fix header finally */
+	mqtt->fixed_header.remaining_length = (uint32_t) nni_msg_len(msg);
+	if (mqtt->fixed_header.remaining_length > MQTT_MAX_MSG_LEN) {
+		return MQTT_ERR_PAYLOAD_SIZE;
+	}
+	nni_mqtt_msg_encode_fixed_header(msg, mqtt);
+
+	return MQTT_SUCCESS;
 }
 
 static int
@@ -1245,8 +1265,86 @@ nni_mqtt_msg_decode_connect(nni_msg *msg)
 static int
 nni_mqttv5_msg_decode_connect(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
-	return 0;
+	int                  ret;
+	nni_mqtt_proto_data *mqttv5 = nni_msg_get_proto_data(msg);
+
+	uint8_t *body   = nni_msg_body(msg);
+	size_t   length = nni_msg_len(msg);
+
+	struct pos_buf buf;
+	buf.curpos = &body[0];
+	buf.endpos = &body[length];
+
+	/* Protocol Name */
+	ret = read_str_data(&buf, &mqttv5->var_header.connect_v5.protocol_name);
+	if (ret != 0) {
+		return MQTT_ERR_PROTOCOL;
+	}
+	/* Protocol Level */
+	ret = read_byte(&buf, &mqttv5->var_header.connect_v5.protocol_version);
+	if (ret != 0) {
+		return MQTT_ERR_PROTOCOL;
+	}
+	/* Protocol Level */
+	ret =
+	    read_byte(&buf, (uint8_t *) &mqttv5->var_header.connect_v5.conn_flags);
+	if (ret != 0) {
+		return MQTT_ERR_PROTOCOL;
+	}
+
+	/* Keep Alive */
+	ret = read_uint16(&buf, &mqttv5->var_header.connect_v5.keep_alive);
+	if (ret != 0) {
+		return MQTT_ERR_PROTOCOL;
+	}
+
+	/* Properties */
+	uint32_t pos = buf.curpos - &body[0];
+	uint32_t prop_len = 0;
+	mqttv5->var_header.connect_v5.properties =
+	    decode_buf_properties(body, length, &pos, &prop_len, true);
+	buf.curpos = &body[0] + pos;
+
+	/* Client Identifier */
+	ret = read_utf8_str(&buf, &mqttv5->payload.connect_v5.client_id);
+	if (ret != 0) {
+		return MQTT_ERR_PROTOCOL;
+	}
+
+	/* Will Properties */
+	pos = buf.curpos - &body[0];
+	prop_len = 0;
+	mqttv5->var_header.connect_v5.properties =
+	    decode_buf_properties(body, length, &pos, &prop_len, true);
+	buf.curpos = &body[0] + pos;
+
+	if (mqttv5->var_header.connect_v5.conn_flags.will_flag) {
+		/* Will Topic */
+		ret = read_utf8_str(&buf, &mqttv5->payload.connect_v5.will_topic);
+		if (ret != 0) {
+			return MQTT_ERR_PROTOCOL;
+		}
+		/* Will Message */
+		ret = read_str_data(&buf, &mqttv5->payload.connect_v5.will_msg);
+		if (ret != 0) {
+			return MQTT_ERR_PROTOCOL;
+		}
+	}
+	if (mqttv5->var_header.connect_v5.conn_flags.username_flag) {
+		/* Username */
+		ret = read_utf8_str(&buf, &mqttv5->payload.connect_v5.user_name);
+		if (ret != 0) {
+			return MQTT_ERR_PROTOCOL;
+		}
+	}
+	if (mqttv5->var_header.connect_v5.conn_flags.password_flag) {
+		/* Password */
+		ret = read_str_data(&buf, &mqttv5->payload.connect_v5.password);
+		if (ret != 0) {
+			return MQTT_ERR_PROTOCOL;
+		}
+	}
+	return MQTT_SUCCESS;
 }
 
 static int
@@ -1278,8 +1376,34 @@ nni_mqtt_msg_decode_connack(nni_msg *msg)
 static int
 nni_mqttv5_msg_decode_connack(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
-	return 0;
+	nni_mqtt_proto_data *mqttv5 = nni_msg_get_proto_data(msg);
+
+	uint8_t *body   = nni_msg_body(msg);
+	size_t   length = nni_msg_len(msg);
+
+	struct pos_buf buf;
+	buf.curpos = &body[0];
+	buf.endpos = &body[length];
+
+	int result = read_byte(&buf, &mqttv5->var_header.connack_v5.connack_flags);
+	if (result != 0) {
+		return MQTT_ERR_PROTOCOL;
+	}
+
+	/* Connect Return Code */
+	result = read_byte(&buf, &mqttv5->var_header.connack_v5.connack_flags);
+	if (result != 0) {
+		return MQTT_ERR_PROTOCOL;
+	}
+
+	/* Properties */
+	uint32_t pos = buf.curpos - &body[0];
+	uint32_t prop_len = 0;
+	mqttv5->var_header.connect_v5.properties =
+	    decode_buf_properties(body, length, &pos, &prop_len, true);
+	buf.curpos = &body[0] + pos;
+
+	return MQTT_SUCCESS;
 }
 
 static int
