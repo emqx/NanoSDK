@@ -128,6 +128,58 @@ typedef struct mqtt_unsuback_vhdr_t {
 } mqtt_unsuback_vhdr;
 
 /*****************************************************************************
+ * Variable header parts for mqttv5
+ ****************************************************************************/
+typedef struct mqttv5_connect_vhdr_t {
+	mqtt_buf   protocol_name;
+	uint8_t    protocol_version;
+	conn_flags conn_flags;
+	uint16_t   keep_alive;
+} mqttv5_connect_vhdr;
+
+typedef struct mqttv5_connack_vhdr_t {
+	uint8_t connack_flags;
+	uint8_t conn_return_code;
+} mqttv5_connack_vhdr;
+
+typedef struct mqttv5_publish_vhdr_t {
+	mqtt_buf topic_name;
+	uint16_t packet_id;
+} mqttv5_publish_vhdr;
+
+typedef struct mqttv5_puback_vhdr_t {
+	uint16_t packet_id;
+} mqttv5_puback_vhdr;
+
+typedef struct mqttv5_pubrec_vhdr_t {
+	uint16_t packet_id;
+} mqttv5_pubrec_vhdr;
+
+typedef struct mqttv5_pubrel_vhdr_t {
+	uint16_t packet_id;
+} mqttv5_pubrel_vhdr;
+
+typedef struct mqttv5_pubcomp_vhdr_t {
+	uint16_t packet_id;
+} mqttv5_pubcomp_vhdr;
+
+typedef struct mqttv5_subscribe_vhdr_t {
+	uint16_t packet_id;
+} mqttv5_subscribe_vhdr;
+
+typedef struct mqttv5_suback_vhdr_t {
+	uint16_t packet_id;
+} mqttv5_suback_vhdr;
+
+typedef struct mqttv5_unsubscribe_vhdr_t {
+	uint16_t packet_id;
+} mqttv5_unsubscribe_vhdr;
+
+typedef struct mqttv5_unsuback_vhdr_t {
+	uint16_t packet_id;
+} mqttv5_unsuback_vhdr;
+
+/*****************************************************************************
  * Union to cover all Variable Header types
  ****************************************************************************/
 union mqtt_variable_header {
@@ -142,10 +194,22 @@ union mqtt_variable_header {
 	mqtt_suback_vhdr      suback;
 	mqtt_unsubscribe_vhdr unsubscribe;
 	mqtt_unsuback_vhdr    unsuback;
+
+	mqttv5_connect_vhdr     connect_v5;
+	mqttv5_connack_vhdr     connack_v5;
+	mqttv5_publish_vhdr     publish_v5;
+	mqttv5_puback_vhdr      puback_v5;
+	mqttv5_pubrec_vhdr      pubrec_v5;
+	mqttv5_pubrel_vhdr      pubrel_v5;
+	mqttv5_pubcomp_vhdr     pubcomp_v5;
+	mqttv5_subscribe_vhdr   subscribe_v5;
+	mqttv5_suback_vhdr      suback_v5;
+	mqttv5_unsubscribe_vhdr unsubscribe_v5;
+	mqttv5_unsuback_vhdr    unsuback_v5;
 };
 
 /*****************************************************************************
- * Payloads
+ * Payloads for mqtt
  ****************************************************************************/
 typedef struct {
 	mqtt_buf client_id;
@@ -176,6 +240,37 @@ typedef struct {
 } mqtt_unsubscribe_payload;
 
 /*****************************************************************************
+ * Payloads for MQTTV5
+ ****************************************************************************/
+typedef struct {
+	mqtt_buf client_id;
+	mqtt_buf will_topic;
+	mqtt_buf will_msg;
+	mqtt_buf user_name;
+	mqtt_buf password;
+} mqttv5_connect_payload;
+
+typedef struct {
+	mqtt_buf payload;
+} mqttv5_publish_payload;
+
+typedef struct {
+	mqtt_topic_qos *topic_arr; /* array of mqtt_topic_qos instances
+	                              continuous in memory */
+	uint32_t topic_count;      /* not included in the message itself */
+} mqttv5_subscribe_payload;
+
+typedef struct {
+	uint8_t *ret_code_arr; /* array of return codes continuous in memory */
+	uint32_t ret_code_count; /* not included in the message itself */
+} mqttv5_suback_payload;
+
+typedef struct {
+	mqtt_buf *topic_arr;   /* array of topic_arr continuous in memory */
+	uint32_t  topic_count; /* not included in the message itself */
+} mqttv5_unsubscribe_payload;
+
+/*****************************************************************************
  * Union to cover all Payload types
  ****************************************************************************/
 union mqtt_payload {
@@ -184,6 +279,12 @@ union mqtt_payload {
 	mqtt_subscribe_payload   subscribe;
 	mqtt_suback_payload      suback;
 	mqtt_unsubscribe_payload unsubscribe;
+
+	mqttv5_connect_payload     connect_v5;
+	mqttv5_publish_payload     publish_v5;
+	mqttv5_subscribe_payload   subscribe_v5;
+	mqttv5_suback_payload      suback_v5;
+	mqttv5_unsubscribe_payload unsubscribe_v5;
 };
 
 typedef struct {
