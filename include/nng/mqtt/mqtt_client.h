@@ -44,6 +44,12 @@
 extern "C" {
 #endif
 
+#define MQTT_PROTOCOL_NAME_v31 "MQIsdp"
+#define MQTT_PROTOCOL_VERSION_v31 3
+#define MQTT_PROTOCOL_NAME "MQTT"
+#define MQTT_PROTOCOL_VERSION_v311 4
+#define MQTT_PROTOCOL_VERSION_v5 5
+
 // NNG_OPT_MQTT_EXPIRES is a 32-bit integer representing the expiration in
 // seconds. This can be applied to a message.
 // (TODO: What about session expiry?)
@@ -226,8 +232,6 @@ extern int nng_mqtt_user_props_alloc(nng_mqtt_user_props_t **);
 extern int nng_mqtt_user_props_add(
     nng_mqtt_user_props_t *, const char *, const char *);
 extern void nng_mqtt_user_props_free(nng_mqtt_user_props_t *);
-
-#define NNG_OPT_MQTT_CONNMSG "mqtt-connect-msg"
 
 /* Message types & flags */
 #define CMD_UNKNOWN 0x00
