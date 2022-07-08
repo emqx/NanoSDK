@@ -160,6 +160,7 @@ typedef struct mqtt_connack_vhdr_t {
 typedef struct mqtt_publish_vhdr_t {
 	mqtt_buf topic_name;
 	uint16_t packet_id;
+	property *prop;
 } mqtt_publish_vhdr;
 
 typedef struct mqtt_puback_vhdr_t {
