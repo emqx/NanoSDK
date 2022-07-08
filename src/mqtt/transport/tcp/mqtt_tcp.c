@@ -79,7 +79,7 @@ struct mqtt_tcptran_ep {
 	nng_stream_dialer *  dialer;
 	nng_stream_listener *listener;
 	nni_dialer *         ndialer;
-	property *           property;  // property
+	void *               property;  // property
 	void *               connmsg;
 
 #ifdef NNG_ENABLE_STATS
