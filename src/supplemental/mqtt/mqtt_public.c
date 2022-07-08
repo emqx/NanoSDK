@@ -193,6 +193,110 @@ nng_mqtt_msg_set_publish_qos(nng_msg *msg, uint8_t qos)
 	nni_mqtt_msg_set_publish_qos(msg, qos);
 }
 
+void nng_mqtt_msg_set_property_u8(nng_msg *msg, uint8_t prop_id, uint8_t value)
+{
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	property *prop_list = mqtt->var_header.publish.prop;
+
+	if (NULL == prop_list) {
+		prop_list = property_alloc();
+		mqtt->var_header.publish.prop = prop_list;
+	}		
+	property_append(prop_list, property_set_value_u8(prop_id, value));
+
+	return;
+}
+
+void nng_mqtt_msg_set_property_u16(nng_msg *msg, uint8_t prop_id, uint16_t value)
+{
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	property *prop_list = mqtt->var_header.publish.prop;
+
+	if (NULL == prop_list) {
+		prop_list = property_alloc();
+		mqtt->var_header.publish.prop = prop_list;
+	}		
+	property_append(prop_list, property_set_value_u16(prop_id, value));
+
+	return;
+
+}
+
+void nng_mqtt_msg_set_property_u32(nng_msg *msg, uint8_t prop_id, uint32_t value)
+{
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	property *prop_list = mqtt->var_header.publish.prop;
+
+	if (NULL == prop_list) {
+		prop_list = property_alloc();
+		mqtt->var_header.publish.prop = prop_list;
+	}		
+	property_append(prop_list, property_set_value_u32(prop_id, value));
+
+	return;
+
+}
+
+void nng_mqtt_msg_set_property_varint(nng_msg *msg, uint8_t prop_id, uint32_t value)
+{
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	property *prop_list = mqtt->var_header.publish.prop;
+
+	if (NULL == prop_list) {
+		prop_list = property_alloc();
+		mqtt->var_header.publish.prop = prop_list;
+	}		
+	property_append(prop_list, property_set_value_varint(prop_id, value));
+
+	return;
+
+}
+
+void nng_mqtt_msg_set_property_binary(nng_msg *msg, uint8_t prop_id, uint8_t *value, uint32_t len)
+{
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	property *prop_list = mqtt->var_header.publish.prop;
+
+	if (NULL == prop_list) {
+		prop_list = property_alloc();
+		mqtt->var_header.publish.prop = prop_list;
+	}		
+	property_append(prop_list, property_set_value_binary(prop_id, value, len, true));
+
+	return;
+
+}
+
+void nng_mqtt_msg_set_property_str(nng_msg *msg, uint8_t prop_id, char *value, uint32_t len)
+{
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	property *prop_list = mqtt->var_header.publish.prop;
+
+	if (NULL == prop_list) {
+		prop_list = property_alloc();
+		mqtt->var_header.publish.prop = prop_list;
+	}		
+	property_append(prop_list, property_set_value_str(prop_id, value, len, true));
+
+	return;
+
+}
+
+void nng_mqtt_msg_set_property_str_pair(nng_msg *msg, uint8_t prop_id, char *key, uint32_t klen, char *value, uint32_t vlen)
+{
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	property *prop_list = mqtt->var_header.publish.prop;
+
+	if (NULL == prop_list) {
+		prop_list = property_alloc();
+		mqtt->var_header.publish.prop = prop_list;
+	}		
+	property_append(prop_list, property_set_value_strpair(prop_id, key, klen, value, vlen, true));
+
+	return;
+
+}
+
 uint8_t
 nng_mqtt_msg_get_publish_qos(nng_msg *msg)
 {
