@@ -84,12 +84,24 @@ disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 {
 	nng_msg * msg = arg;
 	nng_msg_free(msg);
+	int reason;
+	// get connect reason
+	nng_pipe_get_int(p, NNG_OPT_MQTT_DISCONNECT_REASON, &reason);
+	// property *prop;
+	// nng_pipe_get_ptr(p, NNG_OPT_MQTT_DISCONNECT_PROPERTY, &prop);
+	// nng_socket_get?
 	printf("%s: disconnected!\n", __FUNCTION__);
 }
 
 static void
 connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 {
+	int reason;
+	// get connect reason
+	nng_pipe_get_int(p, NNG_OPT_MQTT_CONNECT_REASON, &reason);
+	// get property for MQTT V5
+	// property *prop;
+	// nng_pipe_get_ptr(p, NNG_OPT_MQTT_CONNECT_PROPERTY, &prop);
 	printf("%s: connected!\n", __FUNCTION__);
 }
 
