@@ -18,6 +18,7 @@
 #define NNG_MQTT_PEER_NAME "mqtt-server"
 typedef struct mqtt_sock_s mqtt_sock_t;
 typedef struct mqtt_pipe_s mqtt_pipe_t;
+typedef struct mqtt_quic_ctx mqtt_quic_ctx;
 typedef nni_mqtt_packet_type packet_type_t;
 
 static void mqtt_quic_sock_init(void *arg, nni_sock *sock);
@@ -82,6 +83,8 @@ struct mqtt_pipe_s {
 	nni_lmq    recv_messages; // recv messages queue
 };
 
+struct mqtt_quic_ctx {
+};
 /******************************************************************************
  *                              Sock Implementation                           *
  ******************************************************************************/
@@ -859,12 +862,8 @@ static nni_option mqtt_quic_ctx_options[] = {
 };
 
 static nni_proto_ctx_ops mqtt_quic_ctx_ops = {
-	// .ctx_size    = sizeof(mqtt_ctx_t),
-	// .ctx_init    = mqtt_ctx_init,
-	// .ctx_fini    = mqtt_ctx_fini,
-	// .ctx_recv    = mqtt_ctx_recv,
-	// .ctx_send    = mqtt_ctx_send,
-	// .ctx_options = mqtt_ctx_options,
+	.ctx_size    = sizeof(mqtt_quic_ctx),
+	.ctx_options = mqtt_quic_ctx_options,
 };
 
 static nni_option mqtt_quic_sock_options[] = {
