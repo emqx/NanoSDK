@@ -570,9 +570,9 @@ nng_mqtt_msg_dump(
 
 // TODO this is incompatible with client sdk
 void
-nng_msg_proto_set_property(nng_msg *msg, void *p)
+nng_mqtt_msg_set_property(nng_msg *msg, void *p)
 {
-	nni_msg_proto_set_property(msg, p);
+	nng_mqtt_msg_set_property(msg, p);
 }
 
 uint32_t
