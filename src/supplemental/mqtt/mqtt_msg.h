@@ -397,6 +397,8 @@ extern void mqtt_close_unack_msg_cb(void *key, void *val);
 
 extern uint16_t nni_msg_get_pub_pid(nni_msg *m);
 
+extern void nni_mqtt_msg_set_connect_property(nni_msg *msg, property *prop);
+
 extern reason_code check_properties(property *prop);
 extern property *decode_buf_properties(uint8_t *packet, uint32_t packet_len, uint32_t *pos, uint32_t *len, bool copy_value);
 extern property *decode_properties(nng_msg *msg, uint32_t *pos, uint32_t *len, bool copy_value);
@@ -420,8 +422,6 @@ extern property *property_set_value_strpair(uint8_t prop_id, const char *key, ui
 extern property_type_enum property_get_value_type(uint8_t prop_id);
 extern property_data *property_get_value(property *prop, uint8_t prop_id);
 extern void      property_append(property *prop_list, property *last);
-
-extern void nni_mqtt_msg_set_property(nng_msg *msg, void *p);
 
 #ifdef __cplusplus
 }
