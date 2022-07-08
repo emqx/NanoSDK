@@ -376,7 +376,9 @@ mqtt_pipe_start(void *arg)
 	mqtt_ctx_t  *c = NULL;
 
 	nni_mtx_lock(&s->mtx);
-	s->mqtt_pipe = p;
+	s->mqtt_pipe       = p;
+	s->disconnect_code = 0;
+	s->dis_prop        = NULL;
 	if ((c = nni_list_first(&s->send_queue)) != NULL) {
 		nni_list_remove(&s->send_queue, c);
 		mqtt_send_msg(c->saio, c);
@@ -507,6 +509,7 @@ mqtt_send_cb(void *arg)
 		// We failed to send... clean up and deal with it.
 		nni_msg_free(nni_aio_get_msg(&p->send_aio));
 		nni_aio_set_msg(&p->send_aio, NULL);
+		s->disconnect_code = SERVER_SHUTTING_DOWN;
 		nni_pipe_close(p->pipe);
 		return;
 	}
@@ -551,6 +554,7 @@ mqtt_recv_cb(void *arg)
 	mqtt_ctx_t * ctx;
 
 	if (nni_aio_result(&p->recv_aio) != 0) {
+		s->disconnect_code = SERVER_SHUTTING_DOWN;
 		nni_pipe_close(p->pipe);
 		return;
 	}
@@ -685,6 +689,7 @@ mqtt_recv_cb(void *arg)
 	default:
 		// unexpected packet type, server misbehaviour
 		nni_mtx_unlock(&s->mtx);
+		s->disconnect_code = PAYLOAD_FORMAT_INVALID;
 		nni_pipe_close(p->pipe);
 		return;
 	}
