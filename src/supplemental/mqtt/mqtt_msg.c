@@ -713,3 +713,10 @@ nni_msg_get_pub_pid(nni_msg *m)
 	NNI_GET16(pos + len + 2, pid);
 	return pid;
 }
+
+void
+nni_mqtt_msg_set_connect_property(nni_msg *msg, property *prop)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	proto_data->var_header.connect.properties = prop;
+}

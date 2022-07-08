@@ -436,8 +436,6 @@ NNG_DECL int  nng_mqtt_set_connect_cb(nng_socket, nng_pipe_cb, void *);
 NNG_DECL int  nng_mqtt_set_disconnect_cb(nng_socket, nng_pipe_cb, void *);
 NNG_DECL void nng_mqtt_msg_dump(nng_msg *, uint8_t *, uint32_t, bool);
 
-NNG_DECL void nng_msg_proto_set_property(nng_msg *msg, void *p);
-
 struct mqtt_string {
 	char *   body;
 	uint32_t len;
@@ -518,6 +516,8 @@ NNG_DECL property *mqtt_property_set_value_strpair(uint8_t prop_id, const char *
 NNG_DECL property_type_enum mqtt_property_get_value_type(uint8_t prop_id);
 NNG_DECL property_data *mqtt_property_get_value(property *prop, uint8_t prop_id);
 NNG_DECL void      mqtt_property_append(property *prop_list, property *last);
+
+NNG_DECL void nng_mqtt_msg_set_connect_property(nng_msg *msg, property *prop);
 
 #ifdef __cplusplus
 }
