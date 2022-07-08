@@ -274,7 +274,7 @@ mqtt_tcptran_ep_match(mqtt_tcptran_ep *ep)
 	ep->useraio = NULL;
 	p->rcvmax   = ep->rcvmax;
 	nni_aio_set_output(aio, 0, p);
-	nni_aio_finish_sync(aio, 0, 0);
+	nni_aio_finish(aio, 0, 0);
 }
 
 static void
@@ -367,6 +367,8 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 	}
 	if (p->gotrxhead >= p->wantrxhead) {
 		rv = nni_mqtt_msg_decode(p->rxmsg);
+		ep->reason_code = rv;
+		// TODO set property for MQTTV5
 		nni_msg_free(p->rxmsg);
 		p->rxmsg = NULL;
 	}
@@ -1322,7 +1324,7 @@ mqtt_tcptran_ep_get_reasoncode(void *arg, void *v, size_t *sz, nni_opt_type t)
 	int              rv;
 
 	nni_mtx_lock(&ep->mtx);
-	nni_copyin_int(v, &ep->reason_code, sz, 0, 256, t);
+	rv = nni_copyin_int(v, &ep->reason_code, sz, 0, 256, t);
 	nni_mtx_unlock(&ep->mtx);
 	return (rv);
 }
@@ -1361,8 +1363,7 @@ mqtt_tcptran_ep_get_connmsg(void *arg, void *v, size_t *szp, nni_opt_type t)
 	mqtt_tcptran_ep *ep = arg;
 	int              rv;
 
-	nni_copyout_ptr(ep->connmsg, v, szp, t);
-	rv = 0;
+	rv = nni_copyout_ptr(ep->connmsg, v, szp, t);
 
 	return (rv);
 }
@@ -1373,9 +1374,9 @@ mqtt_tcptran_ep_get_property(void *arg, void *v, size_t *szp, nni_opt_type t)
 	mqtt_tcptran_ep *ep = arg;
 	int              rv;
 
-	nni_copyout_ptr(ep->property, v, szp, t);
-	rv = 0;
-
+	nni_mtx_lock(&ep->mtx);
+	rv = nni_copyout_ptr(ep->property, v, szp, t);
+	nni_mtx_lock(&ep->mtx);
 	return (rv);
 }
 
@@ -1387,9 +1388,8 @@ mqtt_tcptran_ep_set_connmsg(
 	int              rv;
 
 	nni_mtx_lock(&ep->mtx);
-	nni_copyin_ptr(&ep->connmsg, v, sz, t);
+	rv = nni_copyin_ptr(&ep->connmsg, v, sz, t);
 	nni_mtx_unlock(&ep->mtx);
-	rv = 0;
 
 	return (rv);
 }
@@ -1455,11 +1455,11 @@ static nni_sp_pipe_ops mqtt_tcptran_pipe_ops = {
 
 static const nni_option mqtt_tcptran_ep_opts[] = {
 	{
-	    .o_name = NNG_OPT_MQTT_REASON_CODE,
+	    .o_name = NNG_OPT_MQTT_CONNECT_REASON,
 	    .o_get  = mqtt_tcptran_ep_get_reasoncode,
 	},
 	{
-	    .o_name = NNG_OPT_MQTT_PROPERTY,
+	    .o_name = NNG_OPT_MQTT_CONNECT_PROPERTY,
 	    .o_get  = mqtt_tcptran_ep_get_property,
 	},
 	{
