@@ -567,3 +567,107 @@ nng_mqtt_msg_dump(
 {
 	nni_mqtt_msg_dump(msg, buffer, len, print_bytes);
 }
+
+// TODO this is incompatible with client sdk
+void
+nng_msg_proto_set_property(nng_msg *msg, void *p)
+{
+	nni_msg_proto_set_property(msg, p);
+}
+
+uint32_t
+get_mqtt_properties_len(property *prop)
+{
+	return get_properties_len(prop);
+}
+
+int
+mqtt_property_free(property *prop)
+{
+	return property_free(prop);
+}
+
+void
+mqtt_property_foreach(property *prop, void (*cb)(property *))
+{
+	return property_foreach(prop, cb);
+}
+
+int
+mqtt_property_dup(property **dup, const property *src)
+{
+	return property_dup(dup, src);
+}
+
+property *
+mqtt_property_pub_by_will(property *will_prop)
+{
+	return property_pub_by_will(will_prop);
+}
+
+property *
+mqtt_property_alloc(void)
+{
+	return property_alloc();
+}
+
+property *
+mqtt_property_set_value_u8(uint8_t prop_id, uint8_t value)
+{
+	return property_set_value_u8(prop_id, value);
+}
+
+property *
+mqtt_property_set_value_u16(uint8_t prop_id, uint16_t value)
+{
+	return property_set_value_u16(prop_id, value);
+}
+
+property *
+mqtt_property_set_value_u32(uint8_t prop_id, uint32_t value)
+{
+	return property_set_value_u32(prop_id, value);
+}
+
+property *
+mqtt_property_set_value_varint(uint8_t prop_id, uint32_t value)
+{
+	return property_set_value_varint(prop_id, value);
+}
+
+property *
+mqtt_property_set_value_binary(uint8_t prop_id, uint8_t *value, uint32_t len, bool copy_value)
+{
+	return property_set_value_binary(prop_id, value, len, copy_value);
+}
+
+property *
+mqtt_property_set_value_str( uint8_t prop_id, const char *value, uint32_t len, bool copy_value)
+{
+	return property_set_value_str(prop_id, value, len, copy_value);
+}
+
+property *
+mqtt_property_set_value_strpair(uint8_t prop_id, const char *key, uint32_t key_len, const char *value, uint32_t value_len, bool copy_value)
+{
+	return property_set_value_strpair(prop_id, key, key_len, value, value_len, copy_value);
+}
+
+property_type_enum
+mqtt_property_get_value_type(uint8_t prop_id)
+{
+	return property_get_value_type(prop_id);
+}
+
+property_data *
+mqtt_property_get_value(property *prop, uint8_t prop_id)
+{
+	return property_get_value(prop, prop_id);
+}
+
+void
+mqtt_property_append(property *prop_list, property *last)
+{
+	return property_append(prop_list, last);
+}
+
