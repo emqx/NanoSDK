@@ -965,7 +965,42 @@ nni_mqtt_msg_encode_publish(nni_msg *msg)
 static int
 nni_mqttv5_msg_encode_publish(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	nni_msg_clear(msg);
+
+	int poslength = 0;
+
+	poslength += 2; /* for Topic Name length field */
+	poslength += mqtt->var_header.publish.topic_name.length;
+	/* Packet Identifier is requested if QoS>0 */
+	if (mqtt->fixed_header.publish.qos > 0) {
+		poslength += 2; /* for Packet Identifier */
+	}
+	poslength += mqtt->payload.publish.payload.length;
+	mqtt->fixed_header.remaining_length = (uint32_t) poslength;
+
+
+	mqtt_publish_vhdr *var_header = &mqtt->var_header.publish;
+
+	/* Topic Name */
+	nni_mqtt_msg_append_byte_str(msg, &var_header->topic_name);
+
+	if (mqtt->fixed_header.publish.qos > 0) {
+		/* Packet Id */
+		nni_mqtt_msg_append_u16(msg, var_header->packet_id);
+	}
+
+	encode_properties(msg, mqtt->var_header.publish.prop, CMD_PUBLISH);
+
+	/* Payload */
+	if (mqtt->payload.publish.payload.length > 0) {
+		nni_msg_append(msg, mqtt->payload.publish.payload.buf,
+		    mqtt->payload.publish.payload.length);
+	}
+
+	mqtt->fixed_header.remaining_length = nng_msg_len(msg);
+	nni_mqtt_msg_encode_fixed_header(msg, mqtt);
+	return MQTT_SUCCESS;
 	return 0;
 }
 
