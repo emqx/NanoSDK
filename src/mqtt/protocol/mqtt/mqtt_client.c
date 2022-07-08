@@ -86,9 +86,11 @@ struct mqtt_sock_s {
 	nni_duration    retry;
 	nni_mtx         mtx;    // more fine grained mutual exclusion
 	mqtt_ctx_t      master; // to which we delegate send/recv calls
-	mqtt_pipe_t *   mqtt_pipe;
+	mqtt_pipe_t    *mqtt_pipe;
 	nni_list        recv_queue; // ctx pending to receive
 	nni_list        send_queue; // ctx pending to send
+	int             disconnect_code; // disconnect reason code
+	void           *dis_prop;        // disconnect property
 #ifdef NNG_SUPP_SQLITE
 	sqlite3 *sqlite_db;
 #endif
@@ -138,6 +140,30 @@ static void
 mqtt_sock_open(void *arg)
 {
 	NNI_ARG_UNUSED(arg);
+}
+
+static int
+mqtt_sock_get_disconnect_prop(void *arg, void *v, size_t *szp, nni_opt_type t)
+{
+	mqtt_sock_t *s = arg;
+	int              rv;
+
+	nni_mtx_lock(&s->mtx);
+	rv = nni_copyout_ptr(s->dis_prop, v, szp, t);
+	nni_mtx_lock(&s->mtx);
+	return (rv);
+}
+
+static int
+mqtt_sock_get_disconnect_code(void *arg, const void *v, size_t sz, nni_opt_type t)
+{
+	mqtt_sock_t *s = arg;
+	int              rv;
+
+	nni_mtx_lock(&s->mtx);
+	rv = nni_copyin_int(v, &s->disconnect_code, sz, 0, 256, t);
+	nni_mtx_unlock(&s->mtx);
+	return (rv);
 }
 
 static void
@@ -827,6 +853,14 @@ static nni_proto_ctx_ops mqtt_ctx_ops = {
 };
 
 static nni_option mqtt_sock_options[] = {
+	{
+	    .o_name = NNG_OPT_MQTT_DISCONNECT_REASON,
+	    .o_get  = mqtt_sock_get_disconnect_code,
+	},
+	{
+	    .o_name = NNG_OPT_MQTT_DISCONNECT_PROPERTY,
+	    .o_get  = mqtt_sock_get_disconnect_prop,
+	},
 	// terminate list
 	{
 	    .o_name = NULL,
