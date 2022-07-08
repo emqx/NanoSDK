@@ -308,7 +308,6 @@ typedef enum {
 
 } reason_code;
 
-
 typedef enum {
 	PAYLOAD_FORMAT_INDICATOR          = 1,
 	MESSAGE_EXPIRY_INTERVAL           = 2,
@@ -394,6 +393,16 @@ NNG_DECL void        nng_mqtt_msg_set_connack_return_code(nng_msg *, uint8_t);
 NNG_DECL void        nng_mqtt_msg_set_connack_flags(nng_msg *, uint8_t);
 NNG_DECL uint8_t     nng_mqtt_msg_get_connack_return_code(nng_msg *);
 NNG_DECL uint8_t     nng_mqtt_msg_get_connack_flags(nng_msg *);
+
+// property
+NNG_DECL void        nng_mqtt_msg_set_property_u8(nng_msg *, uint8_t, uint8_t);
+NNG_DECL void        nng_mqtt_msg_set_property_u16(nng_msg *, uint8_t, uint16_t);
+NNG_DECL void        nng_mqtt_msg_set_property_u32(nng_msg *, uint8_t, uint32_t);
+NNG_DECL void        nng_mqtt_msg_set_property_varint(nng_msg *, uint8_t, uint32_t);
+NNG_DECL void        nng_mqtt_msg_set_property_binary(nng_msg *, uint8_t, uint8_t*, uint32_t);
+NNG_DECL void        nng_mqtt_msg_set_property_str(nng_msg *, uint8_t, char *, uint32_t);
+NNG_DECL void        nng_mqtt_msg_set_property_str_pair(nng_msg *, uint8_t, char *, uint32_t, char *, uint32_t);
+
 NNG_DECL void        nng_mqtt_msg_set_publish_qos(nng_msg *, uint8_t);
 NNG_DECL uint8_t     nng_mqtt_msg_get_publish_qos(nng_msg *);
 NNG_DECL void        nng_mqtt_msg_set_publish_retain(nng_msg *, bool);
