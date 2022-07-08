@@ -71,16 +71,21 @@ typedef struct mqtt_connect_vhdr_t {
 	uint8_t    protocol_version;
 	conn_flags conn_flags;
 	uint16_t   keep_alive;
+
+	property * properties;
 } mqtt_connect_vhdr;
 
 typedef struct mqtt_connack_vhdr_t {
 	uint8_t connack_flags;
 	uint8_t conn_return_code;
+
+	property *properties;
 } mqtt_connack_vhdr;
 
 typedef struct mqtt_publish_vhdr_t {
 	mqtt_buf topic_name;
 	uint16_t packet_id;
+	property *prop;
 } mqtt_publish_vhdr;
 
 typedef struct mqtt_puback_vhdr_t {
@@ -133,10 +138,11 @@ union mqtt_variable_header {
 };
 
 /*****************************************************************************
- * Payloads
+ * Payloads for mqtt
  ****************************************************************************/
 typedef struct {
 	mqtt_buf client_id;
+	property *will_properties;
 	mqtt_buf will_topic;
 	mqtt_buf will_msg;
 	mqtt_buf user_name;
@@ -261,8 +267,13 @@ extern int  nni_mqtt_msg_dup(void **dest, const void *src);
 
 // mqtt message alloc/encode/decode
 extern int nni_mqtt_msg_alloc(nni_msg **, size_t);
+
 extern int nni_mqtt_msg_encode(nni_msg *);
 extern int nni_mqtt_msg_decode(nni_msg *);
+
+// mqtt message encode/decode for v5
+extern int nni_mqttv5_msg_encode(nni_msg *);
+extern int nni_mqttv5_msg_decode(nni_msg *);
 
 // mqtt packet_type
 extern void nni_mqtt_msg_set_packet_type(nni_msg *, nni_mqtt_packet_type);
@@ -373,6 +384,33 @@ extern void nni_mqtt_topic_qos_array_free(nni_mqtt_topic_qos *, size_t);
 extern void mqtt_close_unack_msg_cb(void *key, void *val);
 
 extern uint16_t nni_msg_get_pub_pid(nni_msg *m);
+
+extern void nni_mqtt_msg_set_connect_property(nni_msg *msg, property *prop);
+
+extern reason_code check_properties(property *prop);
+extern property *decode_buf_properties(uint8_t *packet, uint32_t packet_len, uint32_t *pos, uint32_t *len, bool copy_value);
+extern property *decode_properties(nng_msg *msg, uint32_t *pos, uint32_t *len, bool copy_value);
+extern int      encode_properties(nng_msg *msg, property *prop, uint8_t cmd);
+
+extern uint32_t get_properties_len(property *prop);
+extern int      property_free(property *prop);
+extern void      property_foreach(property *prop, void (*cb)(property *));
+extern int       property_dup(property **dup, const property *src);
+extern property *property_pub_by_will(property *will_prop);
+
+extern property *property_alloc(void);
+extern property *property_set_value_u8(uint8_t prop_id, uint8_t value);
+extern property *property_set_value_u16(uint8_t prop_id, uint16_t value);
+extern property *property_set_value_u32(uint8_t prop_id, uint32_t value);
+extern property *property_set_value_varint(uint8_t prop_id, uint32_t value);
+extern property *property_set_value_binary(uint8_t prop_id, uint8_t *value, uint32_t len, bool copy_value);
+extern property *property_set_value_str( uint8_t prop_id, const char *value, uint32_t len, bool copy_value);
+extern property *property_set_value_strpair(uint8_t prop_id, const char *key, uint32_t key_len, const char *value, uint32_t value_len, bool copy_value);
+
+extern property_type_enum property_get_value_type(uint8_t prop_id);
+extern property_data *property_get_value(property *prop, uint8_t prop_id);
+extern void      property_append(property *prop_list, property *last);
+
 #ifdef __cplusplus
 }
 #endif

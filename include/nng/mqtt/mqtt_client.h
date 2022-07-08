@@ -162,6 +162,7 @@ extern "C" {
 // Note that MQTT sockets can be connected to at most a single server.
 // Creating the client does not connect it.
 NNG_DECL int nng_mqtt_client_open(nng_socket *);
+NNG_DECL int nng_mqttv5_client_open(nng_socket *);
 
 // Note that there is a single implicit dialer for the client,
 // and options may be set on the socket to configure dial options.
@@ -226,6 +227,29 @@ extern int nng_mqtt_user_props_add(
     nng_mqtt_user_props_t *, const char *, const char *);
 extern void nng_mqtt_user_props_free(nng_mqtt_user_props_t *);
 
+#define NNG_OPT_MQTT_CONNMSG "mqtt-connect-msg"
+
+/* Message types & flags */
+#define CMD_UNKNOWN 0x00
+#define CMD_CONNECT 0x10
+#define CMD_CONNACK 0x20
+#define CMD_PUBLISH 0x30	// indicates PUBLISH packet & MQTTV4 pub packet
+#define CMD_PUBLISH_V5 0x31 // this is the flag for differing MQTTV5 from V4 V3
+#define CMD_PUBACK 0x40
+#define CMD_PUBREC 0x50
+#define CMD_PUBREL 0x60
+#define CMD_PUBCOMP 0x70
+#define CMD_SUBSCRIBE 0x80
+#define CMD_SUBACK 0x90
+#define CMD_UNSUBSCRIBE 0xA0
+#define CMD_UNSUBACK 0xB0
+#define CMD_PINGREQ 0xC0
+#define CMD_PINGRESP 0xD0
+#define CMD_DISCONNECT 0xE0
+#define CMD_AUTH_V5 0xF0
+#define CMD_DISCONNECT_EV 0xE2
+#define CMD_LASTWILL 0XE3
+
 typedef enum {
 	NNG_MQTT_CONNECT     = 0x01,
 	NNG_MQTT_CONNACK     = 0x02,
@@ -243,6 +267,86 @@ typedef enum {
 	NNG_MQTT_DISCONNECT  = 0x0E,
 	NNG_MQTT_AUTH        = 0x0F
 } nng_mqtt_packet_type;
+
+//TODO Enum is not fitting here
+typedef enum {
+	SUCCESS                                = 0,
+	NORMAL_DISCONNECTION                   = 0,
+	GRANTED_QOS_0                          = 0,
+	GRANTED_QOS_1                          = 1,
+	GRANTED_QOS_2                          = 2,
+	DISCONNECT_WITH_WILL_MESSAGE           = 4,
+	NO_MATCHING_SUBSCRIBERS                = 16,
+	NO_SUBSCRIPTION_EXISTED                = 17,
+	CONTINUE_AUTHENTICATION                = 24,
+	RE_AUTHENTICATE                        = 25,
+	UNSPECIFIED_ERROR                      = 128,
+	MALFORMED_PACKET                       = 129,
+	PROTOCOL_ERROR                         = 130,
+	IMPLEMENTATION_SPECIFIC_ERROR          = 131,
+	UNSUPPORTED_PROTOCOL_VERSION           = 132,
+	CLIENT_IDENTIFIER_NOT_VALID            = 133,
+	BAD_USER_NAME_OR_PASSWORD              = 134,
+	NOT_AUTHORIZED                         = 135,
+	SERVER_UNAVAILABLE                     = 136,
+	SERVER_BUSY                            = 137,
+	BANNED                                 = 138,
+	SERVER_SHUTTING_DOWN                   = 139,
+	BAD_AUTHENTICATION_METHOD              = 140,
+	KEEP_ALIVE_TIMEOUT                     = 141,
+	SESSION_TAKEN_OVER                     = 142,
+	TOPIC_FILTER_INVALID                   = 143,
+	TOPIC_NAME_INVALID                     = 144,
+	PACKET_IDENTIFIER_IN_USE               = 145,
+	PACKET_IDENTIFIER_NOT_FOUND            = 146,
+	RECEIVE_MAXIMUM_EXCEEDED               = 147,
+	TOPIC_ALIAS_INVALID                    = 148,
+	PACKET_TOO_LARGE                       = 149,
+	MESSAGE_RATE_TOO_HIGH                  = 150,
+	QUOTA_EXCEEDED                         = 151,
+	ADMINISTRATIVE_ACTION                  = 152,
+	PAYLOAD_FORMAT_INVALID                 = 153,
+	RETAIN_NOT_SUPPORTED                   = 154,
+	QOS_NOT_SUPPORTED                      = 155,
+	USE_ANOTHER_SERVER                     = 156,
+	SERVER_MOVED                           = 157,
+	SHARED_SUBSCRIPTIONS_NOT_SUPPORTED     = 158,
+	CONNECTION_RATE_EXCEEDED               = 159,
+	MAXIMUM_CONNECT_TIME                   = 160,
+	SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED = 161,
+	WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED   = 162
+
+} reason_code;
+
+typedef enum {
+	PAYLOAD_FORMAT_INDICATOR          = 1,
+	MESSAGE_EXPIRY_INTERVAL           = 2,
+	CONTENT_TYPE                      = 3,
+	RESPONSE_TOPIC                    = 8,
+	CORRELATION_DATA                  = 9,
+	SUBSCRIPTION_IDENTIFIER           = 11,
+	SESSION_EXPIRY_INTERVAL           = 17,
+	ASSIGNED_CLIENT_IDENTIFIER        = 18,
+	SERVER_KEEP_ALIVE                 = 19,
+	AUTHENTICATION_METHOD             = 21,
+	AUTHENTICATION_DATA               = 22,
+	REQUEST_PROBLEM_INFORMATION       = 23,
+	WILL_DELAY_INTERVAL               = 24,
+	REQUEST_RESPONSE_INFORMATION      = 25,
+	RESPONSE_INFORMATION              = 26,
+	SERVER_REFERENCE                  = 28,
+	REASON_STRING                     = 31,
+	RECEIVE_MAXIMUM                   = 33,
+	TOPIC_ALIAS_MAXIMUM               = 34,
+	TOPIC_ALIAS                       = 35,
+	PUBLISH_MAXIMUM_QOS               = 36,
+	RETAIN_AVAILABLE                  = 37,
+	USER_PROPERTY                     = 38,
+	MAXIMUM_PACKET_SIZE               = 39,
+	WILDCARD_SUBSCRIPTION_AVAILABLE   = 40,
+	SUBSCRIPTION_IDENTIFIER_AVAILABLE = 41,
+	SHARED_SUBSCRIPTION_AVAILABLE     = 42
+} properties_type;
 
 struct mqtt_buf_t {
 	uint32_t length;
@@ -299,6 +403,16 @@ NNG_DECL void        nng_mqtt_msg_set_connack_return_code(nng_msg *, uint8_t);
 NNG_DECL void        nng_mqtt_msg_set_connack_flags(nng_msg *, uint8_t);
 NNG_DECL uint8_t     nng_mqtt_msg_get_connack_return_code(nng_msg *);
 NNG_DECL uint8_t     nng_mqtt_msg_get_connack_flags(nng_msg *);
+
+// property
+NNG_DECL void        nng_mqtt_msg_set_property_u8(nng_msg *, uint8_t, uint8_t);
+NNG_DECL void        nng_mqtt_msg_set_property_u16(nng_msg *, uint8_t, uint16_t);
+NNG_DECL void        nng_mqtt_msg_set_property_u32(nng_msg *, uint8_t, uint32_t);
+NNG_DECL void        nng_mqtt_msg_set_property_varint(nng_msg *, uint8_t, uint32_t);
+NNG_DECL void        nng_mqtt_msg_set_property_binary(nng_msg *, uint8_t, uint8_t*, uint32_t);
+NNG_DECL void        nng_mqtt_msg_set_property_str(nng_msg *, uint8_t, char *, uint32_t);
+NNG_DECL void        nng_mqtt_msg_set_property_str_pair(nng_msg *, uint8_t, char *, uint32_t, char *, uint32_t);
+
 NNG_DECL void        nng_mqtt_msg_set_publish_qos(nng_msg *, uint8_t);
 NNG_DECL uint8_t     nng_mqtt_msg_get_publish_qos(nng_msg *);
 NNG_DECL void        nng_mqtt_msg_set_publish_retain(nng_msg *, bool);
@@ -331,6 +445,89 @@ NNG_DECL void nng_mqtt_topic_qos_array_free(nng_mqtt_topic_qos *, size_t);
 NNG_DECL int  nng_mqtt_set_connect_cb(nng_socket, nng_pipe_cb, void *);
 NNG_DECL int  nng_mqtt_set_disconnect_cb(nng_socket, nng_pipe_cb, void *);
 NNG_DECL void nng_mqtt_msg_dump(nng_msg *, uint8_t *, uint32_t, bool);
+
+struct mqtt_string {
+	char *   body;
+	uint32_t len;
+};
+typedef struct mqtt_string mqtt_string;
+
+struct mqtt_string_node {
+	struct mqtt_string_node *next;
+	mqtt_string *            it;
+};
+typedef struct mqtt_string_node mqtt_string_node;
+
+struct mqtt_binary {
+	uint8_t *body;
+	uint32_t len;
+};
+typedef struct mqtt_binary mqtt_binary;
+
+struct mqtt_str_pair {
+	char *   key; // key
+	uint32_t len_key;
+	char *   val; // value
+	uint32_t len_val;
+};
+typedef struct mqtt_str_pair mqtt_str_pair;
+
+union Property_type {
+	uint8_t  u8;
+	uint16_t u16;
+	uint32_t u32;
+	uint32_t varint;
+	mqtt_buf binary;
+	mqtt_buf str;
+	mqtt_kv  strpair;
+};
+
+typedef enum {
+	U8,
+	U16,
+	U32,
+	VARINT,
+	BINARY,
+	STR,
+	STR_PAIR,
+	UNKNOWN
+} property_type_enum;
+
+struct property_data {
+	property_type_enum  p_type;
+	union Property_type p_value;
+	bool                is_copy;
+};
+
+typedef struct property_data property_data;
+
+struct property {
+	uint8_t          id;
+	property_data    data;
+	struct property *next;
+};
+typedef struct property property;
+
+NNG_DECL uint32_t get_mqtt_properties_len(property *prop);
+NNG_DECL int      mqtt_property_free(property *prop);
+NNG_DECL void      mqtt_property_foreach(property *prop, void (*cb)(property *));
+NNG_DECL int       mqtt_property_dup(property **dup, const property *src);
+NNG_DECL property *mqtt_property_pub_by_will(property *will_prop);
+
+NNG_DECL property *mqtt_property_alloc(void);
+NNG_DECL property *mqtt_property_set_value_u8(uint8_t prop_id, uint8_t value);
+NNG_DECL property *mqtt_property_set_value_u16(uint8_t prop_id, uint16_t value);
+NNG_DECL property *mqtt_property_set_value_u32(uint8_t prop_id, uint32_t value);
+NNG_DECL property *mqtt_property_set_value_varint(uint8_t prop_id, uint32_t value);
+NNG_DECL property *mqtt_property_set_value_binary(uint8_t prop_id, uint8_t *value, uint32_t len, bool copy_value);
+NNG_DECL property *mqtt_property_set_value_str( uint8_t prop_id, const char *value, uint32_t len, bool copy_value);
+NNG_DECL property *mqtt_property_set_value_strpair(uint8_t prop_id, const char *key, uint32_t key_len, const char *value, uint32_t value_len, bool copy_value);
+
+NNG_DECL property_type_enum mqtt_property_get_value_type(uint8_t prop_id);
+NNG_DECL property_data *mqtt_property_get_value(property *prop, uint8_t prop_id);
+NNG_DECL void      mqtt_property_append(property *prop_list, property *last);
+
+NNG_DECL void nng_mqtt_msg_set_connect_property(nng_msg *msg, property *prop);
 
 #ifdef __cplusplus
 }
