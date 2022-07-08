@@ -51,9 +51,13 @@ extern "C" {
 
 #define NNG_OPT_MQTT_CONNMSG "mqtt-connect-msg"
 
-#define NNG_OPT_MQTT_PROPERTY "mqtt-property"
+#define NNG_OPT_MQTT_CONNECT_PROPERTY "mqtt-connack-property"
 
-#define NNG_OPT_MQTT_REASON_CODE "mqtt-reason-code"
+#define NNG_OPT_MQTT_CONNECT_REASON "mqtt-connack-reason"
+
+#define NNG_OPT_MQTT_DISCONNECT_PROPERTY "mqtt-disconnect-property"
+
+#define NNG_OPT_MQTT_DISCONNECT_REASON "mqtt-disconnect-reason"
 
 // NNG_OPT_MQTT_QOS is a byte (only lower two bits significant) representing
 // the quality of service.  At this time, only level zero is supported.
