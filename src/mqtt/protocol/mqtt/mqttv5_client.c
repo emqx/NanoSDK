@@ -67,9 +67,11 @@ struct mqtt_pipe_s {
 	nni_atomic_int  next_packet_id; // next packet id to use
 	nni_pipe *      pipe;
 	mqtt_sock_t *   mqtt_sock;
-    
-	void *sent_unack; // send messages unacknowledged
-
+#ifdef NNG_SUPP_SQLITE
+	sqlite3 *sent_unack;
+#else
+	nni_id_map sent_unack; // send messages unacknowledged
+#endif
 	nni_id_map      recv_unack;    // recv messages unacknowledged
 	nni_aio         send_aio;      // send aio to the underlying transport
 	nni_aio         recv_aio;      // recv aio to the underlying transport
