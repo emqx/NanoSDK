@@ -124,7 +124,7 @@ client_connect(nng_socket *sock, const char *url, bool verbose)
 	nng_mqtt_msg_set_connect_clean_session(connmsg, true);
 
 	property * p = mqtt_property_alloc();
-	nng_mqtt_msg_set_property(connmsg, p);
+	nng_mqtt_msg_set_connect_property(connmsg, p);
 
 	nng_mqtt_set_connect_cb(*sock, connect_cb, &sock);
 	nng_mqtt_set_disconnect_cb(*sock, disconnect_cb, connmsg);
