@@ -101,7 +101,7 @@ client_connect(nng_socket *sock, const char *url, bool verbose)
 	nng_dialer dialer;
 	int        rv;
 
-	if ((rv = nng_mqtt_client_open(sock)) != 0) {
+	if ((rv = nng_mqttv5_client_open(sock)) != 0) {
 		fatal("nng_socket", rv);
 	}
 
