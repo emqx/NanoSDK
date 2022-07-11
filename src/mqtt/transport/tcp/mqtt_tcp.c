@@ -365,7 +365,10 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 		return;
 	}
 	if (p->gotrxhead >= p->wantrxhead) {
-		rv = nni_mqtt_msg_decode(p->rxmsg);
+		if (p->proto == 4)
+			rv = nni_mqtt_msg_decode(p->rxmsg);
+		else if (p->proto == 5)
+			rv = nni_mqttv5_msg_decode(p->rxmsg);
 		ep->reason_code = rv;
 		// TODO set property for MQTTV5
 		nni_msg_free(p->rxmsg);
