@@ -574,6 +574,12 @@ nng_mqtt_msg_set_connect_property(nng_msg *msg, property *p)
 	nni_mqtt_msg_set_connect_property(msg, p);
 }
 
+property *
+nng_mqtt_msg_get_connect_property(nng_msg *msg)
+{
+	return nni_mqtt_msg_get_connect_property(msg);
+}
+
 uint32_t
 get_mqtt_properties_len(property *prop)
 {
