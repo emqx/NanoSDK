@@ -920,6 +920,7 @@ nni_mqttv5_msg_encode_subscribe(nni_msg *msg)
 		nni_mqtt_msg_append_u8(msg, topic->qos);
 	}
 
+	/* Fixed header */
 	mqtt->fixed_header.remaining_length = (uint32_t) nni_msg_len(msg);
 	mqtt->fixed_header.common.bit_1     = 1;
 	nni_mqtt_msg_encode_fixed_header(msg, mqtt);
@@ -1206,8 +1207,42 @@ nni_mqtt_msg_encode_unsubscribe(nni_msg *msg)
 static int
 nni_mqttv5_msg_encode_unsubscribe(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
-	return 0;
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	nni_msg_clear(msg);
+
+	int poslength = 0;
+
+	poslength += 2; /* for Packet Identifier */
+
+	mqtt_unsubscribe_payload *uspld = &mqtt->payload.unsubscribe;
+
+	/* Go through topic filters to calculate length information */
+	for (size_t i = 0; i < uspld->topic_count; i++) {
+		mqtt_buf *topic = &uspld->topic_arr[i];
+		poslength += topic->length;
+		poslength += 2; // for 'length' field of Topic Filter, which is
+		                // encoded as UTF-8 encoded strings */
+	}
+
+	mqtt_unsubscribe_vhdr *var_header = &mqtt->var_header.unsubscribe;
+	/* Packet Id */
+	nni_mqtt_msg_append_u16(msg, var_header->packet_id);
+
+	/* Properties */
+	encode_properties(msg, var_header->properties, CMD_UNSUBSCRIBE);
+
+	/* Unsubscribe topic_arr */
+	for (size_t i = 0; i < uspld->topic_count; i++) {
+		mqtt_buf *topic = &uspld->topic_arr[i];
+		nni_mqtt_msg_append_byte_str(msg, topic);
+	}
+
+	/* Fixed header */
+	mqtt->fixed_header.remaining_length = (uint32_t) nni_msg_len(msg);
+	mqtt->fixed_header.common.bit_1     = 1;
+	nni_mqtt_msg_encode_fixed_header(msg, mqtt);
+
+	return MQTT_SUCCESS;
 }
 
 static int
@@ -1232,8 +1267,26 @@ nni_mqtt_msg_encode_unsuback(nni_msg *msg)
 static int
 nni_mqttv5_msg_encode_unsuback(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
-	return 0;
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	nni_msg_clear(msg);
+
+	mqtt_unsuback_vhdr *var_header = &mqtt->var_header.unsuback;
+	mqtt_unsuback_payload *spld    = &mqtt->payload.unsuback;
+
+	/* Packet Identifier */
+	nni_mqtt_msg_append_u16(msg, var_header->packet_id);
+
+	/* Properties */
+	encode_properties(msg, var_header->properties, CMD_UNSUBACK);
+
+	/* Return Codes */
+	nni_msg_append(msg, spld->ret_code_arr, spld->ret_code_count);
+
+	/* Fixed header */
+	mqtt->fixed_header.remaining_length = (uint32_t) nni_msg_len(msg);
+	nni_mqtt_msg_encode_fixed_header(msg, mqtt);
+
+	return MQTT_SUCCESS;
 }
 
 static int
@@ -1805,6 +1858,7 @@ static int
 nni_mqttv5_msg_decode_base_with_packet_id(nni_msg *msg, uint16_t *packet_id)
 {
 	NNI_ARG_UNUSED(msg);
+	NNI_ARG_UNUSED(packet_id);
 	return 0;
 }
 
@@ -1944,8 +1998,70 @@ err:
 static int
 nni_mqttv5_msg_decode_unsubscribe(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
-	return 0;
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+
+	if (mqtt->fixed_header.common.bit_0 != 0 ||
+	    mqtt->fixed_header.common.bit_1 != 1 ||
+	    mqtt->fixed_header.common.bit_2 != 0 ||
+	    mqtt->fixed_header.common.bit_3 != 0) {
+		return MQTT_ERR_PROTOCOL;
+	}
+
+	uint8_t *body   = nni_msg_body(msg);
+	size_t   length = nni_msg_len(msg);
+
+	struct pos_buf buf;
+	buf.curpos                      = &body[0];
+	buf.endpos                      = &body[length];
+	mqtt_unsubscribe_payload *uspld = &mqtt->payload.unsubscribe;
+
+	int ret = read_uint16(&buf, &mqtt->var_header.unsubscribe.packet_id);
+	if (ret != MQTT_SUCCESS) {
+		return MQTT_ERR_PROTOCOL;
+	}
+
+	/* Properties */
+	uint32_t pos = buf.curpos - &body[0];
+	uint32_t prop_len = 0;
+	mqtt->var_header.connect.properties =
+	    decode_buf_properties(body, length, &pos, &prop_len, true);
+	buf.curpos = &body[0] + pos;
+
+	uint8_t *saved_current_pos = NULL;
+	uint16_t temp_length       = 0;
+	uint32_t topic_count       = 0;
+
+	saved_current_pos = buf.curpos;
+	while (buf.curpos < buf.endpos) {
+		ret = read_uint16(&buf, &temp_length);
+		/* jump to the end of topic-name */
+		buf.curpos += temp_length;
+		/* skip QoS field */
+		topic_count++;
+	}
+
+	/* Allocate topic array */
+	uspld->topic_arr =
+	    (mqtt_buf *) nni_alloc(topic_count * sizeof(mqtt_buf));
+
+	/* Set back current position */
+	buf.curpos = saved_current_pos;
+	while (buf.curpos < buf.endpos) {
+		/* Topic Name */
+		ret =
+		    read_utf8_str(&buf, &uspld->topic_arr[uspld->topic_count]);
+		if (ret != MQTT_SUCCESS) {
+			ret = MQTT_ERR_PROTOCOL;
+			goto err;
+		}
+		uspld->topic_count++;
+	}
+	return MQTT_SUCCESS;
+
+err:
+	nni_free(uspld->topic_arr, topic_count * sizeof(mqtt_buf));
+
+	return ret;
 }
 
 static int
@@ -1960,8 +2076,41 @@ nni_mqtt_msg_decode_unsuback(nni_msg *msg)
 static int
 nni_mqttv5_msg_decode_unsuback(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
-	return 0;
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+
+	uint8_t *body   = nni_msg_body(msg);
+	size_t   length = nni_msg_len(msg);
+
+	struct pos_buf buf;
+	buf.curpos = &body[0];
+	buf.endpos = &body[length];
+
+	int result = read_uint16(&buf, &mqtt->var_header.unsubscribe.packet_id);
+	if (result != MQTT_SUCCESS) {
+		return MQTT_ERR_PROTOCOL;
+	}
+
+	/* Properties */
+	uint32_t pos = buf.curpos - &body[0];
+	uint32_t prop_len = 0;
+	mqtt->var_header.connect.properties =
+	    decode_buf_properties(body, length, &pos, &prop_len, true);
+	buf.curpos = &body[0] + pos;
+
+	mqtt->payload.unsuback.ret_code_arr =
+	    (uint8_t *) nni_alloc(mqtt->payload.unsuback.ret_code_count);
+	uint8_t *ptr = mqtt->payload.unsuback.ret_code_arr;
+
+	for (uint32_t i = 0; i < mqtt->payload.unsuback.ret_code_count; i++) {
+		int ret = read_byte(&buf, ptr);
+		if (ret != MQTT_SUCCESS) {
+			ret = MQTT_ERR_PROTOCOL;
+			return ret;
+		}
+		ptr++;
+	}
+
+	return MQTT_SUCCESS;
 }
 
 static int

@@ -118,10 +118,14 @@ typedef struct mqtt_suback_vhdr_t {
 
 typedef struct mqtt_unsubscribe_vhdr_t {
 	uint16_t packet_id;
+	// MQTTV5
+	property *properties;
 } mqtt_unsubscribe_vhdr;
 
 typedef struct mqtt_unsuback_vhdr_t {
 	uint16_t packet_id;
+	// MQTTV5
+	property *properties;
 } mqtt_unsuback_vhdr;
 
 /*****************************************************************************
@@ -173,6 +177,11 @@ typedef struct {
 	uint32_t  topic_count; /* not included in the message itself */
 } mqtt_unsubscribe_payload;
 
+typedef struct {
+	uint8_t *ret_code_arr; /* array of return codes continuous in memory */
+	uint32_t ret_code_count; /* not included in the message itself */
+} mqtt_unsuback_payload;
+
 /*****************************************************************************
  * Union to cover all Payload types
  ****************************************************************************/
@@ -182,6 +191,7 @@ union mqtt_payload {
 	mqtt_subscribe_payload   subscribe;
 	mqtt_suback_payload      suback;
 	mqtt_unsubscribe_payload unsubscribe;
+	mqtt_unsuback_payload    unsuback;
 };
 
 typedef struct {
