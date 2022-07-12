@@ -532,6 +532,7 @@ NNG_DECL property_data *mqtt_property_get_value(property *prop, uint8_t prop_id)
 NNG_DECL void      mqtt_property_append(property *prop_list, property *last);
 
 NNG_DECL void nng_mqtt_msg_set_connect_property(nng_msg *msg, property *prop);
+NNG_DECL property *nng_mqtt_msg_get_connect_property(nng_msg *msg);
 
 #ifdef __cplusplus
 }

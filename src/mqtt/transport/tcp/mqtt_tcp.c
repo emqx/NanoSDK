@@ -365,7 +365,13 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 		return;
 	}
 	if (p->gotrxhead >= p->wantrxhead) {
-		rv = nni_mqtt_msg_decode(p->rxmsg);
+		if (p->proto == 5) {
+			rv = nni_mqttv5_msg_decode(p->rxmsg);
+			ep->property = (void *)nni_mqtt_msg_get_connect_property(p->rxmsg);
+		} else {
+			rv = nni_mqtt_msg_decode(p->rxmsg);
+			ep->property = NULL;
+		}
 		ep->reason_code = rv;
 		// TODO set property for MQTTV5
 		nni_msg_free(p->rxmsg);
@@ -867,8 +873,18 @@ mqtt_tcptran_pipe_start(
 
 	nni_dialer_getopt(ep->ndialer, NNG_OPT_MQTT_CONNMSG, &connmsg, NULL,
 	    NNI_TYPE_POINTER);
-	if (connmsg == NULL || nni_mqtt_msg_encode(connmsg) != 0) {
-		// no valid connmsg from user, use default
+
+	uint8_t mqtt_version;
+
+	if (connmsg == NULL) {
+		mqtt_version = 0;
+	}
+
+	mqtt_version = nni_mqtt_msg_get_connect_proto_version(connmsg);
+
+	if (mqtt_version != 4 || mqtt_version != 5) {
+		// Using MQTT V311 as default protocol version
+		mqtt_version = 4; // Default TODO Notify user as a warning
 		nni_mqtt_msg_alloc(&connmsg, 0);
 		nni_mqtt_msg_set_packet_type(connmsg, NNG_MQTT_CONNECT);
 		nni_mqtt_msg_set_connect_proto_version(
@@ -877,6 +893,11 @@ mqtt_tcptran_pipe_start(
 		nni_mqtt_msg_set_connect_clean_session(connmsg, true);
 	}
 
+	if (mqtt_version == 4)
+		nni_mqtt_msg_encode(connmsg);
+	else if (mqtt_version == 5)
+		nni_mqttv5_msg_encode(connmsg);
+
 	p->gotrxhead = 0;
 	p->gottxhead = 0;
 	// TODO TX length for MQTT 5
@@ -884,7 +905,7 @@ mqtt_tcptran_pipe_start(
 	p->wanttxhead = nni_msg_header_len(connmsg) + nni_msg_len(connmsg);
 	p->rxmsg      = NULL;
 	p->keepalive  = nni_mqtt_msg_get_connect_keep_alive(connmsg) * 1000;
-	p->proto      = nni_mqtt_msg_get_connect_proto_version(connmsg);
+	p->proto      = mqtt_version;
 
 	if (nni_msg_header_len(connmsg) > 0) {
 		iov[niov].iov_buf = nni_msg_header(connmsg);

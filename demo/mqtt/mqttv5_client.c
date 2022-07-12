@@ -101,7 +101,7 @@ client_connect(nng_socket *sock, const char *url, bool verbose)
 	nng_dialer dialer;
 	int        rv;
 
-	if ((rv = nng_mqtt_client_open(sock)) != 0) {
+	if ((rv = nng_mqttv5_client_open(sock)) != 0) {
 		fatal("nng_socket", rv);
 	}
 
@@ -124,6 +124,8 @@ client_connect(nng_socket *sock, const char *url, bool verbose)
 	nng_mqtt_msg_set_connect_clean_session(connmsg, true);
 
 	property * p = mqtt_property_alloc();
+	property *p1 = mqtt_property_set_value_varint(MAXIMUM_PACKET_SIZE, 512);
+	mqtt_property_append(p, p1);
 	nng_mqtt_msg_set_connect_property(connmsg, p);
 
 	nng_mqtt_set_connect_cb(*sock, connect_cb, &sock);
