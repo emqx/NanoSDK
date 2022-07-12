@@ -353,7 +353,7 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 			// Broker send a invalid CONNACK!
 			goto error;
 		}
-        }
+	}
 	// got remaining length
 	if (p->gotrxhead < p->wantrxhead) {
 		nni_iov iov;

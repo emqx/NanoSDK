@@ -71,14 +71,14 @@ typedef struct mqtt_connect_vhdr_t {
 	uint8_t    protocol_version;
 	conn_flags conn_flags;
 	uint16_t   keep_alive;
-
+	// MQTTV5
 	property * properties;
 } mqtt_connect_vhdr;
 
 typedef struct mqtt_connack_vhdr_t {
 	uint8_t connack_flags;
 	uint8_t conn_return_code;
-
+	// MQTTV5
 	property *properties;
 } mqtt_connack_vhdr;
 
@@ -106,10 +106,14 @@ typedef struct mqtt_pubcomp_vhdr_t {
 
 typedef struct mqtt_subscribe_vhdr_t {
 	uint16_t packet_id;
+	// MQTTV5
+	property *properties;
 } mqtt_subscribe_vhdr;
 
 typedef struct mqtt_suback_vhdr_t {
 	uint16_t packet_id;
+	// MQTTV5
+	property *properties;
 } mqtt_suback_vhdr;
 
 typedef struct mqtt_unsubscribe_vhdr_t {

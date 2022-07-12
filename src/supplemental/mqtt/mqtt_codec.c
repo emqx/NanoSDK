@@ -888,8 +888,43 @@ nni_mqtt_msg_encode_subscribe(nni_msg *msg)
 static int
 nni_mqttv5_msg_encode_subscribe(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
-	return 0;
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	nni_msg_clear(msg);
+
+	int poslength = 0;
+
+	poslength += 2; /* for Packet Identifier */
+
+	mqtt_subscribe_payload *spld = &mqtt->payload.subscribe;
+
+	/* Go through topic filters to calculate length information */
+	for (size_t i = 0; i < spld->topic_count; i++) {
+		mqtt_topic_qos *topic = &spld->topic_arr[i];
+		poslength += topic->topic.length;
+		poslength += 1; // for 'options' byte
+		poslength += 2; // for 'length' field of Topic Filter, which is
+		                // encoded as UTF-8 encoded strings */
+	}
+
+	mqtt_subscribe_vhdr *var_header = &mqtt->var_header.subscribe;
+	/* Packet Id */
+	nni_mqtt_msg_append_u16(msg, var_header->packet_id);
+
+	/* Properties */
+	encode_properties(msg, var_header->properties, CMD_SUBSCRIBE);
+
+	/* Subscribe topic_arr */
+	for (size_t i = 0; i < spld->topic_count; i++) {
+		mqtt_topic_qos *topic = &spld->topic_arr[i];
+		nni_mqtt_msg_append_byte_str(msg, &topic->topic);
+		nni_mqtt_msg_append_u8(msg, topic->qos);
+	}
+
+	mqtt->fixed_header.remaining_length = (uint32_t) nni_msg_len(msg);
+	mqtt->fixed_header.common.bit_1     = 1;
+	nni_mqtt_msg_encode_fixed_header(msg, mqtt);
+
+	return MQTT_SUCCESS;
 }
 
 static int
@@ -920,8 +955,30 @@ nni_mqtt_msg_encode_suback(nni_msg *msg)
 static int
 nni_mqttv5_msg_encode_suback(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
-	return 0;
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	nni_msg_clear(msg);
+
+	int poslength = 2; /* for Packet Identifier */
+
+	mqtt_suback_vhdr *   var_header = &mqtt->var_header.suback;
+	mqtt_suback_payload *spld       = &mqtt->payload.suback;
+
+	poslength += spld->ret_code_count;
+
+	/* Properties */
+	encode_properties(msg, var_header->properties, CMD_SUBACK);
+
+	/* Packet Identifier */
+	nni_mqtt_msg_append_u16(msg, var_header->packet_id);
+
+	/* Return Codes */
+	nni_msg_append(msg, spld->ret_code_arr, spld->ret_code_count);
+
+	/* Fixed header */
+	mqtt->fixed_header.remaining_length = (uint32_t) nni_msg_len(msg);
+	nni_mqtt_msg_encode_fixed_header(msg, mqtt);
+
+	return MQTT_SUCCESS;
 }
 
 static int
