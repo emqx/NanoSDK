@@ -1569,8 +1569,76 @@ err:
 static int
 nni_mqttv5_msg_decode_subscribe(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
-	return 0;
+	int                  ret;
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+
+	uint8_t *body   = nni_msg_body(msg);
+	size_t   length = nni_msg_len(msg);
+
+	struct pos_buf buf;
+	buf.curpos = &body[0];
+	buf.endpos = &body[length];
+
+	mqtt_subscribe_payload *spld = &mqtt->payload.subscribe;
+
+	/* Packet Identifier */
+	ret = read_uint16(&buf, &mqtt->var_header.subscribe.packet_id);
+	if (ret != 0) {
+		return MQTT_ERR_PROTOCOL;
+	}
+
+	/* Properties */
+	uint32_t pos = buf.curpos - &body[0];
+	uint32_t prop_len = 0;
+	mqtt->var_header.connect.properties =
+	    decode_buf_properties(body, length, &pos, &prop_len, true);
+	buf.curpos = &body[0] + pos;
+
+	uint8_t *saved_current_pos = NULL;
+	uint16_t temp_length       = 0;
+	uint32_t topic_count       = 0;
+
+	/* The loop to determine the number of topic_arr.
+	 * TODO: Some other way may be used such as std::vector to collect
+	 * topic_arr but there is a question that which is faster
+	 */
+	/* Save the current position to back */
+	saved_current_pos = buf.curpos;
+	while (buf.curpos < buf.endpos) {
+		ret = read_uint16(&buf, &temp_length);
+		/* jump to the end of topic-name */
+		buf.curpos += temp_length;
+		/* skip QoS field */
+		buf.curpos++;
+		topic_count++;
+	}
+	/* Allocate topic_qos array */
+	spld->topic_arr =
+	    (mqtt_topic_qos *) nni_alloc(sizeof(mqtt_topic_qos) * topic_count);
+
+	/* Set back current position */
+	buf.curpos = saved_current_pos;
+	while (buf.curpos < buf.endpos) {
+		/* Topic Name */
+		ret = read_utf8_str(
+		    &buf, &spld->topic_arr[spld->topic_count].topic);
+		if (ret != MQTT_SUCCESS) {
+			ret = MQTT_ERR_PROTOCOL;
+			goto err;
+		}
+		/* QoS */
+		ret = read_byte(&buf, &spld->topic_arr[spld->topic_count].qos);
+		if (ret != MQTT_SUCCESS) {
+			ret = MQTT_ERR_PROTOCOL;
+			goto err;
+		}
+		spld->topic_count++;
+	}
+	return MQTT_SUCCESS;
+
+err:
+	nni_free(spld->topic_arr, sizeof(mqtt_topic_qos) * topic_count);
+	return ret;
 }
 
 static int
@@ -1618,8 +1686,50 @@ err:
 static int
 nni_mqttv5_msg_decode_suback(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
-	return 0;
+	int                  ret;
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+
+	uint8_t *body   = nni_msg_body(msg);
+	size_t   length = nni_msg_len(msg);
+
+	struct pos_buf buf;
+	buf.curpos = &body[0];
+	buf.endpos = &body[length];
+
+	ret = read_uint16(&buf, &mqtt->var_header.suback.packet_id);
+	if (ret != MQTT_SUCCESS) {
+		return MQTT_ERR_PROTOCOL;
+	}
+
+	/* Properties */
+	uint32_t pos = buf.curpos - &body[0];
+	uint32_t prop_len = 0;
+	mqtt->var_header.connect.properties =
+	    decode_buf_properties(body, length, &pos, &prop_len, true);
+	buf.curpos = &body[0] + pos;
+
+	/* Suback Return Codes */
+	mqtt->payload.suback.ret_code_count = buf.endpos - buf.curpos;
+
+	mqtt->payload.suback.ret_code_arr =
+	    (uint8_t *) nni_alloc(mqtt->payload.suback.ret_code_count);
+	uint8_t *ptr = mqtt->payload.suback.ret_code_arr;
+
+	for (uint32_t i = 0; i < mqtt->payload.suback.ret_code_count; i++) {
+		ret = read_byte(&buf, ptr);
+		if (ret != MQTT_SUCCESS) {
+			ret = MQTT_ERR_PROTOCOL;
+			goto err;
+		}
+		ptr++;
+	}
+
+	return MQTT_SUCCESS;
+
+err:
+	nni_free(mqtt->payload.suback.ret_code_arr,
+	    mqtt->payload.suback.ret_code_count);
+	return ret;
 }
 
 static int
