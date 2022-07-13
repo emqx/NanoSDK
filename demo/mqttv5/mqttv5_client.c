@@ -1,4 +1,4 @@
-// Author: eeff <eeff at eeff dot dev>
+// Author: wangha <wanghamax at gmail dot com>
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -42,7 +42,6 @@
 // Subcommands
 #define PUBLISH "pub"
 #define SUBSCRIBE "sub"
-#define CONNECT "con"
 
 void
 fatal(const char *msg, int rv)
@@ -85,12 +84,24 @@ disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 {
 	nng_msg * msg = arg;
 	nng_msg_free(msg);
+	int reason;
+	// get connect reason
+	nng_pipe_get_int(p, NNG_OPT_MQTT_DISCONNECT_REASON, &reason);
+	// property *prop;
+	// nng_pipe_get_ptr(p, NNG_OPT_MQTT_DISCONNECT_PROPERTY, &prop);
+	// nng_socket_get?
 	printf("%s: disconnected!\n", __FUNCTION__);
 }
 
 static void
 connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 {
+	int reason;
+	// get connect reason
+	nng_pipe_get_int(p, NNG_OPT_MQTT_CONNECT_REASON, &reason);
+	// get property for MQTT V5
+	// property *prop;
+	// nng_pipe_get_ptr(p, NNG_OPT_MQTT_CONNECT_PROPERTY, &prop);
 	printf("%s: connected!\n", __FUNCTION__);
 }
 
@@ -272,8 +283,6 @@ main(const int argc, const char **argv)
 		cmd = SUBSCRIBE;
 	} else if (6 <= argc && 0 == strcmp(argv[1], PUBLISH)) {
 		cmd = PUBLISH;
-	} else if (0 == strcmp(argv[1], CONNECT)) {
-		cmd = CONNECT;
 	} else {
 		goto error;
 	}
@@ -326,8 +335,6 @@ main(const int argc, const char **argv)
 			        .length     = strlen(topic) } },
 		};
 		rv = client_subscribe(sock, subscriptions, 1, verbose);
-	} else if (strcmp(CONNECT, cmd) == 0) {
-		nng_msleep(10000);
 	}
 
 	nng_msleep(1000);
