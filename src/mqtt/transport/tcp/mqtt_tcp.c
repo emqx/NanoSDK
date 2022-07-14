@@ -882,7 +882,7 @@ mqtt_tcptran_pipe_start(
 
 	mqtt_version = nni_mqtt_msg_get_connect_proto_version(connmsg);
 
-	if (mqtt_version != 4 || mqtt_version != 5) {
+	if (mqtt_version != 4 && mqtt_version != 5) {
 		// Using MQTT V311 as default protocol version
 		mqtt_version = 4; // Default TODO Notify user as a warning
 		nni_mqtt_msg_alloc(&connmsg, 0);
