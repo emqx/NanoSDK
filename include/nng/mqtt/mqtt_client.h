@@ -450,6 +450,8 @@ NNG_DECL int  nng_mqtt_set_connect_cb(nng_socket, nng_pipe_cb, void *);
 NNG_DECL int  nng_mqtt_set_disconnect_cb(nng_socket, nng_pipe_cb, void *);
 NNG_DECL void nng_mqtt_msg_dump(nng_msg *, uint8_t *, uint32_t, bool);
 
+NNG_DECL void nng_mqtt_msg_set_disconnect_reason_code(nng_msg *msg, uint8_t reason_code);
+
 struct mqtt_string {
 	char *   body;
 	uint32_t len;

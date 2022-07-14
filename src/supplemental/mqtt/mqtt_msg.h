@@ -75,6 +75,12 @@ typedef struct mqtt_connect_vhdr_t {
 	property * properties;
 } mqtt_connect_vhdr;
 
+typedef struct mqtt_disconnect_vhdr_t {
+	// MQTTV5
+	uint8_t reason_code;
+	property * prop;
+} mqtt_disconnect_vhdr;
+
 typedef struct mqtt_connack_vhdr_t {
 	uint8_t connack_flags;
 	uint8_t conn_return_code;
@@ -133,6 +139,7 @@ typedef struct mqtt_unsuback_vhdr_t {
  ****************************************************************************/
 union mqtt_variable_header {
 	mqtt_connect_vhdr     connect;
+	mqtt_disconnect_vhdr  disconnect;
 	mqtt_connack_vhdr     connack;
 	mqtt_publish_vhdr     publish;
 	mqtt_puback_vhdr      puback;

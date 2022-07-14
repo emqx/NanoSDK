@@ -447,6 +447,13 @@ nni_mqtt_msg_set_connect_proto_version(nni_msg *msg, uint8_t version)
 }
 
 void
+nni_mqtt_msg_set_disconnect_reason_code(nni_msg *msg, uint8_t reason_code)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	proto_data->var_header.disconnect.reason_code = reason_code;
+}
+
+void
 nni_mqtt_msg_set_connect_keep_alive(nni_msg *msg, uint16_t keep_alive)
 {
 	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
