@@ -37,7 +37,7 @@ static int  nni_mqttv5_msg_encode_pubcomp(nni_msg *);
 static int  nni_mqttv5_msg_encode_unsubscribe(nni_msg *);
 static int  nni_mqttv5_msg_encode_unsuback(nni_msg *);
 static int  nni_mqttv5_msg_encode_base(nni_msg *);
-static int  nni_mqttv5_msg_encode_disconnet(nni_msg *msg);
+static int  nni_mqttv5_msg_encode_disconnet(nni_msg *);
 
 static int nni_mqtt_msg_decode_fixed_header(nni_msg *);
 static int nni_mqtt_msg_decode_connect(nni_msg *);
@@ -65,6 +65,7 @@ static int nni_mqttv5_msg_decode_pubcomp(nni_msg *);
 static int nni_mqttv5_msg_decode_unsubscribe(nni_msg *);
 static int nni_mqttv5_msg_decode_unsuback(nni_msg *);
 static int nni_mqttv5_msg_decode_base(nni_msg *);
+static int  nni_mqttv5_msg_decode_disconnet(nni_msg *);
 
 static void destory_connect(nni_mqtt_proto_data *);
 static void destory_publish(nni_mqtt_proto_data *);
@@ -145,7 +146,7 @@ static mqtt_msg_codec_handler codec_v5_handler[] = {
 	{ NNG_MQTT_PINGRESP, nni_mqttv5_msg_encode_base,
 	    nni_mqttv5_msg_decode_base },
 	{ NNG_MQTT_DISCONNECT, nni_mqttv5_msg_encode_disconnet,
-	    nni_mqttv5_msg_decode_base }
+	    nni_mqttv5_msg_decode_disconnet }
 };
 
 int
@@ -1514,6 +1515,17 @@ nni_mqttv5_msg_decode_connect(nni_msg *msg)
 }
 
 static int
+nni_mqttv5_msg_decode_disconnet(nni_msg *msg)
+{
+	NNI_ARG_UNUSED(msg);
+	
+}
+
+	
+
+
+
+static int
 nni_mqtt_msg_decode_connack(nni_msg *msg)
 {
 	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
@@ -1853,7 +1865,51 @@ nni_mqtt_msg_decode_publish(nni_msg *msg)
 static int
 nni_mqttv5_msg_decode_publish(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
+	int                  ret;
+	int                  packid_length = 0;
+	nni_mqtt_proto_data *mqtt          = nni_msg_get_proto_data(msg);
+
+	uint8_t *body   = nni_msg_body(msg);
+	size_t   length = nni_msg_len(msg);
+
+	struct pos_buf buf;
+	buf.curpos = &body[0];
+	buf.endpos = &body[length];
+
+	uint32_t pos = buf.curpos;
+	uint32_t prop_len = 0;
+	mqtt->var_header.publish.prop =
+	    decode_buf_properties(body, length, &pos, &prop_len, true);
+	buf.curpos = &body[0] + pos;
+
+	/* Topic Name */
+	ret = read_utf8_str(&buf, &mqtt->var_header.publish.topic_name);
+	if (ret != MQTT_SUCCESS) {
+		return MQTT_ERR_PROTOCOL;
+	}
+
+	if (mqtt->fixed_header.publish.qos > MQTT_QOS_0_AT_MOST_ONCE) {
+		/* Packet Identifier */
+		ret = read_uint16(&buf, &mqtt->var_header.publish.packet_id);
+		if (ret != MQTT_SUCCESS) {
+			return MQTT_ERR_PROTOCOL;
+		}
+		packid_length = 2;
+	}
+
+	/* Payload */
+	/* No length information for payload. The length of the payload can be
+	   calculated by subtracting the length of the variable header from the
+	   Remaining Length field that is in the Fixed Header. It is valid for
+	   a PUBLISH Packet to contain a zero length payload.*/
+	mqtt->payload.publish.payload.length =
+	    mqtt->fixed_header.remaining_length -
+	    (2 /* Length bytes of Topic Name */ +
+	        mqtt->var_header.publish.topic_name.length + packid_length);
+	mqtt->payload.publish.payload.buf =
+	    (mqtt->payload.publish.payload.length > 0) ? buf.curpos : NULL;
+
+	return MQTT_SUCCESS;
 	return 0;
 }
 
