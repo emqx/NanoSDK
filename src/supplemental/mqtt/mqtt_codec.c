@@ -1517,8 +1517,30 @@ nni_mqttv5_msg_decode_connect(nni_msg *msg)
 static int
 nni_mqttv5_msg_decode_disconnet(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
-	
+	int                  ret;
+	nni_mqtt_proto_data *mqtt          = nni_msg_get_proto_data(msg);
+
+	uint8_t *body   = nni_msg_body(msg);
+	size_t   length = nni_msg_len(msg);
+
+	struct pos_buf buf;
+	buf.curpos = &body[0];
+	buf.endpos = &body[length];
+
+	ret = read_uint16(&buf, &mqtt->var_header.disconnect.reason_code);
+	if (ret != MQTT_SUCCESS) {
+		return MQTT_ERR_PROTOCOL;
+	}
+
+	uint32_t pos = buf.curpos;
+	uint32_t prop_len = 0;
+	mqtt->var_header.publish.prop =
+	    decode_buf_properties(body, length, &pos, &prop_len, true);
+	buf.curpos = &body[0] + pos;
+
+
+	return MQTT_SUCCESS;
+
 }
 
 	
