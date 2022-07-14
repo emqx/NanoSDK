@@ -37,6 +37,7 @@ static int  nni_mqttv5_msg_encode_pubcomp(nni_msg *);
 static int  nni_mqttv5_msg_encode_unsubscribe(nni_msg *);
 static int  nni_mqttv5_msg_encode_unsuback(nni_msg *);
 static int  nni_mqttv5_msg_encode_base(nni_msg *);
+static int  nni_mqttv5_msg_encode_disconnet(nni_msg *msg);
 
 static int nni_mqtt_msg_decode_fixed_header(nni_msg *);
 static int nni_mqtt_msg_decode_connect(nni_msg *);
@@ -143,7 +144,7 @@ static mqtt_msg_codec_handler codec_v5_handler[] = {
 	    nni_mqttv5_msg_decode_base },
 	{ NNG_MQTT_PINGRESP, nni_mqttv5_msg_encode_base,
 	    nni_mqttv5_msg_decode_base },
-	{ NNG_MQTT_DISCONNECT, nni_mqttv5_msg_encode_base,
+	{ NNG_MQTT_DISCONNECT, nni_mqttv5_msg_encode_disconnet,
 	    nni_mqttv5_msg_decode_base }
 };
 
@@ -791,6 +792,7 @@ nni_mqttv5_msg_encode_connect(nni_msg *msg)
 	if (mqtt->fixed_header.remaining_length > MQTT_MAX_MSG_LEN) {
 		return MQTT_ERR_PAYLOAD_SIZE;
 	}
+	printf("size: %d\n", mqtt->fixed_header.remaining_length);
 	nni_mqtt_msg_encode_fixed_header(msg, mqtt);
 
 	return MQTT_SUCCESS;
@@ -1059,7 +1061,6 @@ nni_mqttv5_msg_encode_publish(nni_msg *msg)
 	mqtt->fixed_header.remaining_length = nng_msg_len(msg);
 	nni_mqtt_msg_encode_fixed_header(msg, mqtt);
 	return MQTT_SUCCESS;
-	return 0;
 }
 
 static int
@@ -1308,6 +1309,26 @@ nni_mqttv5_msg_encode_base(nni_msg *msg)
 	NNI_ARG_UNUSED(msg);
 	return 0;
 }
+
+static int
+nni_mqttv5_msg_encode_disconnet(nni_msg *msg)
+{
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	nni_msg_clear(msg);
+
+	mqtt_disconnect_vhdr *var_header = &mqtt->var_header.disconnect;
+	if (0 == var_header->reason_code && NULL == var_header->prop) {
+		mqtt->fixed_header.remaining_length = 0;
+	} else {
+		nni_mqtt_msg_append_u8(msg, var_header->reason_code);
+		encode_properties(msg, mqtt->var_header.disconnect.prop, CMD_DISCONNECT);
+		mqtt->fixed_header.remaining_length = nng_msg_len(msg);
+	}
+
+	nni_mqtt_msg_encode_fixed_header(msg, mqtt);
+	return MQTT_SUCCESS;
+}
+
 
 static int
 nni_mqtt_msg_decode_fixed_header(nni_msg *msg)

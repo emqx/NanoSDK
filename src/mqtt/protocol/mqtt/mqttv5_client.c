@@ -272,6 +272,7 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 	switch (ptype) {
 	case NNG_MQTT_CONNECT:
 	case NNG_MQTT_PINGREQ:
+	case NNG_MQTT_DISCONNECT:
 		break;
 
 	case NNG_MQTT_PUBLISH:
