@@ -144,7 +144,7 @@ client_connect(nng_socket *sock, const char *url, bool verbose)
 
 	uint8_t buff[1024] = { 0 };
 
-	if (true) {
+	if (verbose) {
 		nng_mqtt_msg_dump(connmsg, buff, sizeof(buff), true);
 		printf("%s\n", buff);
 	}
@@ -283,19 +283,17 @@ client_subscribe(nng_socket sock, nng_mqtt_topic_qos *subscriptions, int count,
 		assert(nng_mqtt_msg_get_packet_type(msg) == NNG_MQTT_PUBLISH);
 
 		payload = nng_mqtt_msg_get_publish_payload(msg, &payload_len);
-		property *pl = nng_mqtt_msg_get_publish_properties(msg);
-		if (pl != NULL) {
-			mqtt_property_foreach(pl, print_property);
-		}
-
-
-
 		print80("Received: ", (char *) payload, payload_len, true);
 
 		if (verbose) {
 			memset(buff, 0, sizeof(buff));
 			nng_mqtt_msg_dump(msg, buff, sizeof(buff), true);
 			printf("%s\n", buff);
+
+			property *pl = nng_mqtt_msg_get_publish_properties(msg);
+			if (pl != NULL) {
+				mqtt_property_foreach(pl, print_property);
+			}
 		}
 
 		nng_msg_free(msg);
@@ -330,8 +328,7 @@ client_publish(nng_socket sock, const char *topic, uint8_t *payload,
 	nng_mqtt_msg_set_property_str_pair(pubmsg, USER_PROPERTY, "aaaaaa", strlen("aaaaaa"), "aaaaaa", strlen("aaaaaa"), NNG_MQTT_PUBLISH);
 	nng_mqtt_msg_set_property_str(pubmsg, CONTENT_TYPE, "aaaaaa", strlen("aaaaaa"));
 	
-
-	if (true) {
+	if (verbose) {
 		uint8_t print[1024] = { 0 };
 		nng_mqtt_msg_dump(pubmsg, print, 1024, true);
 		printf("%s\n", print);
@@ -366,11 +363,11 @@ publish_cb(void *args)
 {
 	int                rv;
 	struct pub_params *params = args;
-	// do {
+	do {
 		rv = client_publish(*params->sock, params->topic, params->data,
 		    params->data_len, params->qos, params->verbose);
 		nng_msleep(params->interval);
-	// } while (params->interval > 0 && rv == 0);
+	} while (params->interval > 0 && rv == 0);
 	printf("thread_exit\n");
 }
 
