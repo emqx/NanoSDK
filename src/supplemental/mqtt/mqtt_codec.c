@@ -1528,7 +1528,7 @@ nni_mqttv5_msg_decode_disconnet(nni_msg *msg)
 	buf.curpos = &body[0];
 	buf.endpos = &body[length];
 
-	ret = read_uint16(&buf, &mqtt->var_header.disconnect.reason_code);
+	ret = read_byte(&buf, &mqtt->var_header.disconnect.reason_code);
 	if (ret != MQTT_SUCCESS) {
 		return MQTT_ERR_PROTOCOL;
 	}
