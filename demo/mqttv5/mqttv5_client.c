@@ -342,6 +342,12 @@ client_publish(nng_socket sock, const char *topic, uint8_t *payload,
 		fatal("nng_sendmsg", rv);
 	}
 
+
+	property *pl = nng_mqtt_msg_get_publish_properties(pubmsg);
+	if (pl != NULL) {
+		mqtt_property_foreach(pl, print_property);
+	}
+
 	return rv;
 }
 
