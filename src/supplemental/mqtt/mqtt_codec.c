@@ -1061,6 +1061,7 @@ nni_mqttv5_msg_encode_publish(nni_msg *msg)
 
 	mqtt->fixed_header.remaining_length = nng_msg_len(msg);
 	nni_mqtt_msg_encode_fixed_header(msg, mqtt);
+
 	return MQTT_SUCCESS;
 }
 
@@ -1898,12 +1899,6 @@ nni_mqttv5_msg_decode_publish(nni_msg *msg)
 	buf.curpos = &body[0];
 	buf.endpos = &body[length];
 
-	uint32_t pos = buf.curpos;
-	uint32_t prop_len = 0;
-	mqtt->var_header.publish.prop =
-	    decode_buf_properties(body, length, &pos, &prop_len, true);
-	buf.curpos = &body[0] + pos;
-
 	/* Topic Name */
 	ret = read_utf8_str(&buf, &mqtt->var_header.publish.topic_name);
 	if (ret != MQTT_SUCCESS) {
@@ -1919,6 +1914,13 @@ nni_mqttv5_msg_decode_publish(nni_msg *msg)
 		packid_length = 2;
 	}
 
+	uint32_t pos = buf.curpos - &body[0];
+	uint32_t prop_len = 0;
+	mqtt->var_header.publish.prop =
+	    decode_buf_properties(body, length, &pos, &prop_len, true);
+	buf.curpos = &body[0] + pos;
+
+
 	/* Payload */
 	/* No length information for payload. The length of the payload can be
 	   calculated by subtracting the length of the variable header from the
@@ -1932,7 +1934,6 @@ nni_mqttv5_msg_decode_publish(nni_msg *msg)
 	    (mqtt->payload.publish.payload.length > 0) ? buf.curpos : NULL;
 
 	return MQTT_SUCCESS;
-	return 0;
 }
 
 static int
