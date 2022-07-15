@@ -793,7 +793,6 @@ nni_mqttv5_msg_encode_connect(nni_msg *msg)
 	if (mqtt->fixed_header.remaining_length > MQTT_MAX_MSG_LEN) {
 		return MQTT_ERR_PAYLOAD_SIZE;
 	}
-	printf("size: %d\n", mqtt->fixed_header.remaining_length);
 	nni_mqtt_msg_encode_fixed_header(msg, mqtt);
 
 	return MQTT_SUCCESS;

@@ -334,15 +334,14 @@ client_publish(nng_socket sock, const char *topic, uint8_t *payload,
 		printf("%s\n", print);
 	}
 
-	printf("Publishing to '%s' ...\n", topic);
-	if ((rv = nng_sendmsg(sock, pubmsg, NNG_FLAG_NONBLOCK)) != 0) {
-		fatal("nng_sendmsg", rv);
-	}
-
-
 	property *pl = nng_mqtt_msg_get_publish_properties(pubmsg);
 	if (pl != NULL) {
 		mqtt_property_foreach(pl, print_property);
+	}
+
+	printf("Publishing to '%s' ...\n", topic);
+	if ((rv = nng_sendmsg(sock, pubmsg, NNG_FLAG_NONBLOCK)) != 0) {
+		fatal("nng_sendmsg", rv);
 	}
 
 	return rv;
