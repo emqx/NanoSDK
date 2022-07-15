@@ -327,6 +327,11 @@ extern bool        nni_mqtt_msg_get_connect_will_retain(nni_msg *);
 extern uint8_t *   nni_mqtt_msg_get_connect_will_msg(nni_msg *, uint32_t *);
 extern uint8_t     nni_mqtt_msg_get_connect_will_qos(nni_msg *);
 
+
+
+// mqtt disconnect
+extern void nni_mqtt_msg_set_disconnect_reason_code(nng_msg *msg, uint8_t reason_code);
+
 // mqtt conack
 extern void    nni_mqtt_msg_set_connack_return_code(nni_msg *, uint8_t);
 extern void    nni_mqtt_msg_set_connack_flags(nni_msg *, uint8_t);
