@@ -538,6 +538,18 @@ nng_mqtt_msg_get_subscribe_topics(nng_msg *msg, uint32_t *topics_count)
 	return nni_mqtt_msg_get_subscribe_topics(msg, topics_count);
 }
 
+property *
+nng_mqtt_msg_get_subscribe_property(nng_msg *msg)
+{
+	return nni_mqtt_msg_get_subscribe_property(msg);
+}
+
+void
+nng_mqtt_msg_set_subscribe_property(nng_msg *msg, property *prop)
+{
+	nni_mqtt_msg_set_subscribe_property(msg, prop);
+}
+
 uint16_t
 nng_mqtt_msg_get_suback_packet_id(nng_msg *msg)
 {

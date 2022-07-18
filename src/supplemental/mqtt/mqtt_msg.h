@@ -371,10 +371,12 @@ extern void     nni_mqtt_msg_set_pubcomp_packet_id(nni_msg *, uint16_t);
 // mqtt subscribe
 extern uint16_t nni_mqtt_msg_get_subscribe_packet_id(nni_msg *);
 extern void     nni_mqtt_msg_set_subscribe_packet_id(nni_msg *, uint16_t);
-extern void     nni_mqtt_msg_set_subscribe_topics(
-        nni_msg *, nni_mqtt_topic_qos *, uint32_t);
 extern nni_mqtt_topic_qos *nni_mqtt_msg_get_subscribe_topics(
     nni_msg *, uint32_t *);
+extern void     nni_mqtt_msg_set_subscribe_topics(
+        nni_msg *, nni_mqtt_topic_qos *, uint32_t);
+extern property *nni_mqtt_msg_get_subscribe_property(nni_msg *);
+extern void      nni_mqtt_msg_set_subscribe_property(nni_msg *, property *);
 
 // mqtt suback
 extern uint16_t nni_mqtt_msg_get_suback_packet_id(nni_msg *);

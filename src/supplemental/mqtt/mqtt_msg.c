@@ -329,6 +329,20 @@ nni_mqtt_msg_get_subscribe_topics(nni_msg *msg, uint32_t *topic_count)
 	return proto_data->payload.subscribe.topic_arr;
 }
 
+property *
+nni_mqtt_msg_get_subscribe_property(nni_msg *msg)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	return proto_data->var_header.subscribe.properties;
+}
+
+void
+nni_mqtt_msg_set_subscribe_property(nni_msg *msg, property *prop)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	proto_data->var_header.subscribe.properties = prop;
+}
+
 uint16_t
 nni_mqtt_msg_get_suback_packet_id(nni_msg *msg)
 {
