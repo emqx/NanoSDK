@@ -375,85 +375,6 @@ typedef struct mqtt_topic_qos_t {
 
 typedef struct mqtt_topic_qos_t nng_mqtt_topic_qos;
 
-NNG_DECL int  nng_mqtt_msg_alloc(nng_msg **, size_t);
-NNG_DECL int  nng_mqtt_msg_proto_data_alloc(nng_msg *);
-NNG_DECL void nng_mqtt_msg_proto_data_free(nng_msg *);
-NNG_DECL int  nng_mqtt_msg_encode(nng_msg *);
-NNG_DECL int  nng_mqtt_msg_decode(nng_msg *);
-NNG_DECL void nng_mqtt_msg_set_packet_type(nng_msg *, nng_mqtt_packet_type);
-NNG_DECL nng_mqtt_packet_type nng_mqtt_msg_get_packet_type(nng_msg *);
-NNG_DECL void nng_mqtt_msg_set_connect_proto_version(nng_msg *, uint8_t);
-NNG_DECL void nng_mqtt_msg_set_connect_keep_alive(nng_msg *, uint16_t);
-NNG_DECL void nng_mqtt_msg_set_connect_client_id(nng_msg *, const char *);
-NNG_DECL void nng_mqtt_msg_set_connect_user_name(nng_msg *, const char *);
-NNG_DECL void nng_mqtt_msg_set_connect_password(nng_msg *, const char *);
-NNG_DECL void nng_mqtt_msg_set_connect_clean_session(nng_msg *, bool);
-NNG_DECL void nng_mqtt_msg_set_connect_will_topic(nng_msg *, const char *);
-NNG_DECL void nng_mqtt_msg_set_connect_will_msg(
-    nng_msg *, uint8_t *, uint32_t);
-NNG_DECL void        nng_mqtt_msg_set_connect_will_retain(nng_msg *, bool);
-NNG_DECL void        nng_mqtt_msg_set_connect_will_qos(nng_msg *, uint8_t);
-NNG_DECL const char *nng_mqtt_msg_get_connect_user_name(nng_msg *);
-NNG_DECL const char *nng_mqtt_msg_get_connect_password(nng_msg *);
-NNG_DECL bool        nng_mqtt_msg_get_connect_clean_session(nng_msg *);
-NNG_DECL uint8_t     nng_mqtt_msg_get_connect_proto_version(nng_msg *);
-NNG_DECL uint16_t    nng_mqtt_msg_get_connect_keep_alive(nng_msg *);
-NNG_DECL const char *nng_mqtt_msg_get_connect_client_id(nng_msg *);
-NNG_DECL const char *nng_mqtt_msg_get_connect_will_topic(nng_msg *);
-NNG_DECL uint8_t *   nng_mqtt_msg_get_connect_will_msg(nng_msg *, uint32_t *);
-NNG_DECL bool        nng_mqtt_msg_get_connect_will_retain(nng_msg *);
-NNG_DECL uint8_t     nng_mqtt_msg_get_connect_will_qos(nng_msg *);
-NNG_DECL void        nng_mqtt_msg_set_connack_return_code(nng_msg *, uint8_t);
-NNG_DECL void        nng_mqtt_msg_set_connack_flags(nng_msg *, uint8_t);
-NNG_DECL uint8_t     nng_mqtt_msg_get_connack_return_code(nng_msg *);
-NNG_DECL uint8_t     nng_mqtt_msg_get_connack_flags(nng_msg *);
-
-// property
-NNG_DECL void        nng_mqtt_msg_set_property_u8(nng_msg *, uint8_t, uint8_t);
-NNG_DECL void        nng_mqtt_msg_set_property_u16(nng_msg *, uint8_t, uint16_t);
-NNG_DECL void        nng_mqtt_msg_set_property_u32(nng_msg *, uint8_t, uint32_t, uint8_t);
-NNG_DECL void        nng_mqtt_msg_set_property_varint(nng_msg *, uint8_t, uint32_t);
-NNG_DECL void        nng_mqtt_msg_set_property_binary(nng_msg *, uint8_t, uint8_t*, uint32_t);
-NNG_DECL void        nng_mqtt_msg_set_property_str(nng_msg *, uint8_t, char *, uint32_t);
-NNG_DECL void        nng_mqtt_msg_set_property_str_pair(nng_msg *, uint8_t, char *, uint32_t, char *, uint32_t, uint8_t);
-
-NNG_DECL void        nng_mqtt_msg_set_publish_qos(nng_msg *, uint8_t);
-NNG_DECL uint8_t     nng_mqtt_msg_get_publish_qos(nng_msg *);
-NNG_DECL void        nng_mqtt_msg_set_publish_retain(nng_msg *, bool);
-NNG_DECL bool        nng_mqtt_msg_get_publish_retain(nng_msg *);
-NNG_DECL void        nng_mqtt_msg_set_publish_dup(nng_msg *, bool);
-NNG_DECL bool        nng_mqtt_msg_get_publish_dup(nng_msg *);
-NNG_DECL int        nng_mqtt_msg_set_publish_topic(nng_msg *, const char *);
-NNG_DECL const char *nng_mqtt_msg_get_publish_topic(nng_msg *, uint32_t *);
-NNG_DECL void nng_mqtt_msg_set_publish_payload(nng_msg *, uint8_t *, uint32_t);
-NNG_DECL uint8_t *nng_mqtt_msg_get_publish_payload(nng_msg *, uint32_t *);
-NNG_DECL void *nng_mqtt_msg_get_publish_properties(nng_msg *);
-
-NNG_DECL nng_mqtt_topic_qos *nng_mqtt_msg_get_subscribe_topics(
-    nng_msg *, uint32_t *);
-NNG_DECL void nng_mqtt_msg_set_subscribe_topics(
-    nng_msg *, nng_mqtt_topic_qos *, uint32_t);
-NNG_DECL void nng_mqtt_msg_set_suback_return_codes(
-    nng_msg *, uint8_t *, uint32_t);
-NNG_DECL uint8_t *nng_mqtt_msg_get_suback_return_codes(nng_msg *, uint32_t *);
-NNG_DECL void     nng_mqtt_msg_set_unsubscribe_topics(
-        nng_msg *, nng_mqtt_topic *, uint32_t);
-NNG_DECL nng_mqtt_topic *nng_mqtt_msg_get_unsubscribe_topics(
-    nng_msg *, uint32_t *);
-
-NNG_DECL nng_mqtt_topic *nng_mqtt_topic_array_create(size_t);
-NNG_DECL void nng_mqtt_topic_array_set(nng_mqtt_topic *, size_t, const char *);
-NNG_DECL void nng_mqtt_topic_array_free(nng_mqtt_topic *, size_t);
-NNG_DECL nng_mqtt_topic_qos *nng_mqtt_topic_qos_array_create(size_t);
-NNG_DECL void                nng_mqtt_topic_qos_array_set(
-                   nng_mqtt_topic_qos *, size_t, const char *, uint8_t);
-NNG_DECL void nng_mqtt_topic_qos_array_free(nng_mqtt_topic_qos *, size_t);
-NNG_DECL int  nng_mqtt_set_connect_cb(nng_socket, nng_pipe_cb, void *);
-NNG_DECL int  nng_mqtt_set_disconnect_cb(nng_socket, nng_pipe_cb, void *);
-NNG_DECL void nng_mqtt_msg_dump(nng_msg *, uint8_t *, uint32_t, bool);
-
-NNG_DECL void nng_mqtt_msg_set_disconnect_reason_code(nng_msg *msg, uint8_t reason_code);
-
 struct mqtt_string {
 	char *   body;
 	uint32_t len;
@@ -516,6 +437,90 @@ struct property {
 };
 typedef struct property property;
 
+NNG_DECL int  nng_mqtt_msg_alloc(nng_msg **, size_t);
+NNG_DECL int  nng_mqtt_msg_proto_data_alloc(nng_msg *);
+NNG_DECL void nng_mqtt_msg_proto_data_free(nng_msg *);
+NNG_DECL int  nng_mqtt_msg_encode(nng_msg *);
+NNG_DECL int  nng_mqtt_msg_decode(nng_msg *);
+NNG_DECL void nng_mqtt_msg_set_packet_type(nng_msg *, nng_mqtt_packet_type);
+NNG_DECL nng_mqtt_packet_type nng_mqtt_msg_get_packet_type(nng_msg *);
+NNG_DECL void nng_mqtt_msg_set_connect_proto_version(nng_msg *, uint8_t);
+NNG_DECL void nng_mqtt_msg_set_connect_keep_alive(nng_msg *, uint16_t);
+NNG_DECL void nng_mqtt_msg_set_connect_client_id(nng_msg *, const char *);
+NNG_DECL void nng_mqtt_msg_set_connect_user_name(nng_msg *, const char *);
+NNG_DECL void nng_mqtt_msg_set_connect_password(nng_msg *, const char *);
+NNG_DECL void nng_mqtt_msg_set_connect_clean_session(nng_msg *, bool);
+NNG_DECL void nng_mqtt_msg_set_connect_will_topic(nng_msg *, const char *);
+NNG_DECL void nng_mqtt_msg_set_connect_will_msg(
+    nng_msg *, uint8_t *, uint32_t);
+NNG_DECL void        nng_mqtt_msg_set_connect_will_retain(nng_msg *, bool);
+NNG_DECL void        nng_mqtt_msg_set_connect_will_qos(nng_msg *, uint8_t);
+NNG_DECL void        nng_mqtt_msg_set_connect_property(nng_msg *, property *);
+NNG_DECL const char *nng_mqtt_msg_get_connect_user_name(nng_msg *);
+NNG_DECL const char *nng_mqtt_msg_get_connect_password(nng_msg *);
+NNG_DECL bool        nng_mqtt_msg_get_connect_clean_session(nng_msg *);
+NNG_DECL uint8_t     nng_mqtt_msg_get_connect_proto_version(nng_msg *);
+NNG_DECL uint16_t    nng_mqtt_msg_get_connect_keep_alive(nng_msg *);
+NNG_DECL const char *nng_mqtt_msg_get_connect_client_id(nng_msg *);
+NNG_DECL const char *nng_mqtt_msg_get_connect_will_topic(nng_msg *);
+NNG_DECL uint8_t *   nng_mqtt_msg_get_connect_will_msg(nng_msg *, uint32_t *);
+NNG_DECL bool        nng_mqtt_msg_get_connect_will_retain(nng_msg *);
+NNG_DECL uint8_t     nng_mqtt_msg_get_connect_will_qos(nng_msg *);
+NNG_DECL property   *nng_mqtt_msg_get_connect_property(nng_msg *);
+
+NNG_DECL void        nng_mqtt_msg_set_connack_return_code(nng_msg *, uint8_t);
+NNG_DECL void        nng_mqtt_msg_set_connack_flags(nng_msg *, uint8_t);
+NNG_DECL void        nng_mqtt_msg_set_connack_property(nng_msg *, property *);
+NNG_DECL uint8_t     nng_mqtt_msg_get_connack_return_code(nng_msg *);
+NNG_DECL uint8_t     nng_mqtt_msg_get_connack_flags(nng_msg *);
+NNG_DECL property   *nng_mqtt_msg_get_connack_property(nng_msg *);
+
+// property
+NNG_DECL void        nng_mqtt_msg_set_property_u8(nng_msg *, uint8_t, uint8_t);
+NNG_DECL void        nng_mqtt_msg_set_property_u16(nng_msg *, uint8_t, uint16_t);
+NNG_DECL void        nng_mqtt_msg_set_property_u32(nng_msg *, uint8_t, uint32_t, uint8_t);
+NNG_DECL void        nng_mqtt_msg_set_property_varint(nng_msg *, uint8_t, uint32_t);
+NNG_DECL void        nng_mqtt_msg_set_property_binary(nng_msg *, uint8_t, uint8_t*, uint32_t);
+NNG_DECL void        nng_mqtt_msg_set_property_str(nng_msg *, uint8_t, char *, uint32_t);
+NNG_DECL void        nng_mqtt_msg_set_property_str_pair(nng_msg *, uint8_t, char *, uint32_t, char *, uint32_t, uint8_t);
+
+NNG_DECL void        nng_mqtt_msg_set_publish_qos(nng_msg *, uint8_t);
+NNG_DECL uint8_t     nng_mqtt_msg_get_publish_qos(nng_msg *);
+NNG_DECL void        nng_mqtt_msg_set_publish_retain(nng_msg *, bool);
+NNG_DECL bool        nng_mqtt_msg_get_publish_retain(nng_msg *);
+NNG_DECL void        nng_mqtt_msg_set_publish_dup(nng_msg *, bool);
+NNG_DECL bool        nng_mqtt_msg_get_publish_dup(nng_msg *);
+NNG_DECL int         nng_mqtt_msg_set_publish_topic(nng_msg *, const char *);
+NNG_DECL const char *nng_mqtt_msg_get_publish_topic(nng_msg *, uint32_t *);
+NNG_DECL void        nng_mqtt_msg_set_publish_payload(nng_msg *, uint8_t *, uint32_t);
+NNG_DECL uint8_t    *nng_mqtt_msg_get_publish_payload(nng_msg *, uint32_t *);
+NNG_DECL void       *nng_mqtt_msg_get_publish_properties(nng_msg *);
+
+NNG_DECL nng_mqtt_topic_qos *nng_mqtt_msg_get_subscribe_topics(
+    nng_msg *, uint32_t *);
+NNG_DECL void nng_mqtt_msg_set_subscribe_topics(
+    nng_msg *, nng_mqtt_topic_qos *, uint32_t);
+NNG_DECL void nng_mqtt_msg_set_suback_return_codes(
+    nng_msg *, uint8_t *, uint32_t);
+NNG_DECL uint8_t *nng_mqtt_msg_get_suback_return_codes(nng_msg *, uint32_t *);
+NNG_DECL void     nng_mqtt_msg_set_unsubscribe_topics(
+        nng_msg *, nng_mqtt_topic *, uint32_t);
+NNG_DECL nng_mqtt_topic *nng_mqtt_msg_get_unsubscribe_topics(
+    nng_msg *, uint32_t *);
+
+NNG_DECL nng_mqtt_topic *nng_mqtt_topic_array_create(size_t);
+NNG_DECL void nng_mqtt_topic_array_set(nng_mqtt_topic *, size_t, const char *);
+NNG_DECL void nng_mqtt_topic_array_free(nng_mqtt_topic *, size_t);
+NNG_DECL nng_mqtt_topic_qos *nng_mqtt_topic_qos_array_create(size_t);
+NNG_DECL void                nng_mqtt_topic_qos_array_set(
+                   nng_mqtt_topic_qos *, size_t, const char *, uint8_t);
+NNG_DECL void nng_mqtt_topic_qos_array_free(nng_mqtt_topic_qos *, size_t);
+NNG_DECL int  nng_mqtt_set_connect_cb(nng_socket, nng_pipe_cb, void *);
+NNG_DECL int  nng_mqtt_set_disconnect_cb(nng_socket, nng_pipe_cb, void *);
+NNG_DECL void nng_mqtt_msg_dump(nng_msg *, uint8_t *, uint32_t, bool);
+
+NNG_DECL void nng_mqtt_msg_set_disconnect_reason_code(nng_msg *msg, uint8_t reason_code);
+
 NNG_DECL uint32_t get_mqtt_properties_len(property *prop);
 NNG_DECL int      mqtt_property_free(property *prop);
 NNG_DECL void      mqtt_property_foreach(property *prop, void (*cb)(property *));
@@ -534,9 +539,6 @@ NNG_DECL property *mqtt_property_set_value_strpair(uint8_t prop_id, const char *
 NNG_DECL property_type_enum mqtt_property_get_value_type(uint8_t prop_id);
 NNG_DECL property_data *mqtt_property_get_value(property *prop, uint8_t prop_id);
 NNG_DECL void      mqtt_property_append(property *prop_list, property *last);
-
-NNG_DECL void nng_mqtt_msg_set_connect_property(nng_msg *msg, property *prop);
-NNG_DECL property *nng_mqtt_msg_get_connect_property(nng_msg *msg);
 
 #ifdef __cplusplus
 }

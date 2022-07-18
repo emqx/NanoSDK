@@ -591,6 +591,13 @@ nni_mqtt_msg_set_connack_flags(nni_msg *msg, uint8_t flags)
 	proto_data->var_header.connack.connack_flags = flags;
 }
 
+void
+nni_mqtt_msg_set_connack_property(nni_msg *msg, property *prop)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	proto_data->var_header.connack.properties = prop;
+}
+
 uint8_t
 nni_mqtt_msg_get_connack_return_code(nni_msg *msg)
 {
@@ -603,6 +610,13 @@ nni_mqtt_msg_get_connack_flags(nni_msg *msg)
 {
 	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
 	return proto_data->var_header.connack.connack_flags;
+}
+
+property *
+nni_mqtt_msg_get_connack_property(nni_msg *msg)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	return proto_data->var_header.connack.properties;
 }
 
 void
