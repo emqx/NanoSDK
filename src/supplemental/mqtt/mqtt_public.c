@@ -127,6 +127,13 @@ nng_mqtt_msg_set_connect_password(nng_msg *msg, const char *password)
 {
 	nni_mqtt_msg_set_connect_password(msg, password);
 }
+
+void
+nng_mqtt_msg_set_connect_property(nng_msg *msg, property *p)
+{
+	nni_mqtt_msg_set_connect_property(msg, p);
+}
+
 uint8_t
 nng_mqtt_msg_get_connect_proto_version(nng_msg *msg)
 {
@@ -169,6 +176,12 @@ nng_mqtt_msg_get_connect_password(nng_msg *msg)
 	return nni_mqtt_msg_get_connect_password(msg);
 }
 
+property *
+nng_mqtt_msg_get_connect_property(nng_msg *msg)
+{
+	return nni_mqtt_msg_get_connect_property(msg);
+}
+
 void
 nng_mqtt_msg_set_connack_return_code(nng_msg *msg, uint8_t return_code)
 {
@@ -181,6 +194,12 @@ nng_mqtt_msg_set_connack_flags(nng_msg *msg, uint8_t flags)
 	nni_mqtt_msg_set_connack_flags(msg, flags);
 }
 
+void
+nng_mqtt_msg_set_connack_property(nng_msg *msg, property *prop)
+{
+	nni_mqtt_msg_set_connack_property(msg, prop);
+}
+
 uint8_t
 nng_mqtt_msg_get_connack_return_code(nng_msg *msg)
 {
@@ -191,6 +210,12 @@ uint8_t
 nng_mqtt_msg_get_connack_flags(nng_msg *msg)
 {
 	return nni_mqtt_msg_get_connack_flags(msg);
+}
+
+property *
+nng_mqtt_msg_get_connack_property(nng_msg *msg)
+{
+	return nni_mqtt_msg_get_connack_property(msg);
 }
 
 void
@@ -632,18 +657,6 @@ nng_mqtt_msg_dump(
     nng_msg *msg, uint8_t *buffer, uint32_t len, bool print_bytes)
 {
 	nni_mqtt_msg_dump(msg, buffer, len, print_bytes);
-}
-
-void
-nng_mqtt_msg_set_connect_property(nng_msg *msg, property *p)
-{
-	nni_mqtt_msg_set_connect_property(msg, p);
-}
-
-property *
-nng_mqtt_msg_get_connect_property(nng_msg *msg)
-{
-	return nni_mqtt_msg_get_connect_property(msg);
 }
 
 uint32_t
