@@ -461,6 +461,7 @@ mqtt_timer_cb(void *arg)
 	}
 	// start message resending
 	uint64_t row_id = 0;
+	// TODO consider expiry interval?
 	msg = nni_qos_db_get_one_client_msg(p->sent_unack, row_id, pid);
 	if (msg != NULL) {
 		nni_qos_db_remove_client_msg_by_id(p->sent_unack, row_id);
