@@ -155,13 +155,13 @@ mqtt_sock_get_disconnect_prop(void *arg, void *v, size_t *szp, nni_opt_type t)
 }
 
 static int
-mqtt_sock_get_disconnect_code(void *arg, const void *v, size_t sz, nni_opt_type t)
+mqtt_sock_get_disconnect_code(void *arg, void *v, size_t *sz, nni_opt_type t)
 {
 	mqtt_sock_t *s = arg;
 	int              rv;
 
 	nni_mtx_lock(&s->mtx);
-	rv = nni_copyin_int(v, &s->disconnect_code, sz, 0, 256, t);
+	rv = nni_copyin_int((int *)v, &s->disconnect_code, *sz, 0, 256, t);
 	nni_mtx_unlock(&s->mtx);
 	return (rv);
 }
