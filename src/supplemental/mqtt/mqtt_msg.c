@@ -377,6 +377,20 @@ nni_mqtt_msg_get_suback_return_codes(nni_msg *msg, uint32_t *ret_codes_count)
 	return proto_data->payload.suback.ret_code_arr;
 }
 
+property *
+nni_mqtt_msg_get_suback_property(nni_msg *msg)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	return proto_data->var_header.suback.properties;
+}
+
+void
+nni_mqtt_msg_set_suback_property(nni_msg *msg, property *prop)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	proto_data->var_header.suback.properties = prop;
+}
+
 uint16_t
 nni_mqtt_msg_get_unsubscribe_packet_id(nni_msg *msg)
 {

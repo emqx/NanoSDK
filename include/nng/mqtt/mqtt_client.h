@@ -502,11 +502,15 @@ NNG_DECL void nng_mqtt_msg_set_subscribe_topics(
     nng_msg *, nng_mqtt_topic_qos *, uint32_t);
 NNG_DECL void nng_mqtt_msg_set_suback_return_codes(
     nng_msg *, uint8_t *, uint32_t);
-NNG_DECL uint8_t *nng_mqtt_msg_get_suback_return_codes(nng_msg *, uint32_t *);
-NNG_DECL void     nng_mqtt_msg_set_unsubscribe_topics(
-        nng_msg *, nng_mqtt_topic *, uint32_t);
 NNG_DECL property *nng_mqtt_msg_get_subscribe_property(nng_msg *);
 NNG_DECL void      nng_mqtt_msg_set_subscribe_property(nng_msg *, property *);
+
+NNG_DECL uint8_t *nng_mqtt_msg_get_suback_return_codes(nng_msg *, uint32_t *);
+NNG_DECL property *nng_mqtt_msg_get_suback_property(nng_msg *);
+NNG_DECL void      nng_mqtt_msg_set_suback_property(nng_msg *, property *);
+
+NNG_DECL void     nng_mqtt_msg_set_unsubscribe_topics(
+        nng_msg *, nng_mqtt_topic *, uint32_t);
 
 NNG_DECL nng_mqtt_topic *nng_mqtt_msg_get_unsubscribe_topics(
     nng_msg *, uint32_t *);
