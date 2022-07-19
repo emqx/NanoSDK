@@ -611,7 +611,7 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 	flags    = p->rxlen[0] & 0x0f;
 
 	// set the payload pointer of msg according to packet_type
-	if (type == 0x30) {
+	if (type == CMD_PUBLISH) {
 		uint8_t  qos_pac;
 		uint16_t pid;
 		// should we seperate the 2 phase work of QoS into 2 aios?
@@ -619,25 +619,29 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 		qos_pac = nni_msg_get_pub_qos(msg);
 		if (qos_pac > 0) {
 			if (qos_pac == 1) {
-				p->txlen[0] = 0X40;
+				p->txlen[0] = CMD_PUBACK;
 			} else if (qos_pac == 2) {
-				p->txlen[0] = 0X50;
+				p->txlen[0] = CMD_PUBREC;
 			}
 			p->txlen[1] = 0x02;
 			pid         = nni_msg_get_pub_pid(msg);
 			NNI_PUT16(p->txlen + 2, pid);
 			ack = true;
 		}
-	} else if (type == 0x50) {
-		p->txlen[0] = 0X62;
+	} else if (type == CMD_PUBREC) {
+		p->txlen[0] = CMD_PUBREL;
 		p->txlen[1] = 0x02;
 		memcpy(p->txlen + 2, nni_msg_body(msg), 2);
 		ack = true;
-	} else if (type == 0x60 && flags == 0x02) {
-		p->txlen[0] = 0x70;
+	} else if (type == CMD_PUBREL && flags == 0x02) {
+		p->txlen[0] = CMD_PUBCOMP;
 		p->txlen[1] = 0x02;
 		memcpy(p->txlen + 2, nni_msg_body(msg), 2);
 		ack = true;
+	} else if (type == CMD_PUBACK) {
+		p->sndmax ++;
+	} else if (type == CMD_PUBCOMP) {
+		p->sndmax ++;
 	}
 
 	if (ack == true) {
