@@ -434,10 +434,9 @@ mqtt_timer_cb(void *arg)
 		return;
 	}
 	// start message resending
-	uint64_t row_id = 0;
-	msg = nni_qos_db_get_one_client_msg(p->sent_unack, row_id, pid);
+	msg = nni_qos_db_get_one_client_msg(p->sent_unack, 0, pid);
 	if (msg != NULL) {
-		nni_qos_db_remove_client_msg_by_id(p->sent_unack, row_id);
+		nni_qos_db_remove_client_msg_by_id(p->sent_unack, 0);
 		uint16_t ptype;
 		ptype = nni_mqtt_msg_get_packet_type(msg);
 		if (ptype == NNG_MQTT_PUBLISH) {

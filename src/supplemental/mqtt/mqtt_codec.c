@@ -1532,20 +1532,15 @@ nni_mqttv5_msg_decode_disconnet(nni_msg *msg)
 		return MQTT_ERR_PROTOCOL;
 	}
 
-	uint32_t pos = buf.curpos;
+	/* Properties */
+	uint32_t pos = buf.curpos - &body[0];
 	uint32_t prop_len = 0;
 	mqtt->var_header.publish.prop =
 	    decode_buf_properties(body, length, &pos, &prop_len, true);
 	buf.curpos = &body[0] + pos;
 
-
 	return MQTT_SUCCESS;
-
 }
-
-	
-
-
 
 static int
 nni_mqtt_msg_decode_connack(nni_msg *msg)
@@ -1953,6 +1948,7 @@ nni_mqtt_msg_decode_base_with_packet_id(nni_msg *msg, uint16_t *packet_id)
 	return MQTT_SUCCESS;
 }
 
+/*
 static int
 nni_mqttv5_msg_decode_base_with_packet_id(nni_msg *msg, uint16_t *packet_id)
 {
@@ -1960,6 +1956,7 @@ nni_mqttv5_msg_decode_base_with_packet_id(nni_msg *msg, uint16_t *packet_id)
 	NNI_ARG_UNUSED(packet_id);
 	return 0;
 }
+*/
 
 static int
 nni_mqtt_msg_decode_puback(nni_msg *msg)
