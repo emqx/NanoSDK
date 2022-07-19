@@ -538,6 +538,18 @@ nng_mqtt_msg_get_subscribe_topics(nng_msg *msg, uint32_t *topics_count)
 	return nni_mqtt_msg_get_subscribe_topics(msg, topics_count);
 }
 
+property *
+nng_mqtt_msg_get_subscribe_property(nng_msg *msg)
+{
+	return nni_mqtt_msg_get_subscribe_property(msg);
+}
+
+void
+nng_mqtt_msg_set_subscribe_property(nng_msg *msg, property *prop)
+{
+	nni_mqtt_msg_set_subscribe_property(msg, prop);
+}
+
 uint16_t
 nng_mqtt_msg_get_suback_packet_id(nng_msg *msg)
 {
@@ -556,11 +568,24 @@ nng_mqtt_msg_set_suback_return_codes(
 	nni_mqtt_msg_set_suback_return_codes(
 	    msg, return_codes, return_codes_count);
 }
+
 uint8_t *
 nng_mqtt_msg_get_suback_return_codes(
     nng_msg *msg, uint32_t *return_codes_counts)
 {
 	return nni_mqtt_msg_get_suback_return_codes(msg, return_codes_counts);
+}
+
+property *
+nng_mqtt_msg_get_suback_property(nng_msg *msg)
+{
+	return nni_mqtt_msg_get_suback_property(msg);
+}
+
+void
+nng_mqtt_msg_set_suback_property(nng_msg *msg, property *prop)
+{
+	nni_mqtt_msg_set_suback_property(msg, prop);
 }
 
 uint16_t
@@ -590,6 +615,18 @@ nng_mqtt_msg_get_unsubscribe_topics(nng_msg *msg, uint32_t *topics_count)
 	return nni_mqtt_msg_get_unsubscribe_topics(msg, topics_count);
 }
 
+property *
+nng_mqtt_msg_get_unsubscribe_property(nng_msg *msg)
+{
+	return nni_mqtt_msg_get_unsubscribe_property(msg);
+}
+
+void
+nng_mqtt_msg_set_unsubscribe_property(nng_msg *msg, property *prop)
+{
+	nni_mqtt_msg_set_unsubscribe_property(msg, prop);
+}
+
 void
 nng_mqtt_msg_set_unsuback_packet_id(nng_msg *msg, uint16_t packet_id)
 {
@@ -600,6 +637,18 @@ uint16_t
 nng_mqtt_msg_get_unsuback_packet_id(nng_msg *msg)
 {
 	return nni_mqtt_msg_get_unsuback_packet_id(msg);
+}
+
+property *
+nng_mqtt_msg_get_unsuback_property(nng_msg *msg)
+{
+	return nni_mqtt_msg_get_unsuback_property(msg);
+}
+
+void
+nng_mqtt_msg_set_unsuback_property(nng_msg *msg, property *prop)
+{
+	nni_mqtt_msg_set_unsuback_property(msg, prop);
 }
 
 nng_mqtt_topic *

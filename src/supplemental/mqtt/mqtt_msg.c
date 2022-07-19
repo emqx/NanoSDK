@@ -329,6 +329,20 @@ nni_mqtt_msg_get_subscribe_topics(nni_msg *msg, uint32_t *topic_count)
 	return proto_data->payload.subscribe.topic_arr;
 }
 
+property *
+nni_mqtt_msg_get_subscribe_property(nni_msg *msg)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	return proto_data->var_header.subscribe.properties;
+}
+
+void
+nni_mqtt_msg_set_subscribe_property(nni_msg *msg, property *prop)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	proto_data->var_header.subscribe.properties = prop;
+}
+
 uint16_t
 nni_mqtt_msg_get_suback_packet_id(nni_msg *msg)
 {
@@ -361,6 +375,20 @@ nni_mqtt_msg_get_suback_return_codes(nni_msg *msg, uint32_t *ret_codes_count)
 	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
 	*ret_codes_count = proto_data->payload.suback.ret_code_count;
 	return proto_data->payload.suback.ret_code_arr;
+}
+
+property *
+nni_mqtt_msg_get_suback_property(nni_msg *msg)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	return proto_data->var_header.suback.properties;
+}
+
+void
+nni_mqtt_msg_set_suback_property(nni_msg *msg, property *prop)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	proto_data->var_header.suback.properties = prop;
 }
 
 uint16_t
@@ -403,6 +431,20 @@ nni_mqtt_msg_get_unsubscribe_topics(nni_msg *msg, uint32_t *topic_count)
 	return (nni_mqtt_topic *) proto_data->payload.unsubscribe.topic_arr;
 }
 
+property *
+nni_mqtt_msg_get_unsubscribe_property(nni_msg *msg)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	return proto_data->var_header.unsubscribe.properties;
+}
+
+void
+nni_mqtt_msg_set_unsubscribe_property(nni_msg *msg, property *prop)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	proto_data->var_header.unsubscribe.properties = prop;
+}
+
 void
 nni_mqtt_msg_set_unsuback_packet_id(nni_msg *msg, uint16_t packet_id)
 {
@@ -415,6 +457,20 @@ nni_mqtt_msg_get_unsuback_packet_id(nni_msg *msg)
 {
 	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
 	return proto_data->var_header.unsuback.packet_id;
+}
+
+property *
+nni_mqtt_msg_get_unsuback_property(nni_msg *msg)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	return proto_data->var_header.unsuback.properties;
+}
+
+void
+nni_mqtt_msg_set_unsuback_property(nni_msg *msg, property *prop)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	proto_data->var_header.unsuback.properties = prop;
 }
 
 void

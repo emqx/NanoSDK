@@ -345,12 +345,12 @@ extern void        nni_mqtt_msg_set_publish_retain(nni_msg *, bool);
 extern bool        nni_mqtt_msg_get_publish_retain(nni_msg *);
 extern void        nni_mqtt_msg_set_publish_dup(nni_msg *, bool);
 extern bool        nni_mqtt_msg_get_publish_dup(nni_msg *);
-extern int        nni_mqtt_msg_set_publish_topic(nni_msg *, const char *);
+extern int         nni_mqtt_msg_set_publish_topic(nni_msg *, const char *);
 extern const char *nni_mqtt_msg_get_publish_topic(nni_msg *, uint32_t *);
 extern void        nni_mqtt_msg_set_publish_packet_id(nni_msg *, uint16_t);
 extern uint16_t    nni_mqtt_msg_get_publish_packet_id(nni_msg *);
-extern void nni_mqtt_msg_set_publish_payload(nni_msg *, uint8_t *, uint32_t);
-extern uint8_t *nni_mqtt_msg_get_publish_payload(nni_msg *, uint32_t *);
+extern void        nni_mqtt_msg_set_publish_payload(nni_msg *, uint8_t *, uint32_t);
+extern uint8_t    *nni_mqtt_msg_get_publish_payload(nni_msg *, uint32_t *);
 
 // mqtt puback
 extern uint16_t nni_mqtt_msg_get_puback_packet_id(nni_msg *);
@@ -369,31 +369,39 @@ extern uint16_t nni_mqtt_msg_get_pubcomp_packet_id(nni_msg *);
 extern void     nni_mqtt_msg_set_pubcomp_packet_id(nni_msg *, uint16_t);
 
 // mqtt subscribe
-extern uint16_t nni_mqtt_msg_get_subscribe_packet_id(nni_msg *);
-extern void     nni_mqtt_msg_set_subscribe_packet_id(nni_msg *, uint16_t);
-extern void     nni_mqtt_msg_set_subscribe_topics(
-        nni_msg *, nni_mqtt_topic_qos *, uint32_t);
+extern uint16_t  nni_mqtt_msg_get_subscribe_packet_id(nni_msg *);
+extern void      nni_mqtt_msg_set_subscribe_packet_id(nni_msg *, uint16_t);
 extern nni_mqtt_topic_qos *nni_mqtt_msg_get_subscribe_topics(
     nni_msg *, uint32_t *);
+extern void      nni_mqtt_msg_set_subscribe_topics(
+        nni_msg *, nni_mqtt_topic_qos *, uint32_t);
+extern property *nni_mqtt_msg_get_subscribe_property(nni_msg *);
+extern void      nni_mqtt_msg_set_subscribe_property(nni_msg *, property *);
 
 // mqtt suback
-extern uint16_t nni_mqtt_msg_get_suback_packet_id(nni_msg *);
-extern void     nni_mqtt_msg_set_suback_packet_id(nni_msg *, uint16_t);
-extern void     nni_mqtt_msg_set_suback_return_codes(
+extern uint16_t  nni_mqtt_msg_get_suback_packet_id(nni_msg *);
+extern void      nni_mqtt_msg_set_suback_packet_id(nni_msg *, uint16_t);
+extern void      nni_mqtt_msg_set_suback_return_codes(
         nni_msg *, uint8_t *, uint32_t);
-extern uint8_t *nni_mqtt_msg_get_suback_return_codes(nni_msg *, uint32_t *);
+extern uint8_t  *nni_mqtt_msg_get_suback_return_codes(nni_msg *, uint32_t *);
+extern property *nni_mqtt_msg_get_suback_property(nni_msg *);
+extern void      nni_mqtt_msg_set_suback_property(nni_msg *, property *);
 
 // mqtt unsubscribe
-extern uint16_t nni_mqtt_msg_get_unsubscribe_packet_id(nni_msg *);
-extern void     nni_mqtt_msg_set_unsubscribe_packet_id(nni_msg *, uint16_t);
-extern void     nni_mqtt_msg_set_unsubscribe_topics(
+extern uint16_t  nni_mqtt_msg_get_unsubscribe_packet_id(nni_msg *);
+extern void      nni_mqtt_msg_set_unsubscribe_packet_id(nni_msg *, uint16_t);
+extern void      nni_mqtt_msg_set_unsubscribe_topics(
         nni_msg *, nni_mqtt_topic *, uint32_t);
 extern nni_mqtt_topic *nni_mqtt_msg_get_unsubscribe_topics(
     nni_msg *, uint32_t *);
+extern property *nni_mqtt_msg_get_unsubscribe_property(nni_msg *);
+extern void      nni_mqtt_msg_set_unsubscribe_property(nni_msg *, property *);
 
 // mqtt unsuback
-extern void     nni_mqtt_msg_set_unsuback_packet_id(nni_msg *, uint16_t);
-extern uint16_t nni_mqtt_msg_get_unsuback_packet_id(nni_msg *);
+extern void      nni_mqtt_msg_set_unsuback_packet_id(nni_msg *, uint16_t);
+extern uint16_t  nni_mqtt_msg_get_unsuback_packet_id(nni_msg *);
+extern property *nni_mqtt_msg_get_unsuback_property(nni_msg *);
+extern void      nni_mqtt_msg_set_unsuback_property(nni_msg *, property *);
 
 extern void nni_mqtt_msg_dump(nni_msg *, uint8_t *, uint32_t, bool);
 // mqtt topic create/free
