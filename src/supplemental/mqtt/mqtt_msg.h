@@ -394,6 +394,8 @@ extern void     nni_mqtt_msg_set_unsubscribe_topics(
         nni_msg *, nni_mqtt_topic *, uint32_t);
 extern nni_mqtt_topic *nni_mqtt_msg_get_unsubscribe_topics(
     nni_msg *, uint32_t *);
+extern property *nni_mqtt_msg_get_unsubscribe_property(nni_msg *);
+extern void      nni_mqtt_msg_set_ubsubscribe_property(nni_msg *, property *);
 
 // mqtt unsuback
 extern void     nni_mqtt_msg_set_unsuback_packet_id(nni_msg *, uint16_t);

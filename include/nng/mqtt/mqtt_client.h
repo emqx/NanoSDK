@@ -511,9 +511,10 @@ NNG_DECL void      nng_mqtt_msg_set_suback_property(nng_msg *, property *);
 
 NNG_DECL void     nng_mqtt_msg_set_unsubscribe_topics(
         nng_msg *, nng_mqtt_topic *, uint32_t);
-
 NNG_DECL nng_mqtt_topic *nng_mqtt_msg_get_unsubscribe_topics(
     nng_msg *, uint32_t *);
+NNG_DECL property *nng_mqtt_msg_get_unsubscribe_property(nng_msg *);
+NNG_DECL void      nng_mqtt_msg_set_unsubscribe_property(nng_msg *, property *);
 
 NNG_DECL nng_mqtt_topic *nng_mqtt_topic_array_create(size_t);
 NNG_DECL void nng_mqtt_topic_array_set(nng_mqtt_topic *, size_t, const char *);

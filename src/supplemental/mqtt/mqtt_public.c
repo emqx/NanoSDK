@@ -615,6 +615,18 @@ nng_mqtt_msg_get_unsubscribe_topics(nng_msg *msg, uint32_t *topics_count)
 	return nni_mqtt_msg_get_unsubscribe_topics(msg, topics_count);
 }
 
+property *
+nng_mqtt_msg_get_unsubscribe_property(nng_msg *msg)
+{
+	return nni_mqtt_msg_get_unsubscribe_property(msg);
+}
+
+void
+nng_mqtt_msg_set_unsubscribe_property(nng_msg *msg, property *prop)
+{
+	nni_mqtt_msg_set_unsubscribe_property(msg, prop);
+}
+
 void
 nng_mqtt_msg_set_unsuback_packet_id(nng_msg *msg, uint16_t packet_id)
 {
