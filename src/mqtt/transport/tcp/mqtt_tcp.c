@@ -30,7 +30,10 @@ struct mqtt_tcptran_pipe {
 	uint16_t         peer;		// broker info
 	uint16_t         proto;		// MQTT version
 	uint16_t         keepalive;
+	uint8_t          qosmax;
 	size_t           rcvmax;
+	uint32_t         packmax;	// MQTT Maximum Packet Size (Max length)
+	uint16_t         sndmax;	// MQTT Receive Maximum (QoS 1/2 packet)
 	bool             closed;
 	bool             busy;
 	nni_list_node    node;
@@ -367,7 +370,28 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 	if (p->gotrxhead >= p->wantrxhead) {
 		if (p->proto == 5) {
 			rv = nni_mqttv5_msg_decode(p->rxmsg);
-			ep->property = (void *)nni_mqtt_msg_get_connect_property(p->rxmsg);
+			ep->property = (void *)nni_mqtt_msg_get_connack_property(p->rxmsg);
+			property_data *data;
+			data = property_get_value(ep->property, RECEIVE_MAXIMUM);
+			if (data) {
+				if (data->p_value.u16 == 0) {
+					rv = MQTT_ERR_PROTOCOL;
+				} else {
+					p->sndmax = data->p_value.u16;
+				}
+			}
+			data = property_get_value(ep->property, MAXIMUM_PACKET_SIZE);
+			if (data) {
+				if (data->p_value.u32 == 0) {
+					rv = MQTT_ERR_PROTOCOL;
+				} else {
+					p->packmax = data->p_value.u32;
+				}
+			}
+			data = property_get_value(ep->property, PUBLISH_MAXIMUM_QOS);
+			if (data) {
+				p->qosmax = data->p_value.u8;
+			}
 		} else {
 			rv = nni_mqtt_msg_decode(p->rxmsg);
 			ep->property = NULL;
@@ -385,6 +409,8 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 
 	if (rv == MQTT_SUCCESS) {
 		mqtt_tcptran_ep_match(ep);
+	} else {
+		// TODO send DISCONNECT
 	}
 	nni_mtx_unlock(&ep->mtx);
 
@@ -900,7 +926,6 @@ mqtt_tcptran_pipe_start(
 
 	p->gotrxhead = 0;
 	p->gottxhead = 0;
-	// TODO TX length for MQTT 5
 	p->wantrxhead = 2;
 	p->wanttxhead = nni_msg_header_len(connmsg) + nni_msg_len(connmsg);
 	p->rxmsg      = NULL;

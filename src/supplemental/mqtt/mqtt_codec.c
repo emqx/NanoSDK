@@ -3370,6 +3370,8 @@ decode_buf_properties(uint8_t *packet, uint32_t packet_len, uint32_t *pos,
 
 	uint8_t prop_id = 0;
 	list            = property_alloc();
+	/* Check properties appearance time */
+	// TODO
 
 	while (buf.curpos < buf.endpos) {
 		read_byte(&buf, &prop_id);
