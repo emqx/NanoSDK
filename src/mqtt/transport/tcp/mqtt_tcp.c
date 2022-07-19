@@ -27,21 +27,19 @@ typedef struct mqtt_tcptran_ep   mqtt_tcptran_ep;
 struct mqtt_tcptran_pipe {
 	nng_stream *     conn;
 	nni_pipe *       npipe;
-	uint16_t         peer;		// broker info
-	uint16_t         proto;		// MQTT version
-	uint16_t         keepalive;
-	uint8_t          qosmax;
-	size_t           rcvmax;
-	uint32_t         packmax;	// MQTT Maximum Packet Size (Max length)
-	uint16_t         sndmax;	// MQTT Receive Maximum (QoS 1/2 packet)
-	bool             closed;
-	bool             busy;
 	nni_list_node    node;
 	mqtt_tcptran_ep *ep;
 	nni_atomic_flag  reaped;
 	nni_reap_node    reap;
+	uint32_t         packmax; // MQTT Maximum Packet Size (Max length)
+	uint16_t         peer;    // broker info
+	uint16_t         proto;   // MQTT version
+	uint16_t         keepalive;
+	uint16_t         sndmax; // MQTT Receive Maximum (QoS 1/2 packet)
+	uint8_t          qosmax;
 	uint8_t          txlen[sizeof(uint64_t)];
 	uint8_t          rxlen[sizeof(uint64_t)]; // fixed header
+	size_t           rcvmax;
 	size_t           gottxhead;
 	size_t           gotrxhead;
 	size_t           wanttxhead;
@@ -49,14 +47,16 @@ struct mqtt_tcptran_pipe {
 	nni_list         recvq;
 	nni_list         sendq;
 	nni_aio          tmaio;
-	nni_aio *        txaio;
-	nni_aio *        rxaio;
-	nni_aio *        qsaio; // aio for qos/pingreq
+	nni_aio         *txaio;
+	nni_aio         *rxaio;
+	nni_aio         *qsaio; // aio for qos/pingreq
+	nni_aio         *negoaio;
+	nni_msg         *rxmsg;
+	nni_msg         *smsg;
 	nni_lmq          rslmq;
-	nni_aio *        negoaio;
-	nni_msg *        rxmsg;
-	nni_msg *        smsg;
 	nni_mtx          mtx;
+	bool             closed;
+	bool             busy;
 };
 
 struct mqtt_tcptran_ep {
@@ -185,6 +185,8 @@ mqtt_tcptran_pipe_init(void *arg, nni_pipe *npipe)
 
 	nni_lmq_init(&p->rslmq, 16);
 	p->busy = false;
+	p->packmax = 0xFFFF;
+	p->qosmax  = 2;
 	nni_sleep_aio(p->keepalive, &p->tmaio);
 	return (0);
 }
@@ -368,7 +370,7 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 		return;
 	}
 	if (p->gotrxhead >= p->wantrxhead) {
-		if (p->proto == 5) {
+		if (p->proto == MQTT_PROTOCOL_VERSION_v5) {
 			rv = nni_mqttv5_msg_decode(p->rxmsg);
 			ep->property = (void *)nni_mqtt_msg_get_connack_property(p->rxmsg);
 			property_data *data;
@@ -751,6 +753,27 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 	// This runs to send the message.
 	msg = nni_aio_get_msg(aio);
 
+	if (p->proto == MQTT_PROTOCOL_VERSION_v5) {
+		uint8_t *header = nni_msg_header(msg);
+		if ((*header & 0XF0) == CMD_PUBLISH) {
+			// check max qos
+			uint8_t qos = nni_mqtt_msg_get_publish_qos(msg);
+			if (qos > 0)
+				p->sndmax --;
+			if (qos > p->qosmax) {
+				p->qosmax == 1? (*header &= 0XF9) & (*header |= 0X02):*header;
+				p->qosmax == 0? *header &= 0XF9:*header;
+			}
+
+		}
+		// check max packet size
+		if (nni_msg_header_len(msg) + nni_msg_len(msg) > p->packmax) {
+			txaio = p->txaio;
+			nni_aio_finish_error(txaio, UNSPECIFIED_ERROR);
+			return;
+		}
+	}
+
 	txaio = p->txaio;
 	niov  = 0;
 
@@ -908,7 +931,8 @@ mqtt_tcptran_pipe_start(
 
 	mqtt_version = nni_mqtt_msg_get_connect_proto_version(connmsg);
 
-	if (mqtt_version != 4 && mqtt_version != 5) {
+	if (mqtt_version != MQTT_PROTOCOL_VERSION_v311 &&
+	    mqtt_version != MQTT_PROTOCOL_VERSION_v5) {
 		// Using MQTT V311 as default protocol version
 		mqtt_version = 4; // Default TODO Notify user as a warning
 		nni_mqtt_msg_alloc(&connmsg, 0);
@@ -919,9 +943,9 @@ mqtt_tcptran_pipe_start(
 		nni_mqtt_msg_set_connect_clean_session(connmsg, true);
 	}
 
-	if (mqtt_version == 4)
+	if (mqtt_version == MQTT_PROTOCOL_VERSION_v311)
 		nni_mqtt_msg_encode(connmsg);
-	else if (mqtt_version == 5)
+	else if (mqtt_version == MQTT_PROTOCOL_VERSION_v5)
 		nni_mqttv5_msg_encode(connmsg);
 
 	p->gotrxhead = 0;
