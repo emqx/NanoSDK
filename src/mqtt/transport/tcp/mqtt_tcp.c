@@ -611,10 +611,10 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 	flags    = p->rxlen[0] & 0x0f;
 
 	// set the payload pointer of msg according to packet_type
+	uint8_t  qos_pac;
+	uint16_t pid;
 	switch (type) {
 	case CMD_PUBLISH:
-		uint8_t  qos_pac;
-		uint16_t pid;
 		// should we seperate the 2 phase work of QoS into 2 aios?
 		// TODO MQTT v5 qos
 		qos_pac = nni_msg_get_pub_qos(msg);
@@ -1407,7 +1407,7 @@ mqtt_tcptran_ep_get_reasoncode(void *arg, void *v, size_t *sz, nni_opt_type t)
 	int              rv;
 
 	nni_mtx_lock(&ep->mtx);
-	rv = nni_copyin_int(v, &ep->reason_code, sz, 0, 256, t);
+	rv = nni_copyin_int(v, &ep->reason_code, *sz, 0, 256, t);
 	nni_mtx_unlock(&ep->mtx);
 	return (rv);
 }
