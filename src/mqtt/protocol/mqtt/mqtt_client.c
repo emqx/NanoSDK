@@ -89,7 +89,7 @@ struct mqtt_sock_s {
 	mqtt_pipe_t    *mqtt_pipe;
 	nni_list        recv_queue; // ctx pending to receive
 	nni_list        send_queue; // ctx pending to send
-	int             disconnect_code; // disconnect reason code
+	reason_code     disconnect_code; // disconnect reason code
 	void           *dis_prop;        // disconnect property
 #ifdef NNG_SUPP_SQLITE
 	sqlite3 *sqlite_db;
@@ -157,11 +157,12 @@ mqtt_sock_get_disconnect_prop(void *arg, void *v, size_t *szp, nni_opt_type t)
 static int
 mqtt_sock_get_disconnect_code(void *arg, void *v, size_t *sz, nni_opt_type t)
 {
+	NNI_ARG_UNUSED(sz);
 	mqtt_sock_t *s = arg;
 	int              rv;
 
 	nni_mtx_lock(&s->mtx);
-	rv = nni_copyin_int((int *)v, &s->disconnect_code, *sz, 0, 256, t);
+	rv = nni_copyin_int((int *)v, &s->disconnect_code, sizeof(int), 0, 256, t);
 	nni_mtx_unlock(&s->mtx);
 	return (rv);
 }
@@ -377,7 +378,7 @@ mqtt_pipe_start(void *arg)
 
 	nni_mtx_lock(&s->mtx);
 	s->mqtt_pipe       = p;
-	s->disconnect_code = 0;
+	s->disconnect_code = SUCCESS;
 	s->dis_prop        = NULL;
 	if ((c = nni_list_first(&s->send_queue)) != NULL) {
 		nni_list_remove(&s->send_queue, c);
@@ -510,7 +511,7 @@ mqtt_send_cb(void *arg)
 		// We failed to send... clean up and deal with it.
 		nni_msg_free(nni_aio_get_msg(&p->send_aio));
 		nni_aio_set_msg(&p->send_aio, NULL);
-		s->disconnect_code = 0x8B;
+		s->disconnect_code = SERVER_SHUTTING_DOWN;
 		nni_pipe_close(p->pipe);
 		return;
 	}
@@ -555,7 +556,7 @@ mqtt_recv_cb(void *arg)
 	mqtt_ctx_t * ctx;
 
 	if (nni_aio_result(&p->recv_aio) != 0) {
-		s->disconnect_code = 0x8B;
+		s->disconnect_code = SERVER_SHUTTING_DOWN;
 		nni_pipe_close(p->pipe);
 		return;
 	}
@@ -690,7 +691,7 @@ mqtt_recv_cb(void *arg)
 	default:
 		// unexpected packet type, server misbehaviour
 		nni_mtx_unlock(&s->mtx);
-		s->disconnect_code = 0x81;
+		s->disconnect_code = MALFORMED_PACKET;
 		nni_pipe_close(p->pipe);
 		return;
 	}
