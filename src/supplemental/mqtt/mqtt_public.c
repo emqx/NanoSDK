@@ -639,6 +639,18 @@ nng_mqtt_msg_get_unsuback_packet_id(nng_msg *msg)
 	return nni_mqtt_msg_get_unsuback_packet_id(msg);
 }
 
+property *
+nng_mqtt_msg_get_unsuback_property(nng_msg *msg)
+{
+	return nni_mqtt_msg_get_unsuback_property(msg);
+}
+
+void
+nng_mqtt_msg_set_unsuback_property(nng_msg *msg, property *prop)
+{
+	nni_mqtt_msg_set_unsuback_property(msg, prop);
+}
+
 nng_mqtt_topic *
 nng_mqtt_topic_array_create(size_t n)
 {

@@ -459,6 +459,20 @@ nni_mqtt_msg_get_unsuback_packet_id(nni_msg *msg)
 	return proto_data->var_header.unsuback.packet_id;
 }
 
+property *
+nni_mqtt_msg_get_unsuback_property(nni_msg *msg)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	return proto_data->var_header.unsuback.properties;
+}
+
+void
+nni_mqtt_msg_set_unsuback_property(nni_msg *msg, property *prop)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	proto_data->var_header.unsuback.properties = prop;
+}
+
 void
 nni_mqtt_msg_set_connect_clean_session(nni_msg *msg, bool clean_session)
 {
