@@ -95,19 +95,27 @@ typedef struct mqtt_publish_vhdr_t {
 } mqtt_publish_vhdr;
 
 typedef struct mqtt_puback_vhdr_t {
-	uint16_t packet_id;
+	uint16_t    packet_id;
+	reason_code code;
+	property *properties;
 } mqtt_puback_vhdr;
 
 typedef struct mqtt_pubrec_vhdr_t {
 	uint16_t packet_id;
+	reason_code code;
+	property *properties;
 } mqtt_pubrec_vhdr;
 
 typedef struct mqtt_pubrel_vhdr_t {
 	uint16_t packet_id;
+	reason_code code;
+	property *properties;
 } mqtt_pubrel_vhdr;
 
 typedef struct mqtt_pubcomp_vhdr_t {
 	uint16_t packet_id;
+	reason_code code;
+	property *properties;
 } mqtt_pubcomp_vhdr;
 
 typedef struct mqtt_subscribe_vhdr_t {
@@ -447,11 +455,11 @@ extern property_data *property_get_value(property *prop, uint8_t prop_id);
 extern void      property_append(property *prop_list, property *last);
 
 /* introduced from mqtt_parser, might be duplicated */
-NNG_DECL int  nmq_pubres_decode(nng_msg *msg, uint16_t *packet_id,
+NNG_DECL int  nni_mqtt_pubres_decode(nng_msg *msg, uint16_t *packet_id,
      uint8_t *reason_code, property **prop, uint8_t proto_ver);
-NNG_DECL int  nmq_msgack_encode(nng_msg *msg, uint16_t packet_id,
+NNG_DECL int  nni_mqtt_msgack_encode(nng_msg *msg, uint16_t packet_id,
      uint8_t reason_code, property *prop, uint8_t proto_ver);
-NNG_DECL int  nmq_pubres_header_encode(nng_msg *msg, uint8_t cmd);
+NNG_DECL int  nni_mqtt_pubres_header_encode(nng_msg *msg, uint8_t cmd);
 
 #ifdef __cplusplus
 }
