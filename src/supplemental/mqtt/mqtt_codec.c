@@ -1985,7 +1985,7 @@ nni_mqttv5_msg_decode_puback(nni_msg *msg)
 		mqtt->var_header.puback.properties = NULL;
 		return MQTT_SUCCESS;
 	}
-	if ((rv = read_byte(&buf, &mqtt->var_header.puback.code)) !=
+	if ((rv = read_byte(&buf, (uint8_t *)&mqtt->var_header.puback.code)) !=
 	    MQTT_SUCCESS) {
 		return rv;
 	}
@@ -2020,8 +2020,42 @@ nni_mqtt_msg_decode_pubrec(nni_msg *msg)
 static int
 nni_mqttv5_msg_decode_pubrec(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
-	return 0;
+	int                  rv;
+	nni_mqtt_proto_data *mqtt   = nni_msg_get_proto_data(msg);
+	uint8_t             *body   = nni_msg_body(msg);
+	size_t               length = nni_msg_len(msg);
+
+	struct pos_buf buf = { .curpos = &body[0], .endpos = &body[length] };
+	if ((rv = read_uint16(&buf, &mqtt->var_header.pubrec.packet_id)) !=
+	    MQTT_SUCCESS) {
+		return rv;
+	}
+	if (length <= 2) {
+		mqtt->var_header.pubrec.code       = SUCCESS;
+		mqtt->var_header.pubrec.properties = NULL;
+		return MQTT_SUCCESS;
+	}
+	if ((rv = read_byte(&buf, (uint8_t *)&mqtt->var_header.pubrec.code)) !=
+	    MQTT_SUCCESS) {
+		return rv;
+	}
+
+	if ((buf.endpos - buf.curpos) <= 0) {
+		mqtt->var_header.pubrec.properties = NULL;
+		return MQTT_SUCCESS;
+	}
+
+	uint32_t pos      = (uint32_t) (buf.curpos - body);
+	uint32_t prop_len = 0;
+
+	mqtt->var_header.pubrec.properties =
+	    decode_properties(msg, &pos, &prop_len, false);
+	if (check_properties(mqtt->var_header.pubrec.properties) != SUCCESS) {
+		property_free(mqtt->var_header.pubrec.properties);
+		return PROTOCOL_ERROR;
+	}
+
+	return MQTT_SUCCESS;
 }
 
 static int
@@ -2043,8 +2077,42 @@ nni_mqtt_msg_decode_pubrel(nni_msg *msg)
 static int
 nni_mqttv5_msg_decode_pubrel(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
-	return 0;
+	int                  rv;
+	nni_mqtt_proto_data *mqtt   = nni_msg_get_proto_data(msg);
+	uint8_t             *body   = nni_msg_body(msg);
+	size_t               length = nni_msg_len(msg);
+
+	struct pos_buf buf = { .curpos = &body[0], .endpos = &body[length] };
+	if ((rv = read_uint16(&buf, &mqtt->var_header.pubrel.packet_id)) !=
+	    MQTT_SUCCESS) {
+		return rv;
+	}
+	if (length <= 2) {
+		mqtt->var_header.pubrel.code       = SUCCESS;
+		mqtt->var_header.pubrel.properties = NULL;
+		return MQTT_SUCCESS;
+	}
+	if ((rv = read_byte(&buf, (uint8_t *)&mqtt->var_header.pubrel.code)) !=
+	    MQTT_SUCCESS) {
+		return rv;
+	}
+
+	if ((buf.endpos - buf.curpos) <= 0) {
+		mqtt->var_header.pubrel.properties = NULL;
+		return MQTT_SUCCESS;
+	}
+
+	uint32_t pos      = (uint32_t) (buf.curpos - body);
+	uint32_t prop_len = 0;
+
+	mqtt->var_header.pubrel.properties =
+	    decode_properties(msg, &pos, &prop_len, false);
+	if (check_properties(mqtt->var_header.pubrel.properties) != SUCCESS) {
+		property_free(mqtt->var_header.pubrel.properties);
+		return PROTOCOL_ERROR;
+	}
+
+	return MQTT_SUCCESS;
 }
 
 static int
@@ -2059,12 +2127,42 @@ nni_mqtt_msg_decode_pubcomp(nni_msg *msg)
 static int
 nni_mqttv5_msg_decode_pubcomp(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
-	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	int                  rv;
+	nni_mqtt_proto_data *mqtt   = nni_msg_get_proto_data(msg);
+	uint8_t             *body   = nni_msg_body(msg);
+	size_t               length = nni_msg_len(msg);
 
-	return nni_mqtt_msg_decode_base_with_packet_id(
-	    msg, &mqtt->var_header.pubcomp.packet_id);
-	return 0;
+	struct pos_buf buf = { .curpos = &body[0], .endpos = &body[length] };
+	if ((rv = read_uint16(&buf, &mqtt->var_header.pubcomp.packet_id)) !=
+	    MQTT_SUCCESS) {
+		return rv;
+	}
+	if (length <= 2) {
+		mqtt->var_header.pubcomp.code       = SUCCESS;
+		mqtt->var_header.pubcomp.properties = NULL;
+		return MQTT_SUCCESS;
+	}
+	if ((rv = read_byte(&buf, (uint8_t *)&mqtt->var_header.pubcomp.code)) !=
+	    MQTT_SUCCESS) {
+		return rv;
+	}
+
+	if ((buf.endpos - buf.curpos) <= 0) {
+		mqtt->var_header.pubcomp.properties = NULL;
+		return MQTT_SUCCESS;
+	}
+
+	uint32_t pos      = (uint32_t) (buf.curpos - body);
+	uint32_t prop_len = 0;
+
+	mqtt->var_header.pubcomp.properties =
+	    decode_properties(msg, &pos, &prop_len, false);
+	if (check_properties(mqtt->var_header.pubcomp.properties) != SUCCESS) {
+		property_free(mqtt->var_header.pubcomp.properties);
+		return PROTOCOL_ERROR;
+	}
+
+	return MQTT_SUCCESS;
 }
 
 static int
