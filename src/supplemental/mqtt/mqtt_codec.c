@@ -3747,7 +3747,9 @@ nni_mqtt_pubres_header_encode(nng_msg *msg, uint8_t cmd)
 	struct pos_buf buf = { .curpos = &var_len[0], .endpos = &var_len[4] };
 
 	int bytes = write_variable_length_value(msg_len, &buf);
-
+	if (cmd == CMD_PUBREL) {
+		cmd |= 0x02;
+	}
 	nng_msg_header_append(msg, &cmd, 1);
 	nng_msg_header_append(msg, var_len, bytes);
 
