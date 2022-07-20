@@ -417,8 +417,6 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 			ep->property = NULL;
 		}
 		ep->reason_code = nni_mqtt_msg_get_connack_return_code(p->rxmsg);
-		nni_msg_free(p->rxmsg);
-		p->rxmsg = NULL;
 	}
 
 mqtt_error:
@@ -426,6 +424,9 @@ mqtt_error:
 	// then try to run the matcher.
 	nni_list_remove(&ep->negopipes, p);
 	nni_list_append(&ep->waitpipes, p);
+
+	nni_msg_free(p->rxmsg);
+	p->rxmsg = NULL;
 
 	if (rv == MQTT_SUCCESS) {
 		mqtt_tcptran_ep_match(ep);
