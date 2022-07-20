@@ -201,10 +201,10 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 	return -1;
 }
 
-static void
-mqtt_qos_send_cb(void *arg)
-{
-}
+// static void
+// mqtt_qos_send_cb(void *arg)
+// {
+// }
 
 static void
 mqtt_quic_send_cb(void *arg)
@@ -727,7 +727,6 @@ wait:
 static int
 quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
 {
-	nni_plat_printf("quic_mqtt_stream_init.\n");
 	mqtt_pipe_t *p = arg;
 	p->qstream = qstrm;
 	p->mqtt_sock = sock;

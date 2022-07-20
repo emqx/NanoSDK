@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "core/nng_impl.h"
+#include "core/sockimpl.h"
 #include "nng/mqtt/mqtt_client.h"
 #include "supplemental/mqtt/mqtt_msg.h"
 
@@ -527,7 +528,7 @@ static void
 mqtt_tcptran_pipe_recv_cb(void *arg)
 {
 	nni_aio *          aio;
-	nni_iov            iov;
+	nni_iov            iov[2];
 	uint8_t            type, pos, flags;
 	uint32_t           len = 0, rv;
 	size_t             n;
@@ -562,9 +563,9 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 			goto recv_error;
 		}
 		// same packet, continue receving next byte of remaining length
-		iov.iov_buf = &p->rxlen[p->gotrxhead];
-		iov.iov_len = 1;
-		nni_aio_set_iov(rxaio, 1, &iov);
+		iov[0].iov_buf = &p->rxlen[p->gotrxhead];
+		iov[0].iov_len = 1;
+		nni_aio_set_iov(rxaio, 1, iov);
 		nng_stream_recv(p->conn, rxaio);
 		nni_mtx_unlock(&p->mtx);
 		return;
@@ -587,10 +588,10 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 		// header with variable header and so on
 		//  we want to read the entire message now.
 		if (len != 0) {
-			iov.iov_buf = nni_msg_body(p->rxmsg);
-			iov.iov_len = (size_t) len;
+			iov[0].iov_buf = nni_msg_body(p->rxmsg);
+			iov[0].iov_len = (size_t) len;
 
-			nni_aio_set_iov(rxaio, 1, &iov);
+			nni_aio_set_iov(rxaio, 1, iov);
 			// second recv action
 			nng_stream_recv(p->conn, rxaio);
 			nni_mtx_unlock(&p->mtx);
@@ -610,7 +611,10 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 
 	// set the payload pointer of msg according to packet_type
 	uint8_t  qos_pac;
-	uint16_t pid;
+	uint16_t packet_id = 0;
+	uint8_t   reason_code = 0;
+	property *prop        = NULL;
+	uint8_t   ack_cmd = 0;
 	switch (type) {
 	case CMD_PUBLISH:
 		// should we seperate the 2 phase work of QoS into 2 aios?
@@ -618,54 +622,78 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 		qos_pac = nni_msg_get_pub_qos(msg);
 		if (qos_pac > 0) {
 			if (qos_pac == 1) {
-				p->txlen[0] = CMD_PUBACK;
+				ack_cmd = CMD_PUBACK;
 			} else if (qos_pac == 2) {
-				p->txlen[0] = CMD_PUBREC;
+				ack_cmd = CMD_PUBREC;
 			}
-			p->txlen[1] = 0x02;
-			pid         = nni_msg_get_pub_pid(msg);
-			NNI_PUT16(p->txlen + 2, pid);
+			packet_id         = nni_msg_get_pub_pid(msg);
 			ack = true;
 		}
 		break;
 	case CMD_PUBREC:
-		p->txlen[0] = CMD_PUBREL;
-		p->txlen[1] = 0x02;
-		memcpy(p->txlen + 2, nni_msg_body(msg), 2);
-		ack = true;
+		if (nmq_pubres_decode(msg, &packet_id, &reason_code, &prop,
+		        p->proto) != 0) {
+			debug_msg("decode PUBREC variable header failed!");
+			goto recv_error;
+		}
+		ack_cmd = CMD_PUBREL;
+		ack     = true;
 		break;
 	case CMD_PUBREL:
 		if (flags == 0x02) {
-			p->txlen[0] = CMD_PUBCOMP;
-			p->txlen[1] = 0x02;
-			memcpy(p->txlen + 2, nni_msg_body(msg), 2);
-			ack = true;
+			if (nmq_pubres_decode(msg, &packet_id, &reason_code,
+			        &prop, p->proto) != 0) {
+				debug_msg(
+				    "decode PUBREL variable header failed!");
+				goto recv_error;
+			}
+			ack_cmd = CMD_PUBCOMP;
+			ack     = true;
 			break;
 		} else {
 			goto recv_error;
 		}
 	case CMD_PUBACK:
+		// TODO set property for user callback
 	case CMD_PUBCOMP:
-		p->sndmax++;
+		if (nmq_pubres_decode(
+		        msg, &packet_id, &reason_code, &prop, p->proto) != 0) {
+			debug_msg("decode PUBACK or PUBCOMP variable header "
+			          "failed!");
+			goto recv_error;
+		}
+		if (p->proto == MQTT_PROTOCOL_VERSION_v5) {
+			property_free(prop);
+			p->sndmax++;
+		}
 		break;
 	default:
 		break;
 	}
 
 	if (ack == true) {
+		// alloc a msg here costs memory. However we must do it for the
+		// sake of compatibility with nng.
 		if ((rv = nni_msg_alloc(&qmsg, 0)) != 0) {
 			ack = false;
+			rv  = MQTT_ERR_NOMEM;
 			goto recv_error;
 		}
-		nni_msg_header_append(qmsg, p->txlen, 4);
+		// TODO set reason code or property here if necessary
+		nni_msg_set_cmd_type(qmsg, ack_cmd);
+		nmq_msgack_encode(
+		    qmsg, packet_id, reason_code, prop, p->proto);
+		nmq_pubres_header_encode(qmsg, ack_cmd);
 		// aio_begin?
 		if (p->busy == false) {
-			iov.iov_len = 4;
-			iov.iov_buf = nni_msg_header(qmsg);
-			p->busy     = true;
+			iov[0].iov_len = nni_msg_header_len(qmsg);
+			iov[0].iov_buf = nni_msg_header(qmsg);
+			iov[1].iov_len = nni_msg_len(qmsg);
+			iov[1].iov_buf = nni_msg_body(qmsg);
+			p->busy        = true;
 			nni_aio_set_msg(p->qsaio, qmsg);
-			// send it down...
-			nni_aio_set_iov(p->qsaio, 1, &iov);
+			// send ACK down...
+			nni_aio_set_iov(p->qsaio, 2, iov);
 			nng_stream_send(p->conn, p->qsaio);
 		} else {
 			if (nni_lmq_full(&p->rslmq)) {
@@ -930,8 +958,9 @@ mqtt_tcptran_pipe_start(
 
 	ep->refcnt++;
 
-	p->conn  = conn;
-	p->ep    = ep;
+	p->conn   = conn;
+	p->ep     = ep;
+	p->rcvmax = 0;
 
 	nni_dialer_getopt(ep->ndialer, NNG_OPT_MQTT_CONNMSG, &connmsg, NULL,
 	    NNI_TYPE_POINTER);
