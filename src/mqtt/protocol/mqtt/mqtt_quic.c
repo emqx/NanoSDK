@@ -125,7 +125,7 @@ static inline int
 mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 {
 	mqtt_pipe_t *p   = s->pipe;
-	nni_msg *    *tmsg;
+	nni_msg     *tmsg;
 	uint16_t     ptype, packet_id;
 	uint8_t      qos = 0;
 
