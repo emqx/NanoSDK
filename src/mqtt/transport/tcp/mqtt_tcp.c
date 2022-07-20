@@ -276,7 +276,6 @@ mqtt_tcptran_ep_match(mqtt_tcptran_ep *ep)
 	nni_list_remove(&ep->waitpipes, p);
 	nni_list_append(&ep->busypipes, p);
 	ep->useraio = NULL;
-	p->rcvmax   = ep->rcvmax;
 	nni_aio_set_output(aio, 0, p);
 	nni_aio_finish(aio, 0, 0);
 }
@@ -576,10 +575,10 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 	if (NULL == p->rxmsg) {
 		// Make sure the message payload is not too big.  If it is
 		// the caller will shut down the pipe.
-		// if ((len > p->rcvmax) && (p->rcvmax > 0)) {
-		// 	rv = NNG_EMSGSIZE;
-		// 	goto recv_error;
-		// }
+		if ((len > p->rcvmax) && (p->rcvmax > 0)) {
+			rv = NNG_EMSGSIZE;
+			goto recv_error;
+		}
 
 		if ((rv = nni_msg_alloc(&p->rxmsg, (size_t) len)) != 0) {
 			goto recv_error;
@@ -927,6 +926,7 @@ mqtt_tcptran_pipe_start(
 {
 	nni_iov  iov[2];
 	nni_msg *connmsg = NULL;
+	uint8_t mqtt_version;
 	int      niov = 0;
 
 	ep->refcnt++;
@@ -936,8 +936,6 @@ mqtt_tcptran_pipe_start(
 
 	nni_dialer_getopt(ep->ndialer, NNG_OPT_MQTT_CONNMSG, &connmsg, NULL,
 	    NNI_TYPE_POINTER);
-
-	uint8_t mqtt_version;
 
 	if (connmsg == NULL) {
 		mqtt_version = 0;
@@ -959,11 +957,17 @@ mqtt_tcptran_pipe_start(
 
 	if (mqtt_version == MQTT_PROTOCOL_VERSION_v311)
 		nni_mqtt_msg_encode(connmsg);
-	else if (mqtt_version == MQTT_PROTOCOL_VERSION_v5)
+	else if (mqtt_version == MQTT_PROTOCOL_VERSION_v5) {
+		property *prop = nni_mqtt_msg_get_connect_property(connmsg);
+		property_data *data;
+		data = property_get_value(prop, MAXIMUM_PACKET_SIZE);
+		if (data)
+			p->rcvmax = data->p_value.u32;
 		nni_mqttv5_msg_encode(connmsg);
+	}
 
-	p->gotrxhead = 0;
-	p->gottxhead = 0;
+	p->gotrxhead  = 0;
+	p->gottxhead  = 0;
 	p->wantrxhead = 2;
 	p->wanttxhead = nni_msg_header_len(connmsg) + nni_msg_len(connmsg);
 	p->rxmsg      = NULL;
