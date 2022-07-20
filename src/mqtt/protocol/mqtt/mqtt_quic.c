@@ -84,6 +84,7 @@ struct mqtt_pipe_s {
 };
 
 struct mqtt_quic_ctx {
+	mqtt_sock_t *mqtt_sock;
 };
 /******************************************************************************
  *                              Sock Implementation                           *
