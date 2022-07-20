@@ -1535,7 +1535,7 @@ nni_mqttv5_msg_decode_disconnect(nni_msg *msg)
 	/* Properties */
 	uint32_t pos = buf.curpos - &body[0];
 	uint32_t prop_len = 0;
-	mqtt->var_header.publish.prop =
+	mqtt->var_header.disconnect.prop =
 	    decode_buf_properties(body, length, &pos, &prop_len, true);
 	buf.curpos = &body[0] + pos;
 
@@ -1594,7 +1594,7 @@ nni_mqttv5_msg_decode_connack(nni_msg *msg)
 	/* Properties */
 	uint32_t pos = buf.curpos - &body[0];
 	uint32_t prop_len = 0;
-	mqtt->var_header.connect.properties =
+	mqtt->var_header.connack.properties =
 	    decode_buf_properties(body, length, &pos, &prop_len, true);
 	buf.curpos = &body[0] + pos;
 
@@ -1693,7 +1693,7 @@ nni_mqttv5_msg_decode_subscribe(nni_msg *msg)
 	/* Properties */
 	uint32_t pos = buf.curpos - &body[0];
 	uint32_t prop_len = 0;
-	mqtt->var_header.connect.properties =
+	mqtt->var_header.subscribe.properties =
 	    decode_buf_properties(body, length, &pos, &prop_len, true);
 	buf.curpos = &body[0] + pos;
 
@@ -1807,7 +1807,7 @@ nni_mqttv5_msg_decode_suback(nni_msg *msg)
 	/* Properties */
 	uint32_t pos = buf.curpos - &body[0];
 	uint32_t prop_len = 0;
-	mqtt->var_header.connect.properties =
+	mqtt->var_header.suback.properties =
 	    decode_buf_properties(body, length, &pos, &prop_len, true);
 	buf.curpos = &body[0] + pos;
 
@@ -1970,8 +1970,42 @@ nni_mqtt_msg_decode_puback(nni_msg *msg)
 static int
 nni_mqttv5_msg_decode_puback(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
-	return 0;
+	int                  rv;
+	nni_mqtt_proto_data *mqtt   = nni_msg_get_proto_data(msg);
+	uint8_t             *body   = nni_msg_body(msg);
+	size_t               length = nni_msg_len(msg);
+
+	struct pos_buf buf = { .curpos = &body[0], .endpos = &body[length] };
+	if ((rv = read_uint16(&buf, &mqtt->var_header.puback.packet_id)) !=
+	    MQTT_SUCCESS) {
+		return rv;
+	}
+	if (length <= 2) {
+		mqtt->var_header.puback.code       = SUCCESS;
+		mqtt->var_header.puback.properties = NULL;
+		return MQTT_SUCCESS;
+	}
+	if ((rv = read_byte(&buf, &mqtt->var_header.puback.code)) !=
+	    MQTT_SUCCESS) {
+		return rv;
+	}
+
+	if ((buf.endpos - buf.curpos) <= 0) {
+		mqtt->var_header.puback.properties = NULL;
+		return MQTT_SUCCESS;
+	}
+
+	uint32_t pos      = (uint32_t) (buf.curpos - body);
+	uint32_t prop_len = 0;
+
+	mqtt->var_header.puback.properties =
+	    decode_properties(msg, &pos, &prop_len, false);
+	if (check_properties(mqtt->var_header.puback.properties) != SUCCESS) {
+		property_free(mqtt->var_header.puback.properties);
+		return PROTOCOL_ERROR;
+	}
+
+	return MQTT_SUCCESS;
 }
 
 static int
@@ -2026,6 +2060,10 @@ static int
 nni_mqttv5_msg_decode_pubcomp(nni_msg *msg)
 {
 	NNI_ARG_UNUSED(msg);
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+
+	return nni_mqtt_msg_decode_base_with_packet_id(
+	    msg, &mqtt->var_header.pubcomp.packet_id);
 	return 0;
 }
 
@@ -2119,7 +2157,7 @@ nni_mqttv5_msg_decode_unsubscribe(nni_msg *msg)
 	/* Properties */
 	uint32_t pos = buf.curpos - &body[0];
 	uint32_t prop_len = 0;
-	mqtt->var_header.connect.properties =
+	mqtt->var_header.unsubscribe.properties =
 	    decode_buf_properties(body, length, &pos, &prop_len, true);
 	buf.curpos = &body[0] + pos;
 
@@ -2189,7 +2227,7 @@ nni_mqttv5_msg_decode_unsuback(nni_msg *msg)
 	/* Properties */
 	uint32_t pos = buf.curpos - &body[0];
 	uint32_t prop_len = 0;
-	mqtt->var_header.connect.properties =
+	mqtt->var_header.unsuback.properties =
 	    decode_buf_properties(body, length, &pos, &prop_len, true);
 	buf.curpos = &body[0] + pos;
 
@@ -3558,7 +3596,7 @@ encode_properties(nni_msg *msg, property *prop, uint8_t cmd)
  * @return int
  */
 int
-nmq_pubres_decode(nng_msg *msg, uint16_t *packet_id, uint8_t *reason_code,
+nni_mqtt_pubres_decode(nng_msg *msg, uint16_t *packet_id, uint8_t *reason_code,
     property **prop, uint8_t proto_ver)
 {
 	int      rv;
@@ -3604,17 +3642,13 @@ nmq_pubres_decode(nng_msg *msg, uint16_t *packet_id, uint8_t *reason_code,
  * @return int
  */
 int
-nmq_pubres_header_encode(nng_msg *msg, uint8_t cmd)
+nni_mqtt_pubres_header_encode(nng_msg *msg, uint8_t cmd)
 {
 	size_t         msg_len    = nng_msg_len(msg);
 	uint8_t        var_len[4] = { 0 };
 	struct pos_buf buf = { .curpos = &var_len[0], .endpos = &var_len[4] };
 
 	int bytes = write_variable_length_value(msg_len, &buf);
-
-	if (cmd == CMD_PUBREL) {
-		cmd |= 0x02;
-	}
 
 	nng_msg_header_append(msg, &cmd, 1);
 	nng_msg_header_append(msg, var_len, bytes);
@@ -3633,7 +3667,7 @@ nmq_pubres_header_encode(nng_msg *msg, uint8_t cmd)
  * @return int
  */
 int
-nmq_msgack_encode(nng_msg *msg, uint16_t packet_id, uint8_t reason_code,
+nni_mqtt_msgack_encode(nng_msg *msg, uint16_t packet_id, uint8_t reason_code,
     property *prop, uint8_t proto_ver)
 {
 	uint8_t rbuf[2] = { 0 };
