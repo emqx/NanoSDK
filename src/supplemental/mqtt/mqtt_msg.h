@@ -446,6 +446,13 @@ extern property_type_enum property_get_value_type(uint8_t prop_id);
 extern property_data *property_get_value(property *prop, uint8_t prop_id);
 extern void      property_append(property *prop_list, property *last);
 
+/* introduced from mqtt_parser, might be duplicated */
+NNG_DECL int  nmq_pubres_decode(nng_msg *msg, uint16_t *packet_id,
+     uint8_t *reason_code, property **prop, uint8_t proto_ver);
+NNG_DECL int  nmq_msgack_encode(nng_msg *msg, uint16_t packet_id,
+     uint8_t reason_code, property *prop, uint8_t proto_ver);
+NNG_DECL int  nmq_pubres_header_encode(nng_msg *msg, uint8_t cmd);
+
 #ifdef __cplusplus
 }
 #endif

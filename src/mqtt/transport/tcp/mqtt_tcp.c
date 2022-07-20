@@ -633,7 +633,6 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 	case CMD_PUBREC:
 		if (nmq_pubres_decode(msg, &packet_id, &reason_code, &prop,
 		        p->proto) != 0) {
-			debug_msg("decode PUBREC variable header failed!");
 			goto recv_error;
 		}
 		ack_cmd = CMD_PUBREL;
@@ -643,8 +642,6 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 		if (flags == 0x02) {
 			if (nmq_pubres_decode(msg, &packet_id, &reason_code,
 			        &prop, p->proto) != 0) {
-				debug_msg(
-				    "decode PUBREL variable header failed!");
 				goto recv_error;
 			}
 			ack_cmd = CMD_PUBCOMP;
@@ -658,8 +655,6 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 	case CMD_PUBCOMP:
 		if (nmq_pubres_decode(
 		        msg, &packet_id, &reason_code, &prop, p->proto) != 0) {
-			debug_msg("decode PUBACK or PUBCOMP variable header "
-			          "failed!");
 			goto recv_error;
 		}
 		if (p->proto == MQTT_PROTOCOL_VERSION_v5) {
@@ -680,7 +675,6 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 			goto recv_error;
 		}
 		// TODO set reason code or property here if necessary
-		nni_msg_set_cmd_type(qmsg, ack_cmd);
 		nmq_msgack_encode(
 		    qmsg, packet_id, reason_code, prop, p->proto);
 		nmq_pubres_header_encode(qmsg, ack_cmd);
