@@ -241,7 +241,7 @@ extern void nng_mqtt_user_props_free(nng_mqtt_user_props_t *);
 #define CMD_PUBLISH_V5 0x31 // this is the flag for differing MQTTV5 from V4 V3
 #define CMD_PUBACK 0x40
 #define CMD_PUBREC 0x50
-#define CMD_PUBREL 0x62
+#define CMD_PUBREL 0x60
 #define CMD_PUBCOMP 0x70
 #define CMD_SUBSCRIBE 0x80
 #define CMD_SUBACK 0x90
