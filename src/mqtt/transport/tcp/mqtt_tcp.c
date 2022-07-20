@@ -52,6 +52,7 @@ struct mqtt_tcptran_pipe {
 	nni_aio         *rxaio;
 	nni_aio         *qsaio; // aio for qos/pingreq
 	nni_aio         *negoaio;
+	nni_aio         *rpaio;
 	nni_msg         *rxmsg;
 	nni_msg         *smsg;
 	nni_lmq          rslmq;
@@ -161,6 +162,7 @@ mqtt_tcptran_pipe_close(void *arg)
 	nni_aio_close(p->qsaio);
 	nni_aio_close(p->txaio);
 	nni_aio_close(p->negoaio);
+	nni_aio_close(p->rpaio);
 	nni_aio_close(&p->tmaio);
 	nng_stream_close(p->conn);
 }
@@ -174,6 +176,7 @@ mqtt_tcptran_pipe_stop(void *arg)
 	nni_aio_stop(p->qsaio);
 	nni_aio_stop(p->txaio);
 	nni_aio_stop(p->negoaio);
+	nni_aio_stop(p->rpaio);
 	nni_aio_stop(&p->tmaio);
 }
 
@@ -212,6 +215,7 @@ mqtt_tcptran_pipe_fini(void *arg)
 	nni_aio_free(p->txaio);
 	nni_aio_free(p->qsaio);
 	nni_aio_free(p->negoaio);
+	nni_aio_free(p->rpaio);
 	nng_stream_free(p->conn);
 	nni_msg_free(p->rxmsg);
 	nni_lmq_fini(&p->rslmq);
@@ -249,6 +253,7 @@ mqtt_tcptran_pipe_alloc(mqtt_tcptran_pipe **pipep)
 	        0) ||
 	    ((rv = nni_aio_alloc(
 	          &p->qsaio, mqtt_tcptran_pipe_qos_send_cb, p)) != 0) ||
+	    ((rv = nni_aio_alloc(&p->rpaio, NULL, p)) != 0) ||
 	    ((rv = nni_aio_alloc(&p->negoaio, mqtt_tcptran_pipe_nego_cb, p)) !=
 	        0)) {
 		mqtt_tcptran_pipe_fini(p);
@@ -425,7 +430,23 @@ mqtt_error:
 	if (rv == MQTT_SUCCESS) {
 		mqtt_tcptran_ep_match(ep);
 	} else {
-		// TODO send DISCONNECT
+		// Fail but still match to let user know ack has arrived
+		mqtt_tcptran_ep_match(ep);
+		// send DISCONNECT
+		nni_iov iov;
+		p->txlen[0] = CMD_DISCONNECT;
+		if (p->proto == MQTT_PROTOCOL_VERSION_v5) {
+			p->txlen[1] = 0x02;
+			p->txlen[2] = ep->reason_code;
+			p->txlen[3] = 0; // length of property
+			iov.iov_len = 4;
+		} else {
+			p->txlen[1] = 0x00;
+			iov.iov_len = 2;
+		}
+		iov.iov_buf = p->txlen;
+		nni_aio_set_iov(p->rpaio, 1, &iov);
+		nng_stream_send(p->conn, p->rpaio);
 	}
 	nni_mtx_unlock(&ep->mtx);
 
