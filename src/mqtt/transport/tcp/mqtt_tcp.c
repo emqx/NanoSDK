@@ -658,7 +658,6 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 			goto recv_error;
 		}
 		if (p->proto == MQTT_PROTOCOL_VERSION_v5) {
-			property_free(prop);
 			p->sndmax++;
 		}
 		break;
@@ -678,6 +677,9 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 		nni_mqtt_msgack_encode(
 		    qmsg, packet_id, reason_code, prop, p->proto);
 		nni_mqtt_pubres_header_encode(qmsg, ack_cmd);
+		if (p->proto == MQTT_PROTOCOL_VERSION_v5) {
+			property_free(prop);
+		}
 		// aio_begin?
 		if (p->busy == false) {
 			iov[0].iov_len = nni_msg_header_len(qmsg);
