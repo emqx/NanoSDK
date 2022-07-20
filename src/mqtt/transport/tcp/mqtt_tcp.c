@@ -371,15 +371,21 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 		nni_mtx_unlock(&ep->mtx);
 		return;
 	}
+	// Connack
 	if (p->gotrxhead >= p->wantrxhead) {
 		if (p->proto == MQTT_PROTOCOL_VERSION_v5) {
 			rv = nni_mqttv5_msg_decode(p->rxmsg);
+			ep->reason_code = rv;
+			if (rv != 0)
+				goto mqtt_error;
 			ep->property = (void *)nni_mqtt_msg_get_connack_property(p->rxmsg);
 			property_data *data;
 			data = property_get_value(ep->property, RECEIVE_MAXIMUM);
 			if (data) {
 				if (data->p_value.u16 == 0) {
 					rv = MQTT_ERR_PROTOCOL;
+					ep->reason_code = rv;
+					goto mqtt_error;
 				} else {
 					p->sndmax = data->p_value.u16;
 				}
@@ -388,6 +394,8 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 			if (data) {
 				if (data->p_value.u32 == 0) {
 					rv = MQTT_ERR_PROTOCOL;
+					ep->reason_code = rv;
+					goto mqtt_error;
 				} else {
 					p->packmax = data->p_value.u32;
 				}
@@ -397,15 +405,18 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 				p->qosmax = data->p_value.u8;
 			}
 		} else {
-			rv = nni_mqtt_msg_decode(p->rxmsg);
+			if ((rv = nni_mqtt_msg_decode(p->rxmsg)) != MQTT_SUCCESS) {
+				ep->reason_code = rv;
+				goto mqtt_error;
+			}
 			ep->property = NULL;
 		}
-		ep->reason_code = rv;
-		// TODO set property for MQTTV5
+		ep->reason_code = nni_mqtt_msg_get_connack_return_code(p->rxmsg);
 		nni_msg_free(p->rxmsg);
 		p->rxmsg = NULL;
 	}
 
+mqtt_error:
 	// We are ready now.  We put this in the wait list, and
 	// then try to run the matcher.
 	nni_list_remove(&ep->negopipes, p);
