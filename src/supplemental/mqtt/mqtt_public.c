@@ -803,3 +803,29 @@ mqtt_property_append(property *prop_list, property *last)
 	return property_append(prop_list, last);
 }
 
+int
+nng_mqtt_subscribe(nng_socket sock, nng_mqtt_topic_qos *sbs, size_t count, property *pl)
+{
+	int rv;
+	// create a SUBSCRIBE message
+	nng_msg *submsg;
+	nng_mqtt_msg_alloc(&submsg, 0);
+	nng_mqtt_msg_set_packet_type(submsg, NNG_MQTT_SUBSCRIBE);
+	nng_mqtt_msg_set_subscribe_topics(submsg, sbs, count);
+	nng_mqtt_msg_set_subscribe_property(submsg, pl);
+
+
+	// This is for debug
+	if (false) {
+		uint8_t buff[1024] = { 0 };
+		nng_mqtt_msg_dump(submsg, buff, sizeof(buff), true);
+		// printf("%s\n", buff);
+		// printf("Subscribing ...");
+	}
+
+	if ((rv = nng_sendmsg(sock, submsg, NNG_FLAG_ALLOC)) != 0) {
+		nng_msg_free(submsg);
+	}
+
+	return rv;
+}
