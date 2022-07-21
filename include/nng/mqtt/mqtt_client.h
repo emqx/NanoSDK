@@ -165,35 +165,6 @@ extern "C" {
 #define NNG_OPT_MQTT_USERNAME "username"
 #define NNG_OPT_MQTT_PASSWORD "password"
 
-// Note that MQTT sockets can be connected to at most a single server.
-// Creating the client does not connect it.
-NNG_DECL int nng_mqtt_client_open(nng_socket *);
-NNG_DECL int nng_mqttv5_client_open(nng_socket *);
-
-// Note that there is a single implicit dialer for the client,
-// and options may be set on the socket to configure dial options.
-// Those options should be set before doing nng_dial().
-
-// close done via nng_close().
-
-// Question: session resumption.  Should we resume sessions under the hood
-// as part of reconnection, or do we want to expose this to the API user?
-// My inclination is not to expose.
-
-// nng_dial or nng_dialer_create can be used, but this protocol only
-// allows a single dialer to be created on the socket.
-
-// Subscriptions are normally run synchronously from the view of the
-// caller.  Because there is a round-trip message involved, we use
-// a separate method instead of merely relying upon socket options.
-// TODO: shared subscriptions.  Subscription options (retain, QoS)
-NNG_DECL int nng_mqtt_subscribe(nng_socket, const char *);
-NNG_DECL int nng_mqtt_subscribe_aio(nng_socket, const char *, nng_aio *);
-NNG_DECL int nng_mqtt_unsubscribe(nng_socket *, const char *);
-NNG_DECL int nng_mqtt_unsubscribe_aio(nng_socket *, const char *, nng_aio *);
-// as with other ctx based methods, we use the aio form exclusively
-NNG_DECL int nng_mqtt_ctx_subscribe(nng_ctx *, const char *, nng_aio *, ...);
-
 // Message handling.  Note that topic aliases are handled by the library
 // automatically on behalf of the consumer.
 
@@ -547,6 +518,46 @@ NNG_DECL property *mqtt_property_set_value_strpair(uint8_t prop_id, const char *
 NNG_DECL property_type_enum mqtt_property_get_value_type(uint8_t prop_id);
 NNG_DECL property_data *mqtt_property_get_value(property *prop, uint8_t prop_id);
 NNG_DECL void      mqtt_property_append(property *prop_list, property *last);
+
+NNG_DECL void nng_mqtt_msg_set_connect_property(nng_msg *msg, property *prop);
+NNG_DECL property *nng_mqtt_msg_get_connect_property(nng_msg *msg);
+
+
+// Note that MQTT sockets can be connected to at most a single server.
+// Creating the client does not connect it.
+NNG_DECL int nng_mqtt_client_open(nng_socket *);
+NNG_DECL int nng_mqttv5_client_open(nng_socket *);
+
+// Note that there is a single implicit dialer for the client,
+// and options may be set on the socket to configure dial options.
+// Those options should be set before doing nng_dial().
+
+// close done via nng_close().
+
+// Question: session resumption.  Should we resume sessions under the hood
+// as part of reconnection, or do we want to expose this to the API user?
+// My inclination is not to expose.
+
+// nng_dial or nng_dialer_create can be used, but this protocol only
+// allows a single dialer to be created on the socket.
+
+// Subscriptions are normally run synchronously from the view of the
+// caller.  Because there is a round-trip message involved, we use
+// a separate method instead of merely relying upon socket options.
+// TODO: shared subscriptions.  Subscription options (retain, QoS)
+
+NNG_DECL int nng_mqtt_subscribe(nng_socket, nng_mqtt_topic_qos *, size_t, property *);
+NNG_DECL int nng_mqtt_subscribe_aio(nng_socket, const char *, nng_aio *);
+NNG_DECL int nng_mqtt_unsubscribe(nng_socket *, const char *);
+NNG_DECL int nng_mqtt_unsubscribe_aio(nng_socket *, const char *, nng_aio *);
+// as with other ctx based methods, we use the aio form exclusively
+NNG_DECL int nng_mqtt_ctx_subscribe(nng_ctx *, const char *, nng_aio *, ...);
+
+
+
+
+
+
 
 #ifdef __cplusplus
 }
