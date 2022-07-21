@@ -384,6 +384,29 @@ struct pub_params {
 	uint32_t    interval;
 };
 
+void msg_recv_deal(nng_msg *msg, bool verbose)
+{
+		uint32_t topic_len = 0;
+		uint32_t payload_len = 0;
+		const char *topic = nng_mqtt_msg_get_publish_topic(msg, &topic_len);
+		char *payload = nng_mqtt_msg_get_publish_payload(msg, &payload_len);
+
+		printf("Receive \'%.*s\' from \'%.*s\'\n", payload_len, payload, topic_len, topic);
+		property *pl = nng_mqtt_msg_get_publish_properties(msg);
+		if (pl != NULL) {
+			mqtt_property_foreach(pl, print_property);
+		}
+
+		if (verbose) {
+			uint8_t buff[1024] = { 0 };
+			memset(buff, 0, sizeof(buff));
+			nng_mqtt_msg_dump(msg, buff, sizeof(buff), true);
+			printf("%s\n", buff);
+		}
+
+		nng_msg_free(msg);
+}
+
 void
 publish_cb(void *args)
 {
@@ -463,10 +486,29 @@ main(const int argc, const char **argv)
 			    .topic = { .buf = (uint8_t *) topic,
 			        .length     = strlen(topic) } },
 		};
-		rv = client_subscribe(sock, subscriptions, 1, verbose);
+
+		property *plist = mqtt_property_alloc();
+		mqtt_property_append(plist,
+		    mqtt_property_set_value_varint(
+		        SUBSCRIPTION_IDENTIFIER, 120));
+		rv = nng_mqtt_subscribe(sock, subscriptions, 1, plist);
+		printf("Start receiving loop:\n");
+
+		while (true) {
+			nng_msg *msg;
+			if ((rv = nng_recvmsg(sock, &msg, 0)) != 0) {
+				fatal("nng_recvmsg", rv);
+				continue;
+			}
+
+			// we should only receive publish messages
+			assert(nng_mqtt_msg_get_packet_type(msg) == NNG_MQTT_PUBLISH);
+			msg_recv_deal(msg, verbose);
+		}
+
 	}
 
-	// nng_msleep(10);
+
 	client_disconnect(&sock, false);
 	nng_close(sock);
 
