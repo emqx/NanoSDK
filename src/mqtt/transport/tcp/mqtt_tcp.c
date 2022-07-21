@@ -294,6 +294,7 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 	nni_mtx_lock(&ep->mtx);
 
 	if ((rv = nni_aio_result(aio)) != 0) {
+		rv = SERVER_UNAVAILABLE;
 		goto error;
 	}
 	// We start transmitting before we receive.
@@ -334,18 +335,19 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 	// finish recevied fixed header
 	if (p->rxmsg == NULL) {
 		if ((p->rxlen[0] & 0x20) != 0x20) {
-			rv = NNG_EPROTO;
+			rv = PROTOCOL_ERROR;
 			goto error;
 		}
 
 		pos = 0;
 		if ((rv = mqtt_get_remaining_length(p->rxlen, p->gotrxhead,
 		         (uint32_t *) &var_int, &pos)) != 0) {
+			rv = PAYLOAD_FORMAT_INVALID;
 			goto error;
 		}
 
 		if ((rv = nni_mqtt_msg_alloc(&p->rxmsg, var_int)) != 0) {
-			rv = NNG_ENOMEM;
+			rv = UNSPECIFIED_ERROR;
 			goto error;
 		}
 
@@ -355,6 +357,7 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 		if (p->proto == MQTT_PROTOCOL_VERSION_v311 &&
 		    ((rv = (p->wantrxhead <= 4) ? 0 : NNG_EPROTO) != 0)) {
 			// Broker send a invalid CONNACK!
+			rv = PROTOCOL_ERROR;
 			goto error;
 		}
 	}
@@ -423,7 +426,7 @@ error:
 	// closed status is confused with the accept file descriptor
 	// being closed.
 	if (rv == NNG_ECLOSED) {
-		rv = NNG_ECONNSHUT;
+		rv = SERVER_SHUTTING_DOWN;
 	}
 	nng_stream_close(p->conn);
 
@@ -542,6 +545,7 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 	aio = nni_list_first(&p->recvq);
 
 	if ((rv = nni_aio_result(rxaio)) != 0) {
+		rv = SERVER_UNAVAILABLE;
 		goto recv_error;
 	}
 
@@ -559,7 +563,7 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 	p->wantrxhead = len + 1 + pos;
 	if (p->gotrxhead <= 5 && p->rxlen[p->gotrxhead - 1] > 0x7f) {
 		if (p->gotrxhead == NNI_NANO_MAX_HEADER_SIZE) {
-			rv = NNG_EMSGSIZE;
+			rv = PACKET_TOO_LARGE;
 			goto recv_error;
 		}
 		// same packet, continue receving next byte of remaining length
@@ -576,11 +580,12 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 		// Make sure the message payload is not too big.  If it is
 		// the caller will shut down the pipe.
 		if ((len > p->rcvmax) && (p->rcvmax > 0)) {
-			rv = NNG_EMSGSIZE;
+			rv = PACKET_TOO_LARGE;
 			goto recv_error;
 		}
 
 		if ((rv = nni_msg_alloc(&p->rxmsg, (size_t) len)) != 0) {
+			rv = UNSPECIFIED_ERROR;
 			goto recv_error;
 		}
 
@@ -633,6 +638,7 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 	case CMD_PUBREC:
 		if (nni_mqtt_pubres_decode(msg, &packet_id, &reason_code, &prop,
 		        p->proto) != 0) {
+			rv = PROTOCOL_ERROR;
 			goto recv_error;
 		}
 		ack_cmd = CMD_PUBREL;
@@ -642,12 +648,14 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 		if (flags == 0x02) {
 			if (nni_mqtt_pubres_decode(msg, &packet_id, &reason_code,
 			        &prop, p->proto) != 0) {
+				rv = PROTOCOL_ERROR;
 				goto recv_error;
 			}
 			ack_cmd = CMD_PUBCOMP;
 			ack     = true;
 			break;
 		} else {
+			rv = PROTOCOL_ERROR;
 			goto recv_error;
 		}
 	case CMD_PUBACK:
@@ -655,6 +663,7 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 	case CMD_PUBCOMP:
 		if (nni_mqtt_pubres_decode(
 		        msg, &packet_id, &reason_code, &prop, p->proto) != 0) {
+			rv = PROTOCOL_ERROR;
 			goto recv_error;
 		}
 		if (p->proto == MQTT_PROTOCOL_VERSION_v5) {
@@ -670,7 +679,7 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 		// sake of compatibility with nng.
 		if ((rv = nni_msg_alloc(&qmsg, 0)) != 0) {
 			ack = false;
-			rv  = MQTT_ERR_NOMEM;
+			rv  = UNSPECIFIED_ERROR;
 			goto recv_error;
 		}
 		// TODO set reason code or property here if necessary
@@ -777,7 +786,7 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 	if (p->closed) {
 		while ((aio = nni_list_first(&p->sendq)) != NULL) {
 			nni_list_remove(&p->sendq, aio);
-			nni_aio_finish_error(aio, NNG_ECLOSED);
+			nni_aio_finish_error(aio, SERVER_SHUTTING_DOWN);
 		}
 		return;
 	}

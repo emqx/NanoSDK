@@ -597,7 +597,6 @@ nng_mqtt_msg_get_unsubscribe_packet_id(nng_msg *msg)
 void
 nng_mqtt_msg_set_unsubscribe_packet_id(nng_msg *msg, uint16_t packet_id)
 {
-
 	nni_mqtt_msg_set_unsubscribe_packet_id(msg, packet_id);
 }
 
