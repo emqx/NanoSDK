@@ -449,6 +449,14 @@ mqtt_error:
 		nni_aio_set_iov(p->rpaio, 1, &iov);
 		nng_stream_send(p->conn, p->rpaio);
 	}
+	/* stream closed passively by peer? TODO
+	nng_stream_close(p->conn);
+	if ((uaio = ep->useraio) != NULL) {
+		ep->useraio = NULL;
+		nni_aio_finish_error(uaio, rv);
+	}
+	*/
+
 	nni_mtx_unlock(&ep->mtx);
 
 	return;
