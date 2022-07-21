@@ -669,6 +669,7 @@ nni_mqttv5_msg_encode_connect(nni_msg *msg)
 	nni_msg_clear(msg);
 
 	int poslength = 6;
+	int rv = 0;
 
 	mqtt_connect_vhdr *var_header = &mqtt->var_header.connect;
 
@@ -729,7 +730,9 @@ nni_mqttv5_msg_encode_connect(nni_msg *msg)
 	nni_mqtt_msg_append_u16(msg, var_header->keep_alive);
 
 	/* Encode properties */
-	encode_properties(msg, var_header->properties, CMD_CONNECT);
+	rv = encode_properties(msg, var_header->properties, CMD_CONNECT);
+	if (rv != 0)
+		return rv;
 
 	/* Now we are in payload part */
 
@@ -738,7 +741,9 @@ nni_mqttv5_msg_encode_connect(nni_msg *msg)
 	nni_mqtt_msg_append_byte_str(msg, &payload->client_id);
 
 	/* Will Properties */
-	encode_properties(msg, payload->will_properties, CMD_CONNECT);
+	rv = encode_properties(msg, payload->will_properties, CMD_CONNECT);
+	if (rv != 0)
+		return rv;
 
 	/* Will Topic */
 	if (payload->will_topic.length) {
