@@ -383,6 +383,7 @@ mqtt_pipe_start(void *arg)
 	if ((c = nni_list_first(&s->send_queue)) != NULL) {
 		nni_list_remove(&s->send_queue, c);
 		mqtt_send_msg(c->saio, c);
+		c->saio = NULL;
 		nni_sleep_aio(s->retry, &p->time_aio);
 		nni_pipe_recv(p->pipe, &p->recv_aio);
 		return(0);
@@ -530,6 +531,7 @@ mqtt_send_cb(void *arg)
 	if ((c = nni_list_first(&s->send_queue)) != NULL) {
 		nni_list_remove(&s->send_queue, c);
 		mqtt_send_msg(c->saio, c);
+		c->saio = NULL;
 		return;
 	}
 
@@ -608,6 +610,11 @@ mqtt_recv_cb(void *arg)
 			nni_qos_db_remove_client_msg(
 			    p->sent_unack, nni_pipe_id(p->pipe), packet_id);
 			user_aio = nni_mqtt_msg_get_aio(cached_msg);
+			if (packet_type == NNG_MQTT_SUBACK ||
+			    packet_type == NNG_MQTT_UNSUBACK) {
+				nni_msg_clone(msg);
+				nni_aio_set_msg(user_aio, msg);
+			}
 			nni_msg_free(cached_msg);
 		}
 		nni_msg_free(msg);
@@ -775,7 +782,6 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 		if (!nni_list_active(&s->send_queue, ctx)) {
 			// cache ctx
 			ctx->saio = aio;
-			ctx->raio = NULL;
 			nni_list_append(&s->send_queue, ctx);
 			nni_mtx_unlock(&s->mtx);
 		} else {
@@ -829,7 +835,6 @@ wait:
 		return;
 	}
 	ctx->raio = aio;
-	ctx->saio = NULL;
 	nni_list_append(&s->recv_queue, ctx);
 	nni_mtx_unlock(&s->mtx);
 	return;
