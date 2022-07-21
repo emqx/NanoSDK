@@ -1477,6 +1477,22 @@ nni_mqttv5_msg_decode_connect(nni_msg *msg)
 	    decode_buf_properties(body, length, &pos, &prop_len, true);
 	buf.curpos = &body[0] + pos;
 
+	// Check connect properties
+	property *prop = mqtt->var_header.connect.properties;
+	if ((ret = check_properties(prop)) != SUCCESS)
+		return ret;
+	// Check Invalid properties
+	for (property *p = prop->next; p != NULL; p=p->next) {
+		switch (p->id) {
+		case WILL_DELAY_INTERVAL:
+			if (p->data.p_value.u8 > 1)
+				return PAYLOAD_FORMAT_INVALID;
+			break;
+		default:
+			return PROTOCOL_ERROR;
+		}
+	}
+
 	/* Client Identifier */
 	ret = read_utf8_str(&buf, &mqtt->payload.connect.client_id);
 	if (ret != 0) {
@@ -1602,6 +1618,24 @@ nni_mqttv5_msg_decode_connack(nni_msg *msg)
 	mqtt->var_header.connack.properties =
 	    decode_buf_properties(body, length, &pos, &prop_len, true);
 	buf.curpos = &body[0] + pos;
+	// Check properties
+	property *prop = mqtt->var_header.connack.properties;
+	if ((result = check_properties(prop)) != SUCCESS)
+		return result;
+	// Check Invalid properties
+	for (property *p = prop->next; p != NULL; p=p->next) {
+		switch (p->id) {
+		case PUBLISH_MAXIMUM_QOS:
+		case WILDCARD_SUBSCRIPTION_AVAILABLE:
+		case SUBSCRIPTION_IDENTIFIER_AVAILABLE:
+		case SHARED_SUBSCRIPTION_AVAILABLE:
+			if (p->data.p_value.u8 > 1)
+				return PROTOCOL_ERROR;
+			break;
+		default:
+			return PROTOCOL_ERROR;
+		}
+	}
 
 	return MQTT_SUCCESS;
 }
@@ -3461,6 +3495,7 @@ property_free(property *prop)
 	return 0;
 }
 
+// Check if repeated properties exist
 reason_code
 check_properties(property *prop)
 {
@@ -3468,12 +3503,10 @@ check_properties(property *prop)
 		return SUCCESS;
 	}
 	for (property *p1 = prop->next; p1 != NULL; p1 = p1->next) {
-		for (property *p2 = prop->next; p2 != NULL; p2 = p2->next) {
-			if (p2 != p1) {
-				if (p1->data.p_type != STR_PAIR &&
-				    p1->id == p2->id) {
-					return PROTOCOL_ERROR;
-				}
+		for (property *p2 = p1->next; p2 != NULL; p2 = p2->next) {
+			if (p1->id == p2->id &&
+			    p1->data.p_type != STR_PAIR) {
+				return PROTOCOL_ERROR;
 			}
 		}
 	}
