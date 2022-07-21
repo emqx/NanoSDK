@@ -480,16 +480,17 @@ mqtt_timer_cb(void *arg)
 static void
 mqtt_send_cb(void *arg)
 {
+	int rv = 0;
 	mqtt_pipe_t *p   = arg;
 	mqtt_sock_t *s   = p->mqtt_sock;
 	mqtt_ctx_t * c   = NULL;
 	nni_msg *    msg = NULL;
 
-	if (nni_aio_result(&p->send_aio) != 0) {
+	if ((rv = nni_aio_result(&p->send_aio)) != 0) {
 		// We failed to send... clean up and deal with it.
 		nni_msg_free(nni_aio_get_msg(&p->send_aio));
 		nni_aio_set_msg(&p->send_aio, NULL);
-		s->disconnect_code = SERVER_SHUTTING_DOWN;
+		s->disconnect_code = rv;
 		nni_pipe_close(p->pipe);
 		return;
 	}
@@ -528,14 +529,15 @@ mqtt_send_cb(void *arg)
 static void
 mqtt_recv_cb(void *arg)
 {
+	int rv;
 	mqtt_pipe_t *p = arg;
 	mqtt_sock_t *s = p->mqtt_sock;
 	nni_aio * user_aio = NULL;
 	nni_msg * cached_msg = NULL;
 	mqtt_ctx_t * ctx;
 
-	if (nni_aio_result(&p->recv_aio) != 0) {
-		s->disconnect_code = SERVER_SHUTTING_DOWN;
+	if ((rv = nni_aio_result(&p->recv_aio)) != 0) {
+		s->disconnect_code = rv;
 		nni_pipe_close(p->pipe);
 		return;
 	}
@@ -838,7 +840,6 @@ mqtt_sock_get_disconnect_code(void *arg, void *v, size_t *sz, nni_opt_type t)
 	int              rv;
 
 	nni_mtx_lock(&s->mtx);
-	printf("code %d !!!!!\n", s->disconnect_code);
 	rv = nni_copyin_int((int *)v, &s->disconnect_code, sizeof(int), 0, 256, t);
 	nni_mtx_unlock(&s->mtx);
 	return (rv);
