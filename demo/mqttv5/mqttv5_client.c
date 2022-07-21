@@ -43,6 +43,13 @@
 #define PUBLISH "pub"
 #define SUBSCRIBE "sub"
 
+typedef struct mqtt_example {
+	nng_msg *        msg;      // request message
+	nng_aio *        aio;      // request flow
+	nng_ctx          ctx;      // context on the request socket
+	void           *next;
+} mqtt_example;
+
 void
 fatal(const char *msg, int rv)
 {
@@ -90,7 +97,7 @@ disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 	// property *prop;
 	// nng_pipe_get_ptr(p, NNG_OPT_MQTT_DISCONNECT_PROPERTY, &prop);
 	// nng_socket_get?
-	printf("%s: disconnected!\n", __FUNCTION__);
+	printf("%s: disconnected %d!\n", __FUNCTION__, reason);
 }
 
 static void
@@ -102,7 +109,7 @@ connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 	// get property for MQTT V5
 	// property *prop;
 	// nng_pipe_get_ptr(p, NNG_OPT_MQTT_CONNECT_PROPERTY, &prop);
-	printf("%s: connected!\n", __FUNCTION__);
+	printf("%s: connect result %d!\n", __FUNCTION__, reason);
 }
 
 // Connect to the given address.
@@ -240,6 +247,17 @@ void print_property(property *prop)
 
 }
 
+static void
+sub_callback(void *arg) {
+	mqtt_example *exp = arg;
+	nng_aio *aio = exp->aio;
+	nng_msg *msg = nng_aio_get_msg(exp->aio);
+	uint32_t count;
+	reason_code *code;
+	code = (reason_code *)nng_mqtt_msg_get_suback_return_codes(msg, &count);
+	printf("suback %d \n", *code);
+	nng_msg_free(msg);
+}
 
 // Subscribe to the given subscriptions, and start receiving messages forever.
 int
@@ -247,6 +265,8 @@ client_subscribe(nng_socket sock, nng_mqtt_topic_qos *subscriptions, int count,
     bool verbose)
 {
 	int rv;
+	mqtt_example *exp;
+	nng_aio **cb_aio;
 
 	// create a SUBSCRIBE message
 	nng_msg *submsg;
@@ -263,10 +283,17 @@ client_subscribe(nng_socket sock, nng_mqtt_topic_qos *subscriptions, int count,
 	}
 
 	printf("Subscribing ...");
-	if ((rv = nng_sendmsg(sock, submsg, 0)) != 0) {
-		nng_msg_free(submsg);
-		fatal("nng_sendmsg", rv);
+	if ((exp = calloc(1, sizeof(*exp))) == NULL) {
+		return -1;
 	}
+	nng_aio_alloc(&exp->aio, sub_callback, exp);
+	nng_aio_set_msg(exp->aio, submsg);
+	nng_send_aio(sock, exp->aio);
+
+	// if ((rv = nng_sendmsg(sock, submsg, 0)) != 0) {
+	// 	nng_msg_free(submsg);
+	// 	fatal("nng_sendmsg", rv);
+	// }
 	printf("done.\n");
 
 	printf("Start receiving loop:\n");
