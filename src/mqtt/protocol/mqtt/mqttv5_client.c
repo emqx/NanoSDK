@@ -268,6 +268,7 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 	uint8_t      qos = 0;
 	nni_msg *    msg;
 	nni_msg *    tmsg;
+	int          rv;
 
 	if (aio == NULL)
 		return;
@@ -321,7 +322,13 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 	}
 	if (!p->busy) {
 		p->busy = true;
-		nni_mqttv5_msg_encode(msg);
+		if ((rv = nni_mqttv5_msg_encode(msg)) != MQTT_SUCCESS) {
+			nni_plat_printf("Warning. Cancelled a illegal msg from user.\n");
+			p->busy = false;
+			nni_mtx_unlock(&s->mtx);
+			nni_aio_finish(aio, 0, 0);
+			return;
+		}
 		nni_aio_set_msg(&p->send_aio, msg);
 		nni_aio_bump_count(
 		    aio, nni_msg_header_len(msg) + nni_msg_len(msg));
@@ -432,6 +439,7 @@ mqtt_timer_cb(void *arg)
 	nni_msg *  msg;
 	nni_aio *  aio;
 	uint16_t   pid;
+	int        rv;
 
 	if (nng_aio_result(&p->time_aio) != 0) {
 		return;
@@ -452,7 +460,6 @@ mqtt_timer_cb(void *arg)
 		if (!p->busy) {
 			p->busy = true;
 			nni_msg_clone(msg);
-			nni_mqttv5_msg_encode(msg);
 			aio = nni_mqtt_msg_get_aio(msg);
 			if (aio) {
 				nni_aio_bump_count(aio,
@@ -460,6 +467,13 @@ mqtt_timer_cb(void *arg)
 				        nni_msg_len(msg));
 				nni_aio_set_msg(aio, NULL);
 			}
+			if ((rv = nni_mqttv5_msg_encode(msg)) != MQTT_SUCCESS) {
+				nni_plat_printf("Warning. Cancelled a illegal msg from user.\n");
+				nni_mtx_unlock(&s->mtx);
+				nni_sleep_aio(s->retry, &p->time_aio);
+				return;
+			}
+
 			nni_aio_set_msg(&p->send_aio, msg);
 			nni_pipe_send(p->pipe, &p->send_aio);
 
@@ -485,6 +499,7 @@ mqtt_send_cb(void *arg)
 	mqtt_sock_t *s   = p->mqtt_sock;
 	mqtt_ctx_t * c   = NULL;
 	nni_msg *    msg = NULL;
+	int          rv;
 
 	if ((rv = nni_aio_result(&p->send_aio)) != 0) {
 		// We failed to send... clean up and deal with it.
@@ -515,7 +530,12 @@ mqtt_send_cb(void *arg)
 
 	if (nni_lmq_get(&p->send_messages, &msg) == 0) {
 		p->busy = true;
-		nni_mqttv5_msg_encode(msg);
+		if ((rv = nni_mqttv5_msg_encode(msg)) != MQTT_SUCCESS) {
+			nni_plat_printf("Warning. Cancelled a illegal msg from user.\n");
+			p->busy = false;
+			nni_mtx_unlock(&s->mtx);
+			return;
+		}
 		nni_aio_set_msg(&p->send_aio, msg);
 		nni_pipe_send(p->pipe, &p->send_aio);
 		nni_mtx_unlock(&s->mtx);
