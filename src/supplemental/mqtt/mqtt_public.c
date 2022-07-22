@@ -806,21 +806,15 @@ mqtt_property_append(property *prop_list, property *last)
 int
 nng_mqtt_subscribe(nng_socket sock, nng_mqtt_topic_qos *sbs, size_t count, property *pl)
 {
-	int rv;
+	int rv = 0;
 	// create a SUBSCRIBE message
 	nng_msg *submsg;
 	nng_mqtt_msg_alloc(&submsg, 0);
 	nng_mqtt_msg_set_packet_type(submsg, NNG_MQTT_SUBSCRIBE);
 	nng_mqtt_msg_set_subscribe_topics(submsg, sbs, count);
-	nng_mqtt_msg_set_subscribe_property(submsg, pl);
 
-
-	// This is for debug
-	if (false) {
-		uint8_t buff[1024] = { 0 };
-		nng_mqtt_msg_dump(submsg, buff, sizeof(buff), true);
-		// printf("%s\n", buff);
-		// printf("Subscribing ...");
+	if (pl) {
+		nng_mqtt_msg_set_subscribe_property(submsg, pl);
 	}
 
 	if ((rv = nng_sendmsg(sock, submsg, NNG_FLAG_ALLOC)) != 0) {
@@ -828,4 +822,26 @@ nng_mqtt_subscribe(nng_socket sock, nng_mqtt_topic_qos *sbs, size_t count, prope
 	}
 
 	return rv;
+}
+
+int 
+nng_mqtt_subscribe_async(nng_mqtt_client *client, nng_mqtt_topic_qos *sbs, size_t count, property *pl)
+{
+	int rv = 0;
+	nng_aio *aio = client->sub_aio;
+	// create a SUBSCRIBE message
+	nng_msg *submsg;
+	nng_mqtt_msg_alloc(&submsg, 0);
+	nng_mqtt_msg_set_packet_type(submsg, NNG_MQTT_SUBSCRIBE);
+	nng_mqtt_msg_set_subscribe_topics(submsg, sbs, count);
+
+	if (pl) {
+		nng_mqtt_msg_set_subscribe_property(submsg, pl);
+	}
+
+	nng_aio_set_msg(aio, submsg);
+	nng_send_aio(client->sock, aio);
+
+	return rv;
+
 }
