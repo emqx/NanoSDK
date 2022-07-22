@@ -526,6 +526,13 @@ mqtt_send_cb(void *arg)
 	return;
 }
 
+static inline void
+mqtt_disconnect_msg_composer(nni_msg *msg, uint8_t rc, property *prop)
+{
+	nni_mqtt_msg_set_disconnect_reason_code(msg, rc);
+	nni_mqtt_msg_set_disconnect_property(msg, prop);
+}
+
 static void
 mqtt_recv_cb(void *arg)
 {
@@ -535,6 +542,7 @@ mqtt_recv_cb(void *arg)
 	nni_aio * user_aio = NULL;
 	nni_msg * cached_msg = NULL;
 	mqtt_ctx_t * ctx;
+	int rv;
 
 	if ((rv = nni_aio_result(&p->recv_aio)) != 0) {
 		s->disconnect_code = rv;
@@ -556,7 +564,33 @@ mqtt_recv_cb(void *arg)
 	}
 	nni_msg_set_pipe(msg, nni_pipe_id(p->pipe));
 	nni_mqtt_msg_proto_data_alloc(msg);
-	nni_mqttv5_msg_decode(msg);
+	if ((rv = nni_mqttv5_msg_decode(msg)) != MQTT_SUCCESS) {
+		// Msg should be clear if decode failed. We reuse it to send disconnect.
+		// Or it would encode a malformed packet.
+		mqtt_disconnect_msg_composer(msg, rv, NULL);
+		// TODO set disconnect code
+		if (!p->busy) {
+			p->busy = true;
+			// Composed a disconnect msg
+			if ((rv = nni_mqttv5_msg_encode(msg)) != MQTT_SUCCESS) {
+				nni_plat_printf("Error in encoding disconnect.\n");
+			}
+			nni_aio_set_msg(&p->send_aio, msg);
+			nni_pipe_send(p->pipe, &p->send_aio);
+			nni_mtx_unlock(&s->mtx);
+			return;
+		}
+		if (nni_lmq_full(&p->send_messages)) {
+			nni_msg *tmsg;
+			(void) nni_lmq_get(&p->send_messages, &tmsg);
+			nni_msg_free(tmsg);
+		}
+		if (0 != nni_lmq_put(&p->send_messages, msg)) {
+			nni_println("Warning! msg lost due to busy socket");
+		}
+		nni_mtx_unlock(&s->mtx);
+		return;
+	}
 
 	packet_type_t packet_type = nni_mqtt_msg_get_packet_type(msg);
 	int32_t       packet_id;
