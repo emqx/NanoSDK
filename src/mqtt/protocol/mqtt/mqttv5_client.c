@@ -325,6 +325,7 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 		if ((rv = nni_mqttv5_msg_encode(msg)) != MQTT_SUCCESS) {
 			nni_plat_printf("Warning. Cancelled a illegal msg from user.\n");
 			p->busy = false;
+			nni_msg_free(msg);
 			nni_mtx_unlock(&s->mtx);
 			nni_aio_finish(aio, 0, 0);
 			return;
@@ -469,6 +470,8 @@ mqtt_timer_cb(void *arg)
 			}
 			if ((rv = nni_mqttv5_msg_encode(msg)) != MQTT_SUCCESS) {
 				nni_plat_printf("Warning. Cancelled a illegal msg from user.\n");
+				nni_msg_free(msg);
+				p->busy = false;
 				nni_mtx_unlock(&s->mtx);
 				nni_sleep_aio(s->retry, &p->time_aio);
 				return;
@@ -532,6 +535,7 @@ mqtt_send_cb(void *arg)
 		if ((rv = nni_mqttv5_msg_encode(msg)) != MQTT_SUCCESS) {
 			nni_plat_printf("Warning. Cancelled a illegal msg from user.\n");
 			p->busy = false;
+			nni_msg_free(msg);
 			nni_mtx_unlock(&s->mtx);
 			return;
 		}
@@ -543,13 +547,6 @@ mqtt_send_cb(void *arg)
 	p->busy = false;
 	nni_mtx_unlock(&s->mtx);
 	return;
-}
-
-static inline void
-mqtt_disconnect_msg_composer(nni_msg *msg, uint8_t rc, property *prop)
-{
-	nni_mqtt_msg_set_disconnect_reason_code(msg, rc);
-	nni_mqtt_msg_set_disconnect_property(msg, prop);
 }
 
 static void
@@ -585,7 +582,9 @@ mqtt_recv_cb(void *arg)
 	if ((rv = nni_mqttv5_msg_decode(msg)) != MQTT_SUCCESS) {
 		// Msg should be clear if decode failed. We reuse it to send disconnect.
 		// Or it would encode a malformed packet.
-		mqtt_disconnect_msg_composer(msg, rv, NULL);
+		nni_mqtt_msg_set_packet_type(msg, NNG_MQTT_DISCONNECT);
+		nni_mqtt_msg_set_disconnect_reason_code(msg, rv);
+		nni_mqtt_msg_set_disconnect_property(msg, NULL);
 		// TODO set disconnect code
 		if (!p->busy) {
 			p->busy = true;
