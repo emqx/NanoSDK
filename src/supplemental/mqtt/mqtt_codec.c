@@ -1484,9 +1484,18 @@ nni_mqttv5_msg_decode_connect(nni_msg *msg)
 	// Check Invalid properties
 	for (property *p = prop->next; p != NULL; p=p->next) {
 		switch (p->id) {
-		case WILL_DELAY_INTERVAL:
+		case REQUEST_RESPONSE_INFORMATION:
+		case REQUEST_PROBLEM_INFORMATION:
 			if (p->data.p_value.u8 > 1)
-				return PAYLOAD_FORMAT_INVALID;
+				return PROTOCOL_ERROR;
+			break;
+		case SESSION_EXPIRY_INTERVAL:
+		case RECEIVE_MAXIMUM:
+		case MAXIMUM_PACKET_SIZE:
+		case TOPIC_ALIAS_MAXIMUM:
+		case USER_PROPERTY:
+		case AUTHENTICATION_METHOD:
+		case AUTHENTICATION_DATA:
 			break;
 		default:
 			return PROTOCOL_ERROR;
@@ -1499,14 +1508,36 @@ nni_mqttv5_msg_decode_connect(nni_msg *msg)
 		return MQTT_ERR_PROTOCOL;
 	}
 
-	/* Will Properties */
-	pos = buf.curpos - &body[0];
-	prop_len = 0;
-	mqtt->var_header.connect.properties =
-	    decode_buf_properties(body, length, &pos, &prop_len, true);
-	buf.curpos = &body[0] + pos;
-
 	if (mqtt->var_header.connect.conn_flags.will_flag) {
+		/* Will Properties */
+		pos = buf.curpos - &body[0];
+		prop_len = 0;
+		mqtt->payload.connect.will_properties =
+		    decode_buf_properties(body, length, &pos, &prop_len, true);
+		buf.curpos = &body[0] + pos;
+
+		property *will_prop = mqtt->payload.connect.will_properties;
+		if ((ret = check_properties(will_prop)) != SUCCESS)
+			return ret;
+		// Check Invalid properties
+		for (property *p = prop->next; p != NULL; p=p->next) {
+			switch (p->id) {
+			case PAYLOAD_FORMAT_INDICATOR:
+				if (p->data.p_value.u8 > 1)
+					return PAYLOAD_FORMAT_INVALID;
+				break;
+			case WILL_DELAY_INTERVAL:
+			case MESSAGE_EXPIRY_INTERVAL:
+			case CONTENT_TYPE:
+			case RESPONSE_TOPIC:
+			case CORRELATION_DATA:
+			case USER_PROPERTY:
+				break;
+			default:
+				return PROTOCOL_ERROR;
+			}
+		}
+
 		/* Will Topic */
 		ret = read_utf8_str(&buf, &mqtt->payload.connect.will_topic);
 		if (ret != 0) {
@@ -1631,6 +1662,19 @@ nni_mqttv5_msg_decode_connack(nni_msg *msg)
 		case SHARED_SUBSCRIPTION_AVAILABLE:
 			if (p->data.p_value.u8 > 1)
 				return PROTOCOL_ERROR;
+			break;
+		case RECEIVE_MAXIMUM:
+		case RETAIN_AVAILABLE:
+		case MAXIMUM_PACKET_SIZE:
+		case ASSIGNED_CLIENT_IDENTIFIER:
+		case TOPIC_ALIAS_MAXIMUM:
+		case REASON_STRING:
+		case USER_PROPERTY:
+		case SERVER_KEEP_ALIVE:
+		case RESPONSE_INFORMATION:
+		case SERVER_REFERENCE:
+		case AUTHENTICATION_METHOD:
+		case AUTHENTICATION_DATA:
 			break;
 		default:
 			return PROTOCOL_ERROR;
