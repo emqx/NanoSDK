@@ -499,7 +499,6 @@ mqtt_send_cb(void *arg)
 	mqtt_sock_t *s   = p->mqtt_sock;
 	mqtt_ctx_t * c   = NULL;
 	nni_msg *    msg = NULL;
-	int          rv;
 
 	if ((rv = nni_aio_result(&p->send_aio)) != 0) {
 		// We failed to send... clean up and deal with it.
@@ -562,7 +561,6 @@ mqtt_recv_cb(void *arg)
 	nni_aio * user_aio = NULL;
 	nni_msg * cached_msg = NULL;
 	mqtt_ctx_t * ctx;
-	int rv;
 
 	if ((rv = nni_aio_result(&p->recv_aio)) != 0) {
 		s->disconnect_code = rv;
