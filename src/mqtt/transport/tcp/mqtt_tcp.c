@@ -1028,6 +1028,9 @@ mqtt_tcptran_pipe_start(
 		if (data)
 			p->rcvmax = data->p_value.u32;
 		rv = nni_mqttv5_msg_encode(connmsg);
+	} else {
+		nni_plat_printf("Warning. MQTT protocol version is not specificed.\n");
+		rv = 1;
 	}
 
 	if (rv != MQTT_SUCCESS ||
