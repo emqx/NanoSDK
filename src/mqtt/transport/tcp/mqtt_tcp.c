@@ -1001,6 +1001,7 @@ mqtt_tcptran_pipe_start(
 	nni_msg *connmsg = NULL;
 	uint8_t mqtt_version;
 	int      niov = 0;
+	int      rv;
 
 	ep->refcnt++;
 
@@ -1018,8 +1019,23 @@ mqtt_tcptran_pipe_start(
 
 	mqtt_version = nni_mqtt_msg_get_connect_proto_version(connmsg);
 
-	if (mqtt_version != MQTT_PROTOCOL_VERSION_v311 &&
-	    mqtt_version != MQTT_PROTOCOL_VERSION_v5) {
+	if (mqtt_version == MQTT_PROTOCOL_VERSION_v311)
+		rv = nni_mqtt_msg_encode(connmsg);
+	else if (mqtt_version == MQTT_PROTOCOL_VERSION_v5) {
+		property *prop = nni_mqtt_msg_get_connect_property(connmsg);
+		property_data *data;
+		data = property_get_value(prop, MAXIMUM_PACKET_SIZE);
+		if (data)
+			p->rcvmax = data->p_value.u32;
+		rv = nni_mqttv5_msg_encode(connmsg);
+	}
+
+	if (rv != MQTT_SUCCESS ||
+	   (mqtt_version != MQTT_PROTOCOL_VERSION_v311 &&
+	    mqtt_version != MQTT_PROTOCOL_VERSION_v5)) {
+		// Free the msg from user
+		nni_msg_free(connmsg);
+		nni_plat_printf("Warning. Cancelled a illegal connnect msg from user.\n");
 		// Using MQTT V311 as default protocol version
 		mqtt_version = 4; // Default TODO Notify user as a warning
 		nni_mqtt_msg_alloc(&connmsg, 0);
@@ -1028,17 +1044,6 @@ mqtt_tcptran_pipe_start(
 		    connmsg, MQTT_PROTOCOL_VERSION_v311);
 		nni_mqtt_msg_set_connect_keep_alive(connmsg, 60);
 		nni_mqtt_msg_set_connect_clean_session(connmsg, true);
-	}
-
-	if (mqtt_version == MQTT_PROTOCOL_VERSION_v311)
-		nni_mqtt_msg_encode(connmsg);
-	else if (mqtt_version == MQTT_PROTOCOL_VERSION_v5) {
-		property *prop = nni_mqtt_msg_get_connect_property(connmsg);
-		property_data *data;
-		data = property_get_value(prop, MAXIMUM_PACKET_SIZE);
-		if (data)
-			p->rcvmax = data->p_value.u32;
-		nni_mqttv5_msg_encode(connmsg);
 	}
 
 	p->gotrxhead  = 0;
