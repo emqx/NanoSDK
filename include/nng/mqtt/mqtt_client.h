@@ -546,7 +546,15 @@ NNG_DECL int nng_mqttv5_client_open(nng_socket *);
 // a separate method instead of merely relying upon socket options.
 // TODO: shared subscriptions.  Subscription options (retain, QoS)
 
+typedef struct {
+	nng_socket sock;
+	nng_aio   *sub_aio;
+} nng_mqtt_client;
+
+typedef void(nng_mqtt_sub_cb)(void *);
+
 NNG_DECL int nng_mqtt_subscribe(nng_socket, nng_mqtt_topic_qos *, size_t, property *);
+NNG_DECL int nng_mqtt_subscribe_async(nng_mqtt_client *, nng_mqtt_topic_qos *, size_t, property *);
 NNG_DECL int nng_mqtt_subscribe_aio(nng_socket, const char *, nng_aio *);
 NNG_DECL int nng_mqtt_unsubscribe(nng_socket *, const char *);
 NNG_DECL int nng_mqtt_unsubscribe_aio(nng_socket *, const char *, nng_aio *);
