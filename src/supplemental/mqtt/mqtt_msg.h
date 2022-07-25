@@ -348,6 +348,10 @@ extern uint8_t   nni_mqtt_msg_get_connack_flags(nni_msg *);
 extern property *nni_mqtt_msg_get_connack_property(nni_msg *);
 
 // mqtt publish
+
+
+extern property *nni_mqtt_msg_get_publish_property(nng_msg *msg);
+extern void nni_mqtt_msg_set_publish_property(nng_msg *msg, property *prop);
 extern void        nni_mqtt_msg_set_publish_qos(nni_msg *, uint8_t);
 extern uint8_t     nni_mqtt_msg_get_publish_qos(nni_msg *);
 extern void        nni_mqtt_msg_set_publish_retain(nni_msg *, bool);
@@ -411,6 +415,11 @@ extern void      nni_mqtt_msg_set_unsuback_packet_id(nni_msg *, uint16_t);
 extern uint16_t  nni_mqtt_msg_get_unsuback_packet_id(nni_msg *);
 extern property *nni_mqtt_msg_get_unsuback_property(nni_msg *);
 extern void      nni_mqtt_msg_set_unsuback_property(nni_msg *, property *);
+
+// mqtt disconnect
+extern void nni_mqtt_msg_set_disconnect_reason_code(nng_msg *msg, uint8_t reason_code);
+extern property *nni_mqtt_msg_get_disconnect_property(nng_msg *msg);
+extern void nni_mqtt_msg_set_disconnect_property(nng_msg *msg, property *prop);
 
 extern void nni_mqtt_msg_dump(nni_msg *, uint8_t *, uint32_t, bool);
 // mqtt topic create/free
