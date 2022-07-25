@@ -173,21 +173,6 @@ typedef enum {
 	nng_mqtt_msg_format_utf8   = 1,
 } nng_mqtt_msg_format_t;
 
-// Message options.  These are convenience wrappers around the above
-// options.
-
-NNG_DECL int nng_mqtt_set_msg_expiry(nng_msg *, nng_duration);
-NNG_DECL int nng_mqtt_get_msg_expiry(nng_msg *, nng_duration *);
-NNG_DECL int nng_mqtt_set_msg_format(nng_msg *, nng_mqtt_msg_format_t);
-NNG_DECL int nng_mqtt_get_msg_format(nng_msg *, nng_mqtt_msg_format_t *);
-NNG_DECL int nng_mqtt_set_msg_topic(nng_msg *, const char *);
-NNG_DECL int nng_mqtt_set_msg_qos(nng_msg *, int);
-NNG_DECL int nng_mqtt_get_msg_topic(nng_msg *, const char **);
-NNG_DECL int nng_mqtt_get_msg_qos(nng_msg *, int *);
-NNG_DECL int nng_mqtt_set_content_type(nng_msg *, const char *);
-NNG_DECL int nng_mqtt_get_content_type(nng_msg *, const char **);
-NNG_DECL int nng_mqtt_get_reason(nng_msg *, const char **);
-
 // User property support.
 typedef struct {
 	const char *up_name;
