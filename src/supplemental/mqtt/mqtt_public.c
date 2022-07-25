@@ -820,7 +820,7 @@ void nng_mqtt_client_free(nng_mqtt_client *client, bool is_async)
 		}
 		NNI_FREE_STRUCT(client);
 	}
-	return client;
+	return;
 }
 
 int
