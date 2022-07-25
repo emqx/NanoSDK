@@ -173,22 +173,6 @@ typedef enum {
 	nng_mqtt_msg_format_utf8   = 1,
 } nng_mqtt_msg_format_t;
 
-// User property support.
-typedef struct {
-	const char *up_name;
-	const char *up_value;
-} nng_mqtt_user_prop_t;
-
-typedef struct {
-	int                   up_count;
-	nng_mqtt_user_prop_t *up_props;
-} nng_mqtt_user_props_t;
-
-extern int nng_mqtt_user_props_alloc(nng_mqtt_user_props_t **);
-extern int nng_mqtt_user_props_add(
-    nng_mqtt_user_props_t *, const char *, const char *);
-extern void nng_mqtt_user_props_free(nng_mqtt_user_props_t *);
-
 /* Message types & flags */
 #define CMD_UNKNOWN 0x00
 #define CMD_CONNECT 0x10

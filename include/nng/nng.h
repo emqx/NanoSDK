@@ -288,9 +288,6 @@ NNG_DECL int nng_dialer_create(nng_dialer *, nng_socket, const char *);
 // nng_listener_create creates a new listener, that is not yet started.
 NNG_DECL int nng_listener_create(nng_listener *, nng_socket, const char *);
 
-// nng_dialer_set_cb set the cb to the dialer. Cb runs when dialer finished.
-NNG_DECL int nng_dialer_set_cb(nng_dialer, void *);
-
 // nng_dialer_start starts the endpoint dialing.  This is only possible if
 // the dialer is not already dialing.
 NNG_DECL int nng_dialer_start(nng_dialer, int);
