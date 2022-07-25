@@ -415,15 +415,6 @@ NNG_DECL uint8_t     nng_mqtt_msg_get_connack_return_code(nng_msg *);
 NNG_DECL uint8_t     nng_mqtt_msg_get_connack_flags(nng_msg *);
 NNG_DECL property   *nng_mqtt_msg_get_connack_property(nng_msg *);
 
-// property
-NNG_DECL void        nng_mqtt_msg_set_property_u8(nng_msg *, uint8_t, uint8_t);
-NNG_DECL void        nng_mqtt_msg_set_property_u16(nng_msg *, uint8_t, uint16_t);
-NNG_DECL void        nng_mqtt_msg_set_property_u32(nng_msg *, uint8_t, uint32_t, uint8_t);
-NNG_DECL void        nng_mqtt_msg_set_property_varint(nng_msg *, uint8_t, uint32_t);
-NNG_DECL void        nng_mqtt_msg_set_property_binary(nng_msg *, uint8_t, uint8_t*, uint32_t);
-NNG_DECL void        nng_mqtt_msg_set_property_str(nng_msg *, uint8_t, char *, uint32_t);
-NNG_DECL void        nng_mqtt_msg_set_property_str_pair(nng_msg *, uint8_t, char *, uint32_t, char *, uint32_t, uint8_t);
-
 NNG_DECL void        nng_mqtt_msg_set_publish_qos(nng_msg *, uint8_t);
 NNG_DECL uint8_t     nng_mqtt_msg_get_publish_qos(nng_msg *);
 NNG_DECL void        nng_mqtt_msg_set_publish_retain(nng_msg *, bool);
@@ -434,7 +425,8 @@ NNG_DECL int         nng_mqtt_msg_set_publish_topic(nng_msg *, const char *);
 NNG_DECL const char *nng_mqtt_msg_get_publish_topic(nng_msg *, uint32_t *);
 NNG_DECL void        nng_mqtt_msg_set_publish_payload(nng_msg *, uint8_t *, uint32_t);
 NNG_DECL uint8_t    *nng_mqtt_msg_get_publish_payload(nng_msg *, uint32_t *);
-NNG_DECL void       *nng_mqtt_msg_get_publish_properties(nng_msg *);
+NNG_DECL property   *nng_mqtt_msg_get_publish_property(nng_msg *);
+NNG_DECL void        nng_mqtt_msg_set_publish_property(nng_msg *, property *);
 
 NNG_DECL nng_mqtt_topic_qos *nng_mqtt_msg_get_subscribe_topics(
     nng_msg *, uint32_t *);
@@ -455,6 +447,9 @@ NNG_DECL nng_mqtt_topic *nng_mqtt_msg_get_unsubscribe_topics(
     nng_msg *, uint32_t *);
 NNG_DECL property *nng_mqtt_msg_get_unsubscribe_property(nng_msg *);
 NNG_DECL void      nng_mqtt_msg_set_unsubscribe_property(nng_msg *, property *);
+
+NNG_DECL property   *nng_mqtt_msg_get_disconnect_property(nng_msg *);
+NNG_DECL void        nng_mqtt_msg_set_disconnect_property(nng_msg *, property *);
 
 NNG_DECL nng_mqtt_topic *nng_mqtt_topic_array_create(size_t);
 NNG_DECL void nng_mqtt_topic_array_set(nng_mqtt_topic *, size_t, const char *);
@@ -528,11 +523,6 @@ NNG_DECL int nng_mqtt_unsubscribe(nng_socket *, const char *);
 NNG_DECL int nng_mqtt_unsubscribe_aio(nng_socket *, const char *, nng_aio *);
 // as with other ctx based methods, we use the aio form exclusively
 NNG_DECL int nng_mqtt_ctx_subscribe(nng_ctx *, const char *, nng_aio *, ...);
-
-
-
-
-
 
 
 #ifdef __cplusplus
