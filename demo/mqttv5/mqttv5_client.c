@@ -174,8 +174,11 @@ client_disconnect(nng_socket *sock, bool verbose)
 	nng_mqtt_msg_set_packet_type(disconnmsg, NNG_MQTT_DISCONNECT);
 	nng_mqtt_msg_set_disconnect_reason_code(disconnmsg, 5);
 	// nng_mqtt_msg_set_property_u32(disconnmsg, SESSION_EXPIRY_INTERVAL, 100, NNG_MQTT_DISCONNECT);
-	nng_mqtt_msg_set_property_str_pair(disconnmsg, USER_PROPERTY, "aaa", strlen("aaa"), "aaa", strlen("aaa"), NNG_MQTT_DISCONNECT);
-
+	// nng_mqtt_msg_set_property_str_pair(disconnmsg, USER_PROPERTY, "aaa", strlen("aaa"), "aaa", strlen("aaa"), NNG_MQTT_DISCONNECT);
+	property *plist = mqtt_property_alloc();
+	property *p = mqtt_property_set_value_strpair(USER_PROPERTY, "aaa", strlen("aaa"), "aaa", strlen("aaa"), true);
+	mqtt_property_append(plist, p);
+	nng_mqtt_msg_set_disconnect_property(disconnmsg, plist);
 
 	if ((rv = nng_sendmsg(*sock, disconnmsg, 0)) != 0) {
 		nng_msg_free(disconnmsg);
@@ -314,7 +317,7 @@ client_subscribe(nng_socket sock, nng_mqtt_topic_qos *subscriptions, int count,
 			nng_mqtt_msg_dump(msg, buff, sizeof(buff), true);
 			printf("%s\n", buff);
 
-			property *pl = nng_mqtt_msg_get_publish_properties(msg);
+			property *pl = nng_mqtt_msg_get_publish_property(msg);
 			if (pl != NULL) {
 				mqtt_property_foreach(pl, print_property);
 			}
@@ -344,21 +347,31 @@ client_publish(nng_socket sock, const char *topic, uint8_t *payload,
 	    pubmsg, (uint8_t *) payload, payload_len);
 	nng_mqtt_msg_set_publish_topic(pubmsg, topic);
 
-	nng_mqtt_msg_set_property_u8(pubmsg, PAYLOAD_FORMAT_INDICATOR, 1);
-	nng_mqtt_msg_set_property_u16(pubmsg, TOPIC_ALIAS, 10);
-	nng_mqtt_msg_set_property_u32(pubmsg, MESSAGE_EXPIRY_INTERVAL, 10, NNG_MQTT_PUBLISH);
-	nng_mqtt_msg_set_property_str(pubmsg, RESPONSE_TOPIC, "aaaaaa", strlen("aaaaaa"));
-	nng_mqtt_msg_set_property_binary(pubmsg, CORRELATION_DATA, "aaaaaa", strlen("aaaaaa"));
-	nng_mqtt_msg_set_property_str_pair(pubmsg, USER_PROPERTY, "aaaaaa", strlen("aaaaaa"), "aaaaaa", strlen("aaaaaa"), NNG_MQTT_PUBLISH);
-	nng_mqtt_msg_set_property_str(pubmsg, CONTENT_TYPE, "aaaaaa", strlen("aaaaaa"));
-	
+	property *plist = mqtt_property_alloc();
+	property *p1 = mqtt_property_set_value_u8(PAYLOAD_FORMAT_INDICATOR, 1);
+	mqtt_property_append(plist, p1);
+	property *p2 = mqtt_property_set_value_u16(TOPIC_ALIAS, 10);
+	mqtt_property_append(plist, p2);
+	property *p3 = mqtt_property_set_value_u32(MESSAGE_EXPIRY_INTERVAL, 10);
+	mqtt_property_append(plist, p3);
+	property *p4 = mqtt_property_set_value_str(RESPONSE_TOPIC, "aaaaaa", strlen("aaaaaa"), true);
+	mqtt_property_append(plist, p4);
+	property *p5 = mqtt_property_set_value_binary(CORRELATION_DATA, "aaaaaa", strlen("aaaaaa"), true);
+	mqtt_property_append(plist, p5);
+	property *p6 = mqtt_property_set_value_strpair(USER_PROPERTY, "aaaaaa", strlen("aaaaaa"), "aaaaaa", strlen("aaaaaa"), true);
+	mqtt_property_append(plist, p6);
+	property *p7 = mqtt_property_set_value_str(CONTENT_TYPE, "aaaaaa", strlen("aaaaaa"), true);
+	mqtt_property_append(plist, p7);
+
+	nng_mqtt_msg_set_publish_property(pubmsg, plist);
+
 	if (verbose) {
 		uint8_t print[1024] = { 0 };
 		nng_mqtt_msg_dump(pubmsg, print, 1024, true);
 		printf("%s\n", print);
 	}
 
-	property *pl = nng_mqtt_msg_get_publish_properties(pubmsg);
+	property *pl = nng_mqtt_msg_get_publish_property(pubmsg);
 	if (pl != NULL) {
 		mqtt_property_foreach(pl, print_property);
 	}
@@ -389,7 +402,7 @@ void msg_recv_deal(nng_msg *msg, bool verbose)
 		char *payload = nng_mqtt_msg_get_publish_payload(msg, &payload_len);
 
 		printf("Receive \'%.*s\' from \'%.*s\'\n", payload_len, payload, topic_len, topic);
-		property *pl = nng_mqtt_msg_get_publish_properties(msg);
+		property *pl = nng_mqtt_msg_get_publish_property(msg);
 		if (pl != NULL) {
 			mqtt_property_foreach(pl, print_property);
 		}
