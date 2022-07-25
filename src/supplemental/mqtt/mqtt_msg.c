@@ -139,6 +139,20 @@ nni_mqtt_msg_get_packet_id(nni_msg *msg)
 	return 0;
 }
 
+property *
+nni_mqtt_msg_get_publish_property(nng_msg *msg)
+{
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	return mqtt->var_header.publish.prop;
+}
+
+void
+nni_mqtt_msg_set_publish_property(nng_msg *msg, property *prop)
+{
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	mqtt->var_header.publish.prop = prop;
+}
+
 void
 nni_mqtt_msg_set_publish_qos(nni_msg *msg, uint8_t qos)
 {
@@ -680,6 +694,20 @@ nni_mqtt_msg_get_connack_property(nni_msg *msg)
 {
 	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
 	return proto_data->var_header.connack.properties;
+}
+
+property *
+nni_mqtt_msg_get_disconnect_property(nng_msg *msg)
+{
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	return mqtt->var_header.disconnect.prop;
+}
+
+void
+nni_mqtt_msg_set_disconnect_property(nng_msg *msg, property *prop)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	proto_data->var_header.disconnect.prop = prop;
 }
 
 void
