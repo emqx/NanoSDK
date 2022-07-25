@@ -519,10 +519,6 @@ NNG_DECL property_type_enum mqtt_property_get_value_type(uint8_t prop_id);
 NNG_DECL property_data *mqtt_property_get_value(property *prop, uint8_t prop_id);
 NNG_DECL void      mqtt_property_append(property *prop_list, property *last);
 
-NNG_DECL void nng_mqtt_msg_set_connect_property(nng_msg *msg, property *prop);
-NNG_DECL property *nng_mqtt_msg_get_connect_property(nng_msg *msg);
-
-
 // Note that MQTT sockets can be connected to at most a single server.
 // Creating the client does not connect it.
 NNG_DECL int nng_mqtt_client_open(nng_socket *);
