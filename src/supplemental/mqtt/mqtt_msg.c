@@ -704,13 +704,6 @@ nni_mqtt_msg_get_disconnect_property(nng_msg *msg)
 }
 
 void
-nni_mqtt_msg_set_disconnect_property(nng_msg *msg, property *prop)
-{
-	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
-	proto_data->var_header.disconnect.prop = prop;
-}
-
-void
 nni_mqtt_msg_dump(
     nni_msg *msg, uint8_t *buffer, uint32_t len, bool print_bytes)
 {
