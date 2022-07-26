@@ -97,7 +97,7 @@ disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 	// property *prop;
 	// nng_pipe_get_ptr(p, NNG_OPT_MQTT_DISCONNECT_PROPERTY, &prop);
 	// nng_socket_get?
-	printf("%s: disconnected %d!\n", __FUNCTION__, reason);
+	printf("%s: disconnected! RC [%d] \n", __FUNCTION__, reason);
 }
 
 static void
@@ -109,7 +109,7 @@ connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 	// get property for MQTT V5
 	// property *prop;
 	// nng_pipe_get_ptr(p, NNG_OPT_MQTT_CONNECT_PROPERTY, &prop);
-	printf("%s: connect result %d!\n", __FUNCTION__, reason);
+	printf("%s: connected! RC [%d] \n", __FUNCTION__, reason);
 }
 
 // Connect to the given address.
@@ -255,6 +255,7 @@ sub_callback(void *arg) {
 	uint32_t count;
 	reason_code *code;
 	code = (reason_code *)nng_mqtt_msg_get_suback_return_codes(msg, &count);
+	printf("aio mqtt result %d \n", nng_aio_result(exp->aio));
 	printf("suback %d \n", *code);
 	nng_msg_free(msg);
 }
@@ -487,7 +488,6 @@ main(const int argc, const char **argv)
 		mqtt_property_append(plist,
 		    mqtt_property_set_value_varint(
 		        SUBSCRIPTION_IDENTIFIER, 120));
-		
 		// rv = nng_mqtt_subscribe(sock, subscriptions, 1, plist);
 
 		nng_mqtt_client *client = nng_mqtt_client_alloc(sock, sub_callback, true);

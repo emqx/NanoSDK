@@ -268,6 +268,7 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 	uint8_t      qos = 0;
 	nni_msg *    msg;
 	nni_msg *    tmsg;
+	int          rv;
 
 	if (aio == NULL)
 		return;
@@ -298,7 +299,7 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 			    packet_id);
 			nni_aio *m_aio = nni_mqtt_msg_get_aio(tmsg);
 			if (m_aio) {
-				nni_aio_finish_error(m_aio, NNG_EPROTO);
+				nni_aio_finish_error(m_aio, PACKET_IDENTIFIER_IN_USE);
 			}
 			nni_msg_free(tmsg);
 			nni_qos_db_remove_client_msg(
@@ -319,9 +320,16 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 		nni_aio_finish_error(aio, NNG_EPROTO);
 		return;
 	}
+	if ((rv = nni_mqttv5_msg_encode(msg)) != MQTT_SUCCESS) {
+		nni_plat_printf("Warning. Cancelled a illegal msg from user.\n");
+		nni_msg_free(msg);
+		nni_mtx_unlock(&s->mtx);
+		nni_aio_finish_error(aio, rv);
+		return;
+	}
+
 	if (!p->busy) {
 		p->busy = true;
-		nni_mqttv5_msg_encode(msg);
 		nni_aio_set_msg(&p->send_aio, msg);
 		nni_aio_bump_count(
 		    aio, nni_msg_header_len(msg) + nni_msg_len(msg));
@@ -333,6 +341,7 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 		}
 		return;
 	}
+
 	if (nni_lmq_full(&p->send_messages)) {
 		(void) nni_lmq_get(&p->send_messages, &tmsg);
 		nni_msg_free(tmsg);
@@ -432,6 +441,7 @@ mqtt_timer_cb(void *arg)
 	nni_msg *  msg;
 	nni_aio *  aio;
 	uint16_t   pid;
+	int        rv;
 
 	if (nng_aio_result(&p->time_aio) != 0) {
 		return;
@@ -452,7 +462,6 @@ mqtt_timer_cb(void *arg)
 		if (!p->busy) {
 			p->busy = true;
 			nni_msg_clone(msg);
-			nni_mqttv5_msg_encode(msg);
 			aio = nni_mqtt_msg_get_aio(msg);
 			if (aio) {
 				nni_aio_bump_count(aio,
@@ -460,6 +469,7 @@ mqtt_timer_cb(void *arg)
 				        nni_msg_len(msg));
 				nni_aio_set_msg(aio, NULL);
 			}
+
 			nni_aio_set_msg(&p->send_aio, msg);
 			nni_pipe_send(p->pipe, &p->send_aio);
 
@@ -515,7 +525,6 @@ mqtt_send_cb(void *arg)
 
 	if (nni_lmq_get(&p->send_messages, &msg) == 0) {
 		p->busy = true;
-		nni_mqttv5_msg_encode(msg);
 		nni_aio_set_msg(&p->send_aio, msg);
 		nni_pipe_send(p->pipe, &p->send_aio);
 		nni_mtx_unlock(&s->mtx);
@@ -556,7 +565,34 @@ mqtt_recv_cb(void *arg)
 	}
 	nni_msg_set_pipe(msg, nni_pipe_id(p->pipe));
 	nni_mqtt_msg_proto_data_alloc(msg);
-	nni_mqttv5_msg_decode(msg);
+	if ((rv = nni_mqttv5_msg_decode(msg)) != MQTT_SUCCESS) {
+		// Msg should be clear if decode failed. We reuse it to send disconnect.
+		// Or it would encode a malformed packet.
+		nni_mqtt_msg_set_packet_type(msg, NNG_MQTT_DISCONNECT);
+		nni_mqtt_msg_set_disconnect_reason_code(msg, rv);
+		nni_mqtt_msg_set_disconnect_property(msg, NULL);
+		// Composed a disconnect msg
+		if ((rv = nni_mqttv5_msg_encode(msg)) != MQTT_SUCCESS) {
+			nni_plat_printf("Error in encoding disconnect.\n");
+		}
+		if (!p->busy) {
+			p->busy = true;
+			nni_aio_set_msg(&p->send_aio, msg);
+			nni_pipe_send(p->pipe, &p->send_aio);
+			nni_mtx_unlock(&s->mtx);
+			return;
+		}
+		if (nni_lmq_full(&p->send_messages)) {
+			nni_msg *tmsg;
+			(void) nni_lmq_get(&p->send_messages, &tmsg);
+			nni_msg_free(tmsg);
+		}
+		if (0 != nni_lmq_put(&p->send_messages, msg)) {
+			nni_println("Warning! msg lost due to busy socket");
+		}
+		nni_mtx_unlock(&s->mtx);
+		return;
+	}
 
 	packet_type_t packet_type = nni_mqtt_msg_get_packet_type(msg);
 	int32_t       packet_id;
