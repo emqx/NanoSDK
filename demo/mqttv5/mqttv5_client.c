@@ -258,7 +258,7 @@ sub_callback(void *arg) {
 	uint32_t count;
 	reason_code *code;
 	code = (reason_code *)nng_mqtt_msg_get_suback_return_codes(msg, &count);
-	printf("aio mqtt result %d \n", nng_aio_result(exp->aio));
+	printf("aio mqtt result %d \n", nng_aio_result(aio));
 	printf("suback %d \n", *code);
 	nng_msg_free(msg);
 }
