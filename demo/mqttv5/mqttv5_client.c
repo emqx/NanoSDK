@@ -249,9 +249,9 @@ void print_property(property *prop)
 
 static void
 sub_callback(void *arg) {
-	mqtt_example *exp = arg;
-	nng_aio *aio = exp->aio;
-	nng_msg *msg = nng_aio_get_msg(exp->aio);
+	nng_mqtt_client *client = (nng_mqtt_client *) arg;
+	nng_aio *aio = client->sub_aio;
+	nng_msg *msg = nng_aio_get_msg(aio);
 	uint32_t count;
 	reason_code *code;
 	code = (reason_code *)nng_mqtt_msg_get_suback_return_codes(msg, &count);
@@ -284,12 +284,8 @@ client_subscribe(nng_socket sock, nng_mqtt_topic_qos *subscriptions, int count,
 	}
 
 	printf("Subscribing ...");
-	if ((exp = calloc(1, sizeof(*exp))) == NULL) {
-		return -1;
-	}
-	nng_aio_alloc(&exp->aio, sub_callback, exp);
-	nng_aio_set_msg(exp->aio, submsg);
-	nng_send_aio(sock, exp->aio);
+	// nng_mqtt_client *client = nng_mqtt_client_alloc(sock, sub_callback, true);
+	// nng_mqtt_subscribe_async(client, subscriptions, 1, pl);
 
 	// if ((rv = nng_sendmsg(sock, submsg, 0)) != 0) {
 	// 	nng_msg_free(submsg);
@@ -492,7 +488,11 @@ main(const int argc, const char **argv)
 		mqtt_property_append(plist,
 		    mqtt_property_set_value_varint(
 		        SUBSCRIPTION_IDENTIFIER, 120));
-		rv = client_subscribe(sock, subscriptions, 1, true);
+		// rv = nng_mqtt_subscribe(sock, subscriptions, 1, plist);
+
+		nng_mqtt_client *client = nng_mqtt_client_alloc(sock, sub_callback, true);
+		nng_mqtt_subscribe_async(client, subscriptions, 1, plist);
+
 		printf("Start receiving loop:\n");
 
 		while (true) {
@@ -506,6 +506,7 @@ main(const int argc, const char **argv)
 			assert(nng_mqtt_msg_get_packet_type(msg) == NNG_MQTT_PUBLISH);
 			msg_recv_deal(msg, verbose);
 		}
+		nng_mqtt_client_free(client, true);
 
 	}
 
