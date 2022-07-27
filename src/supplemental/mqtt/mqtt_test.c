@@ -506,6 +506,77 @@ test_decode_suback(void)
 	nng_msg_free(msg);
 }
 
+void
+test_encode_connect_v5(void)
+{
+	nng_msg *msg;
+	char     client_id[] = "nanomq-mqtt";
+
+	NUTS_PASS(nng_mqtt_msg_alloc(&msg, 0));
+
+	nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
+	NUTS_TRUE(nng_mqtt_msg_get_packet_type(msg) == NNG_MQTT_CONNECT);
+
+	nng_mqtt_msg_set_connect_client_id(msg, client_id);
+
+	NUTS_TRUE(strncmp(nng_mqtt_msg_get_connect_client_id(msg), client_id,
+	              strlen(client_id)) == 0);
+
+	char will_topic[] = "/nanomq/will_msg";
+	nng_mqtt_msg_set_connect_will_topic(msg, will_topic);
+
+	char will_msg[] = "Bye-bye";
+	nng_mqtt_msg_set_connect_will_msg(msg, (uint8_t *)will_msg, strlen(will_msg));
+
+	char user[]   = "nanomq";
+	char passwd[] = "nanomq";
+
+	nng_mqtt_msg_set_connect_user_name(msg, user);
+	nng_mqtt_msg_set_connect_password(msg, passwd);
+	nng_mqtt_msg_set_connect_clean_session(msg, true);
+	nng_mqtt_msg_set_connect_keep_alive(msg, 60);
+
+	property *p  = mqtt_property_alloc();
+	property *p1 = mqtt_property_set_value_u32(MAXIMUM_PACKET_SIZE, 120);
+	mqtt_property_append(p, p1);
+	nng_mqtt_msg_set_connect_property(msg, p);
+
+	nni_mqttv5_msg_encode(msg);
+	print_mqtt_msg(msg);
+
+	nng_msg *decode_msg;
+	nng_msg_dup(&decode_msg, msg);
+	nng_msg_free(msg);
+
+	nni_mqttv5_msg_decode(decode_msg);
+	print_mqtt_msg(decode_msg);
+
+	nng_msg_free(decode_msg);
+}
+
+void
+test_decode_connack_v5(void)
+{
+	nng_msg *msg;
+	uint8_t  connack[] = { 0x20, 0x13, 0x00, 0x00, 0x10, 0x27, 0x00, 0x10,
+                0x00, 0x00, 0x25, 0x01, 0x2a, 0x01, 0x29, 0x01, 0x22, 0xff,
+                0xff, 0x28, 0x01 };
+
+	size_t sz = sizeof(connack) / sizeof(uint8_t);
+
+	NUTS_PASS(nng_mqtt_msg_alloc(&msg, sz - 2));
+
+	nng_msg_header_append(msg, connack, 2);
+
+	memcpy(nng_msg_body(msg), connack + 2, sz - 2);
+
+	NUTS_PASS(nni_mqttv5_msg_decode(msg));
+
+	print_mqtt_msg(msg);
+
+	nng_msg_free(msg);
+}
+
 TEST_LIST = {
 	{ "alloc message", test_alloc },
 	{ "dup message", test_dup },
@@ -525,5 +596,7 @@ TEST_LIST = {
 	{ "decode publish", test_decode_publish },
 	{ "decode puback", test_decode_puback },
 	{ "decode suback", test_decode_suback },
+	{ "encode connect v5", test_encode_connect_v5 },
+	{ "decode connack v5", test_decode_connack_v5 },
 	{ NULL, NULL },
 };
