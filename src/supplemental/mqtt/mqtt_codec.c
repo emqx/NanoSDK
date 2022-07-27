@@ -247,10 +247,44 @@ mqtt_msg_content_free(nni_mqtt_proto_data *mqtt)
 		if (mqtt->is_copied) {
 			destory_connect(mqtt);
 		}
+		if (mqtt->var_header.connect.properties) {
+			property_free(mqtt->var_header.connect.properties);
+		}
+		if (mqtt->payload.connect.will_properties) {
+			property_free(mqtt->payload.connect.will_properties);
+		}
+		break;
+	case NNG_MQTT_CONNACK:
+		if (mqtt->var_header.connack.properties) {
+			property_free(mqtt->var_header.connack.properties);
+		}
 		break;
 	case NNG_MQTT_PUBLISH:
 		if (mqtt->is_copied) {
 			destory_publish(mqtt);
+		}
+		if (mqtt->var_header.publish.properties) {
+			property_free(mqtt->var_header.publish.properties);
+		}
+		break;
+	case NNG_MQTT_PUBACK:
+		if (mqtt->var_header.puback.properties) {
+			property_free(mqtt->var_header.puback.properties);
+		}
+		break;
+	case NNG_MQTT_PUBREC:
+		if (mqtt->var_header.pubrec.properties) {
+			property_free(mqtt->var_header.pubrec.properties);
+		}
+		break;
+	case NNG_MQTT_PUBREL:
+		if (mqtt->var_header.pubrel.properties) {
+			property_free(mqtt->var_header.pubrel.properties);
+		}
+		break;
+	case NNG_MQTT_PUBCOMP:
+		if (mqtt->var_header.pubcomp.properties) {
+			property_free(mqtt->var_header.pubcomp.properties);
 		}
 		break;
 	case NNG_MQTT_SUBSCRIBE:
@@ -262,9 +296,15 @@ mqtt_msg_content_free(nni_mqtt_proto_data *mqtt)
 			        sizeof(nni_mqtt_topic_qos));
 			mqtt->payload.subscribe.topic_count = 0;
 		}
+		if (mqtt->var_header.subscribe.properties) {
+			property_free(mqtt->var_header.subscribe.properties);
+		}
 		break;
 	case NNG_MQTT_SUBACK:
 		destory_suback(mqtt);
+		if (mqtt->var_header.suback.properties) {
+			property_free(mqtt->var_header.suback.properties);
+		}
 		break;
 	case NNG_MQTT_UNSUBSCRIBE:
 		if (mqtt->is_copied) {
@@ -275,7 +315,26 @@ mqtt_msg_content_free(nni_mqtt_proto_data *mqtt)
 			        sizeof(nni_mqtt_topic));
 			mqtt->payload.unsubscribe.topic_count = 0;
 		}
+		if (mqtt->var_header.unsubscribe.properties) {
+			property_free(mqtt->var_header.unsubscribe.properties);
+		}
 		break;
+
+	case NNG_MQTT_UNSUBACK:
+		if (mqtt->var_header.unsuback.properties) {
+			property_free(mqtt->var_header.unsuback.properties);
+		}
+		break;
+		
+	case NNG_MQTT_DISCONNECT:
+		if (mqtt->var_header.disconnect.properties) {
+			property_free(mqtt->var_header.disconnect.properties);
+		}
+		break;
+
+		// TODO case NNG_MQTT_AUTH:
+		//
+		// break;
 
 	default:
 		break;
@@ -309,10 +368,52 @@ nni_mqtt_msg_dup(void **dest, const void *src)
 		if (mqtt->is_copied) {
 			dup_connect(mqtt, s);
 		}
+		if (s->var_header.connect.properties) {
+			property_dup(&mqtt->var_header.connect.properties,
+			    s->var_header.connect.properties);
+		}
+		if (s->payload.connect.will_properties) {
+			property_dup(&mqtt->var_header.connect.properties,
+			    s->payload.connect.will_properties);
+		}
+		break;
+	case NNG_MQTT_CONNACK:
+		if (s->var_header.connack.properties) {
+			property_dup(&mqtt->var_header.connack.properties,
+			    s->var_header.connack.properties);
+		}
 		break;
 	case NNG_MQTT_PUBLISH:
 		if (mqtt->is_copied) {
 			dup_publish(mqtt, s);
+		}
+		if (s->var_header.publish.properties) {
+			property_dup(&mqtt->var_header.publish.properties,
+			    s->var_header.publish.properties);
+		}
+		break;
+	case NNG_MQTT_PUBACK:
+		if (s->var_header.puback.properties) {
+			property_dup(&mqtt->var_header.puback.properties,
+			    s->var_header.puback.properties);
+		}
+		break;
+	case NNG_MQTT_PUBREC:
+		if (s->var_header.pubrec.properties) {
+			property_dup(&mqtt->var_header.pubrec.properties,
+			    s->var_header.pubrec.properties);
+		}
+		break;
+	case NNG_MQTT_PUBREL:
+		if (s->var_header.pubrel.properties) {
+			property_dup(&mqtt->var_header.pubrel.properties,
+			    s->var_header.pubrel.properties);
+		}
+		break;
+	case NNG_MQTT_PUBCOMP:
+		if (s->var_header.pubcomp.properties) {
+			property_dup(&mqtt->var_header.pubcomp.properties,
+			    s->var_header.pubcomp.properties);
 		}
 		break;
 	case NNG_MQTT_SUBSCRIBE:
@@ -329,9 +430,17 @@ nni_mqtt_msg_dup(void **dest, const void *src)
 			    s->payload.subscribe.topic_count *
 			        sizeof(nni_mqtt_topic_qos));
 		}
+		if (s->var_header.subscribe.properties) {
+			property_dup(&mqtt->var_header.subscribe.properties,
+			    s->var_header.subscribe.properties);
+		}
 		break;
 	case NNG_MQTT_SUBACK:
 		dup_suback(mqtt, s);
+		if (s->var_header.suback.properties) {
+			property_dup(&mqtt->var_header.suback.properties,
+			    s->var_header.suback.properties);
+		}
 		break;
 	case NNG_MQTT_UNSUBSCRIBE:
 		if (mqtt->is_copied) {
@@ -346,6 +455,24 @@ nni_mqtt_msg_dup(void **dest, const void *src)
 			    s->payload.unsubscribe.topic_arr,
 			    s->payload.unsubscribe.topic_count *
 			        sizeof(nni_mqtt_topic));
+		}
+		if (s->var_header.unsubscribe.properties) {
+			property_dup(&mqtt->var_header.unsubscribe.properties,
+			    s->var_header.unsubscribe.properties);
+		}
+		break;
+
+	case NNG_MQTT_UNSUBACK:
+		if (mqtt->var_header.unsuback.properties) {
+			property_dup(&mqtt->var_header.unsuback.properties,
+			    s->var_header.unsuback.properties);
+		}
+		break;
+
+	case NNG_MQTT_DISCONNECT:
+		if (mqtt->var_header.disconnect.properties) {
+			property_dup(&mqtt->var_header.disconnect.properties,
+			    s->var_header.disconnect.properties);
 		}
 		break;
 
@@ -1049,7 +1176,7 @@ nni_mqttv5_msg_encode_publish(nni_msg *msg)
 		nni_mqtt_msg_append_u16(msg, var_header->packet_id);
 	}
 
-	encode_properties(msg, mqtt->var_header.publish.prop, CMD_PUBLISH);
+	encode_properties(msg, mqtt->var_header.publish.properties, CMD_PUBLISH);
 
 	/* Payload */
 	if (mqtt->payload.publish.payload.length > 0) {
@@ -1317,11 +1444,11 @@ nni_mqttv5_msg_encode_disconnect(nni_msg *msg)
 	nni_msg_clear(msg);
 
 	mqtt_disconnect_vhdr *var_header = &mqtt->var_header.disconnect;
-	if (0 == var_header->reason_code && NULL == var_header->prop) {
+	if (0 == var_header->reason_code && NULL == var_header->properties) {
 		mqtt->fixed_header.remaining_length = 0;
 	} else {
 		nni_mqtt_msg_append_u8(msg, var_header->reason_code);
-		encode_properties(msg, mqtt->var_header.disconnect.prop, CMD_DISCONNECT);
+		encode_properties(msg, mqtt->var_header.disconnect.properties, CMD_DISCONNECT);
 		mqtt->fixed_header.remaining_length = nng_msg_len(msg);
 	}
 
@@ -1586,7 +1713,7 @@ nni_mqttv5_msg_decode_disconnect(nni_msg *msg)
 	/* Properties */
 	uint32_t pos = buf.curpos - &body[0];
 	uint32_t prop_len = 0;
-	mqtt->var_header.disconnect.prop =
+	mqtt->var_header.disconnect.properties =
 	    decode_buf_properties(body, length, &pos, &prop_len, true);
 	buf.curpos = &body[0] + pos;
 
@@ -1994,7 +2121,7 @@ nni_mqttv5_msg_decode_publish(nni_msg *msg)
 
 	uint32_t pos = buf.curpos - &body[0];
 	uint32_t prop_len = 0;
-	mqtt->var_header.publish.prop =
+	mqtt->var_header.publish.properties =
 	    decode_buf_properties(body, length, &pos, &prop_len, true);
 	buf.curpos = &body[0] + pos;
 
