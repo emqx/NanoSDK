@@ -663,16 +663,19 @@ mqtt_property_append(property *prop_list, property *last)
 	return property_append(prop_list, last);
 }
 
-nng_mqtt_client *nng_mqtt_client_alloc(nng_socket sock, nng_mqtt_sub_cb cb, bool is_async)
+nng_mqtt_client *
+nng_mqtt_client_alloc(nng_socket sock, nng_mqtt_sub_cb cb, bool is_async)
 {
 	nng_mqtt_client *client = NNI_ALLOC_STRUCT(client);
-	client->sock = sock;
+	client->sock            = sock;
 	if (is_async) {
 		nng_aio_alloc(&client->sub_aio, cb, client);
 	}
 	return client;
 }
-void nng_mqtt_client_free(nng_mqtt_client *client, bool is_async)
+
+void
+nng_mqtt_client_free(nng_mqtt_client *client, bool is_async)
 {
 	if (client) {
 		if (is_async) {

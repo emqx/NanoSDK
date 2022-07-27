@@ -433,12 +433,12 @@ extern void                nni_mqtt_topic_qos_array_set(
                    nni_mqtt_topic_qos *, size_t, const char *, uint8_t);
 extern void nni_mqtt_topic_qos_array_free(nni_mqtt_topic_qos *, size_t);
 
-extern void mqtt_close_unack_msg_cb(void *key, void *val);
+extern void mqtt_close_unack_msg_cb(void *, void *);
 
-extern uint16_t nni_msg_get_pub_pid(nni_msg *m);
+extern uint16_t nni_msg_get_pub_pid(nni_msg *);
 
-extern void nni_mqtt_msg_set_connect_property(nni_msg *msg, property *prop);
-extern property* nni_mqtt_msg_get_connect_property(nni_msg *msg);
+extern void nni_mqtt_msg_set_connect_property(nni_msg *, property *);
+extern property* nni_mqtt_msg_get_connect_property(nni_msg *);
 
 extern reason_code check_properties(property *prop);
 extern property *decode_buf_properties(uint8_t *packet, uint32_t packet_len, uint32_t *pos, uint32_t *len, bool copy_value);
