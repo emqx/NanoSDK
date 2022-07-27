@@ -740,31 +740,25 @@ nni_mqttv5_msg_encode_connect(nni_msg *msg)
 	/* Client Identifier is mandatory */
 	nni_mqtt_msg_append_byte_str(msg, &payload->client_id);
 
-	/* Will Properties */
-	rv = encode_properties(msg, payload->will_properties, CMD_CONNECT);
-	if (rv != 0)
-		return rv;
+	if (var_header->conn_flags.will_flag) {
+		/* Will Properties */
+		rv = encode_properties(
+		    msg, payload->will_properties, CMD_CONNECT);
+		if (rv != 0)
+			return rv;
 
-	/* Will Topic */
-	if (payload->will_topic.length) {
-		if (!(var_header->conn_flags.will_flag)) {
+		/* Will Topic */
+		if (payload->will_topic.length) {
+			nni_mqtt_msg_append_byte_str(
+			    msg, &payload->will_topic);
+		} else {
 			return MQTT_ERR_PROTOCOL;
 		}
-		nni_mqtt_msg_append_byte_str(msg, &payload->will_topic);
-	} else {
-		if (var_header->conn_flags.will_flag) {
-			return MQTT_ERR_PROTOCOL;
-		}
-	}
 
-	/* Will Message */
-	if (payload->will_msg.length) {
-		if (!(var_header->conn_flags.will_flag)) {
-			return MQTT_ERR_PROTOCOL;
-		}
-		nni_mqtt_msg_append_byte_str(msg, &payload->will_msg);
-	} else {
-		if (var_header->conn_flags.will_flag) {
+		/* Will Message */
+		if (payload->will_msg.length) {
+			nni_mqtt_msg_append_byte_str(msg, &payload->will_msg);
+		} else {
 			return MQTT_ERR_PROTOCOL;
 		}
 	}
@@ -1479,26 +1473,28 @@ nni_mqttv5_msg_decode_connect(nni_msg *msg)
 
 	// Check connect properties
 	property *prop = mqtt->var_header.connect.properties;
-	if ((ret = check_properties(prop)) != SUCCESS)
-		return ret;
-	// Check Invalid properties
-	for (property *p = prop->next; p != NULL; p=p->next) {
-		switch (p->id) {
-		case REQUEST_RESPONSE_INFORMATION:
-		case REQUEST_PROBLEM_INFORMATION:
-			if (p->data.p_value.u8 > 1)
+	if (prop) {
+		if ((ret = check_properties(prop)) != SUCCESS)
+			return ret;
+		// Check Invalid properties
+		for (property *p = prop->next; p != NULL; p = p->next) {
+			switch (p->id) {
+			case REQUEST_RESPONSE_INFORMATION:
+			case REQUEST_PROBLEM_INFORMATION:
+				if (p->data.p_value.u8 > 1)
+					return PROTOCOL_ERROR;
+				break;
+			case SESSION_EXPIRY_INTERVAL:
+			case RECEIVE_MAXIMUM:
+			case MAXIMUM_PACKET_SIZE:
+			case TOPIC_ALIAS_MAXIMUM:
+			case USER_PROPERTY:
+			case AUTHENTICATION_METHOD:
+			case AUTHENTICATION_DATA:
+				break;
+			default:
 				return PROTOCOL_ERROR;
-			break;
-		case SESSION_EXPIRY_INTERVAL:
-		case RECEIVE_MAXIMUM:
-		case MAXIMUM_PACKET_SIZE:
-		case TOPIC_ALIAS_MAXIMUM:
-		case USER_PROPERTY:
-		case AUTHENTICATION_METHOD:
-		case AUTHENTICATION_DATA:
-			break;
-		default:
-			return PROTOCOL_ERROR;
+			}
 		}
 	}
 
@@ -1517,24 +1513,27 @@ nni_mqttv5_msg_decode_connect(nni_msg *msg)
 		buf.curpos = &body[0] + pos;
 
 		property *will_prop = mqtt->payload.connect.will_properties;
-		if ((ret = check_properties(will_prop)) != SUCCESS)
-			return ret;
-		// Check Invalid properties
-		for (property *p = prop->next; p != NULL; p=p->next) {
-			switch (p->id) {
-			case PAYLOAD_FORMAT_INDICATOR:
-				if (p->data.p_value.u8 > 1)
-					return PAYLOAD_FORMAT_INVALID;
-				break;
-			case WILL_DELAY_INTERVAL:
-			case MESSAGE_EXPIRY_INTERVAL:
-			case CONTENT_TYPE:
-			case RESPONSE_TOPIC:
-			case CORRELATION_DATA:
-			case USER_PROPERTY:
-				break;
-			default:
-				return PROTOCOL_ERROR;
+		if (will_prop) {
+			if ((ret = check_properties(will_prop)) != SUCCESS)
+				return ret;
+			// Check Invalid properties
+			for (property *p = prop->next; p != NULL;
+			     p           = p->next) {
+				switch (p->id) {
+				case PAYLOAD_FORMAT_INDICATOR:
+					if (p->data.p_value.u8 > 1)
+						return PAYLOAD_FORMAT_INVALID;
+					break;
+				case WILL_DELAY_INTERVAL:
+				case MESSAGE_EXPIRY_INTERVAL:
+				case CONTENT_TYPE:
+				case RESPONSE_TOPIC:
+				case CORRELATION_DATA:
+				case USER_PROPERTY:
+					break;
+				default:
+					return PROTOCOL_ERROR;
+				}
 			}
 		}
 
@@ -1651,33 +1650,35 @@ nni_mqttv5_msg_decode_connack(nni_msg *msg)
 	buf.curpos = &body[0] + pos;
 	// Check properties
 	property *prop = mqtt->var_header.connack.properties;
-	if ((result = check_properties(prop)) != SUCCESS)
-		return result;
-	// Check Invalid properties
-	for (property *p = prop->next; p != NULL; p=p->next) {
-		switch (p->id) {
-		case PUBLISH_MAXIMUM_QOS:
-		case WILDCARD_SUBSCRIPTION_AVAILABLE:
-		case SUBSCRIPTION_IDENTIFIER_AVAILABLE:
-		case SHARED_SUBSCRIPTION_AVAILABLE:
-			if (p->data.p_value.u8 > 1)
+	if (prop) {
+		if ((result = check_properties(prop)) != SUCCESS)
+			return result;
+		// Check Invalid properties
+		for (property *p = prop->next; p != NULL; p = p->next) {
+			switch (p->id) {
+			case PUBLISH_MAXIMUM_QOS:
+			case WILDCARD_SUBSCRIPTION_AVAILABLE:
+			case SUBSCRIPTION_IDENTIFIER_AVAILABLE:
+			case SHARED_SUBSCRIPTION_AVAILABLE:
+				if (p->data.p_value.u8 > 1)
+					return PROTOCOL_ERROR;
+				break;
+			case RECEIVE_MAXIMUM:
+			case RETAIN_AVAILABLE:
+			case MAXIMUM_PACKET_SIZE:
+			case ASSIGNED_CLIENT_IDENTIFIER:
+			case TOPIC_ALIAS_MAXIMUM:
+			case REASON_STRING:
+			case USER_PROPERTY:
+			case SERVER_KEEP_ALIVE:
+			case RESPONSE_INFORMATION:
+			case SERVER_REFERENCE:
+			case AUTHENTICATION_METHOD:
+			case AUTHENTICATION_DATA:
+				break;
+			default:
 				return PROTOCOL_ERROR;
-			break;
-		case RECEIVE_MAXIMUM:
-		case RETAIN_AVAILABLE:
-		case MAXIMUM_PACKET_SIZE:
-		case ASSIGNED_CLIENT_IDENTIFIER:
-		case TOPIC_ALIAS_MAXIMUM:
-		case REASON_STRING:
-		case USER_PROPERTY:
-		case SERVER_KEEP_ALIVE:
-		case RESPONSE_INFORMATION:
-		case SERVER_REFERENCE:
-		case AUTHENTICATION_METHOD:
-		case AUTHENTICATION_DATA:
-			break;
-		default:
-			return PROTOCOL_ERROR;
+			}
 		}
 	}
 
