@@ -509,19 +509,24 @@ NNG_DECL int nng_mqttv5_client_open(nng_socket *);
 typedef struct {
 	nng_socket *sock;
 	nng_aio    *sub_aio;
+	nng_aio    *unsub_aio;
 } nng_mqtt_client;
 
-typedef void(nng_mqtt_sub_cb)(void *);
 
-NNG_DECL nng_mqtt_client *nng_mqtt_client_alloc(nng_socket*, nng_mqtt_sub_cb, bool);
+typedef void(nng_mqtt_cb)(void *);
+
+typedef struct {
+	nng_mqtt_cb *sub_ack_cb;
+	nng_mqtt_cb *unsub_ack_cb;
+} nng_mqtt_cb_opt;
+
+NNG_DECL nng_mqtt_client *nng_mqtt_client_alloc(nng_socket*, nng_mqtt_cb_opt*, bool);
 NNG_DECL void nng_mqtt_client_free(nng_mqtt_client*, bool);
 NNG_DECL int nng_mqtt_subscribe(nng_socket*, nng_mqtt_topic_qos *, size_t, property *);
 NNG_DECL int nng_mqtt_subscribe_async(nng_mqtt_client *, nng_mqtt_topic_qos *, size_t, property *);
 NNG_DECL int nng_mqtt_unsubscribe(nng_socket*, nng_mqtt_topic_qos *, size_t, property *);
 NNG_DECL int nng_mqtt_unsubscribe_async(nng_mqtt_client *, nng_mqtt_topic_qos *sbs, size_t count, property *pl);
 NNG_DECL int nng_mqtt_disconnect(nng_socket *, uint8_t, property*);
-
-
 
 #ifdef __cplusplus
 }

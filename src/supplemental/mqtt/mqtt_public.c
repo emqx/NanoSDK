@@ -664,12 +664,13 @@ mqtt_property_append(property *prop_list, property *last)
 }
 
 nng_mqtt_client *
-nng_mqtt_client_alloc(nng_socket *sock, nng_mqtt_sub_cb cb, bool is_async)
+nng_mqtt_client_alloc(nng_socket *sock, nng_mqtt_cb_opt *opt, bool is_async)
 {
 	nng_mqtt_client *client = NNI_ALLOC_STRUCT(client);
 	client->sock            = sock;
 	if (is_async) {
-		nng_aio_alloc(&client->sub_aio, cb, client);
+		nng_aio_alloc(&client->sub_aio, opt->sub_ack_cb, client);
+		nng_aio_alloc(&client->unsub_aio, opt->unsub_ack_cb, client);
 	}
 	return client;
 }
@@ -680,6 +681,7 @@ nng_mqtt_client_free(nng_mqtt_client *client, bool is_async)
 	if (client) {
 		if (is_async) {
 			nng_aio_free(client->sub_aio);
+			nng_aio_free(client->unsub_aio);
 		}
 		NNI_FREE_STRUCT(client);
 	}
@@ -705,6 +707,28 @@ nng_mqtt_unsubscribe(nng_socket *sock, nng_mqtt_topic_qos *sbs, size_t count, pr
 	}
 
 	return rv;
+}
+
+int 
+nng_mqtt_unsubscribe_async(nng_mqtt_client *client, nng_mqtt_topic_qos *sbs, size_t count, property *pl)
+{
+	int rv = 0;
+	nng_aio *aio = client->unsub_aio;
+	// create a SUBSCRIBE message
+	nng_msg *unsubmsg;
+	nng_mqtt_msg_alloc(&unsubmsg, 0);
+	nng_mqtt_msg_set_packet_type(unsubmsg, NNG_MQTT_UNSUBSCRIBE);
+	nng_mqtt_msg_set_subscribe_topics(unsubmsg, sbs, count);
+
+	if (pl) {
+		nng_mqtt_msg_set_subscribe_property(unsubmsg, pl);
+	}
+
+	nng_aio_set_msg(aio, unsubmsg);
+	nng_send_aio(*(client->sock), aio);
+
+	return rv;
+
 }
 
 
