@@ -436,21 +436,6 @@ main(const int argc, const char **argv)
 		// rv = nng_mqtt_unsubscribe(&sock, subscriptions, 1, plist);
 		// Asynchronous unsubscription
 		nng_mqtt_unsubscribe_async(client, subscriptions, 1, plist);
-
-		printf("Start receiving loop:\n");
-		while (true) {
-			nng_msg *msg;
-			if ((rv = nng_recvmsg(sock, &msg, 0)) != 0) {
-				fatal("nng_recvmsg", rv);
-				continue;
-			}
-
-			// we should only receive publish messages
-			assert(nng_mqtt_msg_get_packet_type(msg) == NNG_MQTT_PUBLISH);
-			msg_recv_deal(msg, verbose);
-			break;
-		}
-
 		nng_mqtt_client_free(client, true);
 	}
 
