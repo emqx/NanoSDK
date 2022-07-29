@@ -221,6 +221,19 @@ sub_callback(void *arg) {
 	nng_msg_free(msg);
 }
 
+static void
+unsub_callback(void *arg) {
+	nng_mqtt_client *client = (nng_mqtt_client *) arg;
+	nng_aio *aio = client->unsub_aio;
+	nng_msg *msg = nng_aio_get_msg(aio);
+	uint32_t count;
+	reason_code *code;
+	// code = (reason_code *)nng_mqtt_msg_get_suback_return_codes(msg, &count);
+	printf("aio mqtt result %d \n", nng_aio_result(aio));
+	// printf("suback %d \n", *code);
+	nng_msg_free(msg);
+}
+
 
 int
 main(const int argc, const char **argv)
@@ -288,11 +301,16 @@ main(const int argc, const char **argv)
 		};
 
 
+		nng_mqtt_cb_opt cb_opt = { 
+			.sub_ack_cb = sub_callback,
+			.unsub_ack_cb = unsub_callback,
+		};
+
 		// Sync subscription
 		// rv = nng_mqtt_subscribe(&sock, subscriptions, 1, NULL);
 
 		// Asynchronous subscription
-		nng_mqtt_client *client = nng_mqtt_client_alloc(&sock, sub_callback, true);
+		nng_mqtt_client *client = nng_mqtt_client_alloc(&sock, &cb_opt, true);
 		nng_mqtt_subscribe_async(client, subscriptions, 1, NULL);
 
 
@@ -321,7 +339,10 @@ main(const int argc, const char **argv)
 			}
 
 			nng_msg_free(msg);
+			break;
 		}
+
+		nng_mqtt_unsubscribe_async(client, subscriptions, 1, NULL);
 
 	}
 
