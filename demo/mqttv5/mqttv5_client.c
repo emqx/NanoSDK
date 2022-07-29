@@ -219,6 +219,20 @@ sub_callback(void *arg) {
 	nng_msg_free(msg);
 }
 
+static void
+unsub_callback(void *arg) {
+	nng_mqtt_client *client = (nng_mqtt_client *) arg;
+	nng_aio *aio = client->unsub_aio;
+	nng_msg *msg = nng_aio_get_msg(aio);
+	uint32_t count;
+	reason_code *code;
+	// code = (reason_code *)nng_mqtt_msg_get_suback_return_codes(msg, &count);
+	printf("aio mqtt result %d \n", nng_aio_result(aio));
+	// printf("suback %d \n", *code);
+	nng_msg_free(msg);
+}
+
+
 // Publish a message to the given topic and with the given QoS.
 int
 client_publish(nng_socket sock, const char *topic, uint8_t *payload,
@@ -395,8 +409,13 @@ main(const int argc, const char **argv)
 		// Sync subscription
 		// rv = nng_mqtt_subscribe(&sock, subscriptions, 1, plist);
 
+		nng_mqtt_cb_opt cb_opt = { 
+			.sub_ack_cb = sub_callback,
+			.unsub_ack_cb = unsub_callback,
+		};
+
 		// Asynchronous subscription
-		nng_mqtt_client *client = nng_mqtt_client_alloc(&sock, sub_callback, true);
+		nng_mqtt_client *client = nng_mqtt_client_alloc(&sock, &cb_opt, true);
 		nng_mqtt_subscribe_async(client, subscriptions, 1, plist);
 
 		printf("Start receiving loop:\n");
@@ -410,9 +429,29 @@ main(const int argc, const char **argv)
 			// we should only receive publish messages
 			assert(nng_mqtt_msg_get_packet_type(msg) == NNG_MQTT_PUBLISH);
 			msg_recv_deal(msg, verbose);
+			break;
 		}
-		nng_mqtt_client_free(client, true);
 
+		// Sync unsubscription
+		// rv = nng_mqtt_unsubscribe(&sock, subscriptions, 1, plist);
+		// Asynchronous unsubscription
+		nng_mqtt_unsubscribe_async(client, subscriptions, 1, plist);
+
+		printf("Start receiving loop:\n");
+		while (true) {
+			nng_msg *msg;
+			if ((rv = nng_recvmsg(sock, &msg, 0)) != 0) {
+				fatal("nng_recvmsg", rv);
+				continue;
+			}
+
+			// we should only receive publish messages
+			assert(nng_mqtt_msg_get_packet_type(msg) == NNG_MQTT_PUBLISH);
+			msg_recv_deal(msg, verbose);
+			break;
+		}
+
+		nng_mqtt_client_free(client, true);
 	}
 
 	// disconnect 
