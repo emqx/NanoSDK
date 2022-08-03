@@ -1504,9 +1504,7 @@ mqtt_tcptran_ep_get_property(void *arg, void *v, size_t *szp, nni_opt_type t)
 	mqtt_tcptran_ep *ep = arg;
 	int              rv;
 
-	nni_mtx_lock(&ep->mtx);
 	rv = nni_copyout_ptr(ep->property, v, szp, t);
-	nni_mtx_lock(&ep->mtx);
 	return (rv);
 }
 
