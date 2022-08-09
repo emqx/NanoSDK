@@ -7,6 +7,8 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
+#undef NNG_SUPP_SQLITE
+
 #include "core/nng_impl.h"
 #include "supplemental/quic/quic_api.h"
 #include "supplemental/mqtt/mqtt_msg.h"
@@ -46,7 +48,7 @@ struct mqtt_sock_s {
 	bool         closed;
 	nni_duration retry;
 	mqtt_pipe_t *pipe;
-#ifdef NNG_SUPP_SQLITE
+#if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
 	sqlite3 *sqlite_db;
 #endif
 	nni_mtx mtx; // more fine grained mutual exclusion
@@ -71,7 +73,7 @@ struct mqtt_pipe_s {
 	bool         busy;
 	int          next_packet_id; // next packet id to use
 	mqtt_sock_t *mqtt_sock;
-#ifdef NNG_SUPP_SQLITE
+#if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
 	sqlite3 *sent_unack;
 #else
 	nni_id_map sent_unack; // send messages unacknowledged
@@ -154,8 +156,8 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 		packet_id     = mqtt_pipe_get_next_packet_id(p);
 		nni_mqtt_msg_set_packet_id(msg, packet_id);
 		nni_mqtt_msg_set_aio(msg, aio);
-		tmsg = nni_qos_db_get_client_msg(
-		    p->sent_unack, nni_pipe_id(p->pipe), packet_id);
+//		tmsg = nni_qos_db_get_client_msg(
+//		    p->sent_unack, nni_pipe_id(p->pipe), packet_id);
 		if (tmsg != NULL) {
 			nni_plat_printf("Warning : msg %d lost due to "
 			                "packetID duplicated!",
@@ -165,10 +167,11 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 				nni_aio_finish_error(m_aio, NNG_EPROTO);
 			}
 			nni_msg_free(tmsg);
-			nni_qos_db_remove_client_msg(
-			    p->sent_unack, nni_pipe_id(p->pipe), packet_id);
+//			nni_qos_db_remove_client_msg(
+//			    p->sent_unack, nni_pipe_id(p->pipe), packet_id);
 		}
 		nni_msg_clone(msg);
+		/*
 		if (nni_qos_db_set_client_msg(p->sent_unack,
 		        nni_pipe_id(p->pipe), packet_id, msg) != 0) {
 			nni_println("Warning! Cache QoS msg failed");
@@ -176,6 +179,7 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 			//we finished here since there is no second time
 			nni_aio_finish_error(aio, MQTT_ERR_NOT_FOUND);
 		}
+		*/
 		break;
 	default:
 		return NNG_EPROTO;
@@ -325,11 +329,11 @@ mqtt_quic_recv_cb(void *arg)
 	case NNG_MQTT_UNSUBACK:
 		// we have received a UNSUBACK, successful unsubscription
 		packet_id  = nni_mqtt_msg_get_packet_id(msg);
-		cached_msg = nni_qos_db_get_client_msg(
-		    p->sent_unack, nni_pipe_id(p->pipe), packet_id);
+//		cached_msg = nni_qos_db_get_client_msg(
+//		    p->sent_unack, nni_pipe_id(p->pipe), packet_id);
 		if (cached_msg != NULL) {
-			nni_qos_db_remove_client_msg(
-			    p->sent_unack, nni_pipe_id(p->pipe), packet_id);
+//			nni_qos_db_remove_client_msg(
+//			    p->sent_unack, nni_pipe_id(p->pipe), packet_id);
 			user_aio = nni_mqtt_msg_get_aio(cached_msg);
 			nni_msg_free(cached_msg);
 		}
@@ -496,6 +500,7 @@ mqtt_timer_cb(void *arg)
 		quic_strm_send(p->qstream, &p->rep_aio);
 		s->counter = 0;
 	}
+	/*
 	// start message resending
 	uint64_t row_id = 0;
 	msg = nni_qos_db_get_one_client_msg(p->sent_unack, row_id, pid);
@@ -528,6 +533,7 @@ mqtt_timer_cb(void *arg)
 			nni_lmq_put(&s->send_messages, msg);
 		}
 	}
+	*/
 
 	nni_mtx_unlock(&s->mtx);
 	nni_sleep_aio(s->retry * NNI_SECOND, &s->time_aio);
@@ -553,7 +559,7 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 	nni_mtx_init(&s->mtx);
 	// mqtt_ctx_init(&s->master, s);
 
-#ifdef NNG_SUPP_SQLITE
+#if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
 	nni_qos_db_init_sqlite(s->sqlite_db, DB_NAME, false);
 	nni_qos_db_reset_client_msg_pipe_id(s->sqlite_db);
 #endif
@@ -574,7 +580,7 @@ static void
 mqtt_quic_sock_fini(void *arg)
 {
 	mqtt_sock_t *s = arg;
-#ifdef NNG_SUPP_SQLITE
+#if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
 	nni_qos_db_fini_sqlite(s->sqlite_db);
 #endif
 	// mqtt_ctx_fini(&s->master);
@@ -742,7 +748,7 @@ quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
 	// Packet IDs are 16 bits
 	// We start at a random point, to minimize likelihood of
 	// accidental collision across restarts.
-#ifdef NNG_SUPP_SQLITE
+#if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
 	p->sent_unack = p->mqtt_sock->sqlite_db;
 #else
 	nni_id_map_init(&p->sent_unack, 0x0000u, 0xffffu, true);
@@ -774,7 +780,7 @@ quic_mqtt_stream_fini(void *arg)
 	nni_aio_fini(&p->send_aio);
 	nni_aio_fini(&p->recv_aio);
 	nni_aio_fini(&p->rep_aio);
-#ifndef NNG_SUPP_SQLITE
+#if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
 	nni_id_map_fini(&p->sent_unack);
 #endif
 	nni_id_map_fini(&p->recv_unack);
@@ -837,7 +843,7 @@ quic_mqtt_stream_close(void *arg)
 	nni_aio_close(&p->rep_aio);
 	nni_lmq_flush(&p->recv_messages);
 	nni_lmq_flush(&s->send_messages);
-#ifndef NNG_SUPP_SQLITE
+#if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
 	nni_id_map_foreach(&p->sent_unack, mqtt_close_unack_msg_cb);
 #endif
 	nni_id_map_foreach(&p->recv_unack, mqtt_close_unack_msg_cb);
