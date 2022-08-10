@@ -38,6 +38,7 @@ typedef nng_mqtt_topic       nni_mqtt_topic;
 #define MQTT_QOS_2_EXACTLY_ONCE 2
 
 /* Function return codes */
+// ONLY FOR INTERNAL USAGE!
 #define MQTT_SUCCESS 0
 #define MQTT_ERR_NOMEM 1
 #define MQTT_ERR_PROTOCOL 2
