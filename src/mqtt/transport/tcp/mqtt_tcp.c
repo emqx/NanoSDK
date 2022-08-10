@@ -352,7 +352,7 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 		}
 
 		if ((rv = nni_mqtt_msg_alloc(&p->rxmsg, var_int)) != 0) {
-			rv = UNSPECIFIED_ERROR;
+			rv = NNG_ENOMEM;
 			goto error;
 		}
 
