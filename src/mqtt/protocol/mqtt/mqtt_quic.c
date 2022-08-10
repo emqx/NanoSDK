@@ -16,6 +16,9 @@
 #define NNG_MQTT_SELF_NAME "mqtt-client"
 #define NNG_MQTT_PEER 0
 #define NNG_MQTT_PEER_NAME "mqtt-server"
+
+#define DB_NAME "mqtt_qos_db_quic.db"
+
 typedef struct mqtt_sock_s mqtt_sock_t;
 typedef struct mqtt_pipe_s mqtt_pipe_t;
 typedef struct mqtt_quic_ctx mqtt_quic_ctx;
@@ -43,9 +46,9 @@ struct mqtt_client_cb {
 
 // A mqtt_sock_s is our per-socket protocol private structure.
 struct mqtt_sock_s {
-	bool         closed;
-	nni_duration retry;
-	mqtt_pipe_t *pipe;
+	nni_atomic_bool closed;
+	nni_duration    retry;
+	mqtt_pipe_t    *pipe;
 #ifdef NNG_SUPP_SQLITE
 	sqlite3 *sqlite_db;
 	nni_lmq  offline_cache;
@@ -70,10 +73,10 @@ struct mqtt_sock_s {
 // A mqtt_pipe_s is our per-pipe protocol private structure.
 struct mqtt_pipe_s {
 	void        *stream;
-	void        *qstream; // nni_pipe
-	bool         closed;
-	bool         busy;
-	int          next_packet_id; // next packet id to use
+	void           *qstream; // nni_pipe
+	nni_atomic_bool closed;
+	bool            busy;
+	nni_atomic_int  next_packet_id; // next packet id to use
 	mqtt_sock_t *mqtt_sock;
 	nni_id_map sent_unack; // send messages unacknowledged
 	nni_id_map recv_unack;    // recv messages unacknowledged
@@ -545,8 +548,10 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 	// mqtt_ctx_init(&s->master, s);
 
 #if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
-	nni_qos_db_init_sqlite(s->sqlite_db, DB_NAME, false);
-	nni_qos_db_reset_client_msg_pipe_id(s->sqlite_db);
+	nni_qos_db_init_sqlite(s->sqlite_db,
+	    s->bridge_conf->sqlite->mounted_file_path, DB_NAME, false);
+	nni_qos_db_reset_client_msg_pipe_id(s->bridge_conf->sqlite->enable,
+	    s->sqlite_db, s->bridge_conf->name);
 #endif
 	nni_lmq_init(&s->send_messages, NNG_MAX_SEND_LMQ);
 	nni_aio_list_init(&s->send_queue);
@@ -629,7 +634,7 @@ mqtt_quic_sock_send(void *arg, nni_aio *aio)
 
 	nni_mtx_lock(&s->mtx);
 
-	if (s->closed) {
+	if (nni_atomic_get_bool(&s->closed)) {
 		nni_mtx_unlock(&s->mtx);
 		nni_aio_finish_error(aio, NNG_ECLOSED);
 		return;
@@ -723,22 +728,17 @@ quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
 	p->mqtt_sock = sock;
 	p->mqtt_sock->pipe = p;
 
-	p->closed = false;
+	nni_atomic_init_bool(&p->closed);
+	nni_atomic_set_bool(&p->closed, false);
 	p->busy   = false;
-	p->next_packet_id = 1;
-	// p->mqtt_sock = s;
+	nni_atomic_set(&p->next_packet_id, 1);
 	nni_aio_init(&p->send_aio, mqtt_quic_send_cb, p);
 	nni_aio_init(&p->rep_aio, NULL, p);
 	nni_aio_init(&p->recv_aio, mqtt_quic_recv_cb, p);
 	// Packet IDs are 16 bits
 	// We start at a random point, to minimize likelihood of
 	// accidental collision across restarts.
-#if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
-	p->sent_unack = p->mqtt_sock->sqlite_db;
-#else
 	nni_id_map_init(&p->sent_unack, 0x0000u, 0xffffu, true);
-#endif
-	nni_id_map_init(&p->recv_unack, 0x0000u, 0xffffu, true);
 	nni_id_map_init(&p->recv_unack, 0x0000u, 0xffffu, true);
 	nni_lmq_init(&p->recv_messages, NNG_MAX_RECV_LMQ);
 
