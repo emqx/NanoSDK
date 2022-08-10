@@ -156,8 +156,9 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 		packet_id     = mqtt_pipe_get_next_packet_id(p);
 		nni_mqtt_msg_set_packet_id(msg, packet_id);
 		nni_mqtt_msg_set_aio(msg, aio);
-//		tmsg = nni_qos_db_get_client_msg(
-//		    p->sent_unack, nni_pipe_id(p->pipe), packet_id);
+		/*
+		tmsg = nni_qos_db_get_client_msg(
+		    p->sent_unack, nni_pipe_id(p->pipe), packet_id);
 		if (tmsg != NULL) {
 			nni_plat_printf("Warning : msg %d lost due to "
 			                "packetID duplicated!",
@@ -167,11 +168,10 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 				nni_aio_finish_error(m_aio, NNG_EPROTO);
 			}
 			nni_msg_free(tmsg);
-//			nni_qos_db_remove_client_msg(
-//			    p->sent_unack, nni_pipe_id(p->pipe), packet_id);
+			nni_qos_db_remove_client_msg(
+			    p->sent_unack, nni_pipe_id(p->pipe), packet_id);
 		}
 		nni_msg_clone(msg);
-		/*
 		if (nni_qos_db_set_client_msg(p->sent_unack,
 		        nni_pipe_id(p->pipe), packet_id, msg) != 0) {
 			nni_println("Warning! Cache QoS msg failed");
