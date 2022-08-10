@@ -8,6 +8,7 @@
 //
 
 #include "core/nng_impl.h"
+#include "nng/protocol/mqtt/mqtt.h"
 #include "supplemental/quic/quic_api.h"
 #include "supplemental/mqtt/mqtt_msg.h"
 #include "supplemental/mqtt/mqtt_qos_db_api.h"
@@ -32,6 +33,9 @@ static void mqtt_quic_sock_recv(void *arg, nni_aio *aio);
 static void mqtt_quic_send_cb(void *arg);
 static void mqtt_quic_recv_cb(void *arg);
 static void mqtt_timer_cb(void *arg);
+// TODO as same as the mqtt_client mqttv5_client. move to supplemental!
+static void  flush_offline_cache(mqtt_sock_t *s);
+static nni_msg* get_cache_msg(mqtt_sock_t *s);
 
 struct mqtt_client_cb {
 	int (*connect_cb)(void *, void *);
@@ -122,6 +126,57 @@ mqtt_pipe_get_next_packet_id(mqtt_pipe_t *p)
 	return packet_id & 0xFFFF;
 }
 
+
+static void
+flush_offline_cache(mqtt_sock_t *s)
+{
+#if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
+	if (s->bridge_conf) {
+		char *config_name = get_config_name(s);
+		nni_mqtt_qos_db_set_client_offline_msg_batch(s->sqlite_db,
+		    &s->offline_cache, config_name,
+		    MQTT_PROTOCOL_VERSION_v311);
+		nni_mqtt_qos_db_remove_oldest_client_offline_msg(s->sqlite_db,
+		    s->bridge_conf->sqlite->disk_cache_size, config_name);
+	}
+#else
+	NNI_ARG_UNUSED(s);
+#endif
+}
+
+static inline nni_msg *
+get_cache_msg(mqtt_sock_t *s)
+{
+	nni_msg *msg = NULL;
+#if defined(NNG_HAVE_MQTT_BROKER)
+	if (s->bridge_conf == NULL) {
+		return NULL;
+	}
+	conf_sqlite *sqlite = s->bridge_conf->sqlite;
+#if defined(NNG_SUPP_SQLITE)
+	if (sqlite->enable) {
+		int64_t row_id = 0;
+
+		msg = nni_mqtt_qos_db_get_client_offline_msg(
+		    s->sqlite_db, &row_id, get_config_name(s));
+		if (!nni_lmq_empty(&s->offline_cache)) {
+			flush_offline_cache(s);
+		}
+		if (msg != NULL) {
+			nni_mqtt_qos_db_remove_client_offline_msg(
+			    s->sqlite_db, row_id);
+		}
+	}
+#else
+	NNI_ARG_UNUSED(sqlite);
+	return NULL;
+#endif
+#else
+	return NULL;
+#endif
+	return msg;
+}
+
 // Should be called with mutex lock hold after pipe is secured
 // return rv>0 when aio should be finished (error or successed)
 static inline int
@@ -206,6 +261,45 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 // {
 // }
 
+
+static int
+quic_sock_set_conf_with_db(void *arg, const void *v, size_t sz, nni_opt_type t)
+{
+	NNI_ARG_UNUSED(sz);
+#ifdef NNG_HAVE_MQTT_BROKER
+	mqtt_sock_t *s = arg;
+	if (t == NNI_TYPE_OPAQUE) {
+		nni_mtx_lock(&s->mtx);
+		s->bridge_conf = (conf_bridge_node *) v;
+
+#ifdef NNG_SUPP_SQLITE
+		conf_bridge_node *bridge_conf = s->bridge_conf;
+		if (bridge_conf != NULL && bridge_conf->sqlite->enable) {
+			s->retry = bridge_conf->sqlite->resend_interval;
+			nni_lmq_init(&s->offline_cache,
+			    bridge_conf->sqlite->flush_mem_threshold);
+			nni_qos_db_init_sqlite(s->sqlite_db,
+			    bridge_conf->sqlite->mounted_file_path, DB_NAME,
+			    false);
+			nni_qos_db_reset_client_msg_pipe_id(
+			    bridge_conf->sqlite->enable, s->sqlite_db,
+			    bridge_conf->name);
+			nni_mqtt_qos_db_set_client_info(s->sqlite_db,
+			    bridge_conf->name, NULL, "MQTT",
+			    bridge_conf->proto_ver);
+		}
+#endif
+		nni_mtx_unlock(&s->mtx);
+		return 0;
+	}
+#else
+	NNI_ARG_UNUSED(arg);
+	NNI_ARG_UNUSED(v);
+	NNI_ARG_UNUSED(t);
+#endif
+	return NNG_EUNREACHABLE;
+}
+
 static void
 mqtt_quic_send_cb(void *arg)
 {
@@ -255,6 +349,14 @@ mqtt_quic_send_cb(void *arg)
 		nni_mtx_unlock(&s->mtx);
 		if (s->cb.msg_send_cb)
 			s->cb.msg_send_cb(NULL, s->cb.sendarg);
+		return;
+	}
+
+	if (NULL != (msg = get_cache_msg(s))) {
+		p->busy = true;
+		nni_aio_set_msg(&p->send_aio, msg);
+		quic_strm_send(p->qstream, &p->send_aio);
+		nni_mtx_unlock(&s->mtx);
 		return;
 	}
 	p->busy = false;
@@ -570,8 +672,12 @@ static void
 mqtt_quic_sock_fini(void *arg)
 {
 	mqtt_sock_t *s = arg;
-#if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
-	nni_qos_db_fini_sqlite(s->sqlite_db);
+#if defined(NNG_SUPP_SQLITE) && defined(NNG_HAVE_MQTT_BROKER)
+	bool is_sqlite = get_persist(s);
+	if (is_sqlite) {
+		nni_qos_db_fini_sqlite(s->sqlite_db);
+		nni_lmq_fini(&s->offline_cache);
+	}
 #endif
 	// mqtt_ctx_fini(&s->master);
 	nni_lmq_fini(&s->send_messages);
@@ -788,7 +894,12 @@ quic_mqtt_stream_start(void *arg)
 		nni_msg_clone(s->connmsg);
 		mqtt_send_msg(NULL, s->connmsg, s);
 	}
-
+	if (NULL != (msg = get_cache_msg(s))) {
+		p->busy = true;
+		nni_aio_set_msg(&p->send_aio, msg);
+		p->busy = true;
+		quic_strm_send(p->qstream, &p->send_aio);
+	}
 	if ((aio = nni_list_first(&s->send_queue)) != NULL) {
 		nni_list_remove(&s->send_queue, aio);
 		msg = nni_aio_get_msg(aio);
@@ -858,6 +969,10 @@ static nni_proto_ctx_ops mqtt_quic_ctx_ops = {
 };
 
 static nni_option mqtt_quic_sock_options[] = {
+	{
+	    .o_name = NANO_CONF,
+	    .o_set  = quic_sock_set_conf_with_db,
+	},
 	// terminate list
 	{
 	    .o_name = NULL,
