@@ -53,9 +53,9 @@ typedef nni_mqtt_packet_type packet_type_t;
 
 // A mqtt_ctx_s is our per-ctx protocol private state.
 struct mqtt_ctx_s {
-	mqtt_sock_t *mqtt_sock;
-	nni_aio *  saio;             // send aio
-	nni_aio *  raio;             // recv aio
+	mqtt_sock_t * mqtt_sock;
+	nni_aio *     saio; // send aio
+	nni_aio *     raio; // recv aio
 	nni_list_node sqnode;
 	nni_list_node rqnode;
 };

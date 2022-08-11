@@ -40,7 +40,7 @@ static void quic_mqtt_stream_start(void *arg);
 static void quic_mqtt_stream_stop(void *arg);
 static void quic_mqtt_stream_close(void *arg);
 
-static void mqtt_quic_ctx_init(void *arg, nni_sock *sock);
+static void mqtt_quic_ctx_init(void *arg, void *sock);
 static void mqtt_quic_ctx_fini(void *arg);
 static void mqtt_quic_ctx_recv(void *arg, nni_aio *aio);
 static void mqtt_quic_ctx_send(void *arg, nni_aio *aio);
@@ -73,7 +73,7 @@ struct mqtt_sock_s {
 	conf_bridge_node *bridge_conf;
 #endif
 	nni_mtx mtx; // more fine grained mutual exclusion
-	// mqtt_ctx_t      master; // to which we delegate send/recv calls
+	mqtt_ctx_t master; // to which we delegate send/recv calls
 	// mqtt_pipe_t *   mqtt_pipe;
 	nni_list recv_queue;    // aio pending to receive
 	nni_list send_queue;    // aio pending to send
@@ -103,11 +103,12 @@ struct mqtt_pipe_s {
 };
 
 struct mqtt_quic_ctx {
-	mqtt_sock_t *mqtt_sock;
+	mqtt_sock_t * mqtt_sock;
+	nni_aio *     saio;
+	nni_aio *     raio;
+	nni_list_node sqnode;
+	nni_list_node rqnode;
 };
-/******************************************************************************
- *                              Sock Implementation                           *
- ******************************************************************************/
 
 static inline void
 mqtt_pipe_recv_msgq_putq(mqtt_pipe_t *p, nni_msg *msg)
@@ -662,7 +663,7 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 	s->connmsg = NULL;
 
 	nni_mtx_init(&s->mtx);
-	// mqtt_ctx_init(&s->master, s);
+	mqtt_quic_ctx_init(&s->master, s);
 
 #if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
 	nni_qos_db_init_sqlite(s->sqlite_db,
@@ -694,7 +695,7 @@ mqtt_quic_sock_fini(void *arg)
 		nni_lmq_fini(&s->offline_cache);
 	}
 #endif
-	// mqtt_ctx_fini(&s->master);
+	mqtt_ctx_fini(&s->master);
 	nni_lmq_fini(&s->send_messages);
 	nni_aio_fini(&s->time_aio);
 }
@@ -743,55 +744,8 @@ mqtt_quic_sock_close(void *arg)
 static void
 mqtt_quic_sock_send(void *arg, nni_aio *aio)
 {
-	// do not support context for now.
-	mqtt_sock_t *s   = arg;
-	mqtt_pipe_t *p   = s->pipe;
-	nni_msg *    msg, *tmsg;
-	int rv = 0;
-
-	if (nni_aio_begin(aio) != 0) {
-		return;
-	}
-
-	nni_mtx_lock(&s->mtx);
-
-	if (nni_atomic_get_bool(&s->closed)) {
-		nni_mtx_unlock(&s->mtx);
-		nni_aio_finish_error(aio, NNG_ECLOSED);
-		return;
-	}
-
-	msg   = nni_aio_get_msg(aio);
-	if (msg == NULL) {
-		nni_mtx_unlock(&s->mtx);
-		nni_aio_set_msg(aio, NULL);
-		nni_aio_finish_error(aio, NNG_EPROTO);
-		return;
-	}
-	if (p == NULL) {
-		// nni_plat_printf("connection lost! caching aio \n");
-		if (!nni_list_active(&s->send_queue, aio)) {
-			// cache aio
-			nni_list_append(&s->send_queue, aio);
-			nni_mtx_unlock(&s->mtx);
-		} else {
-			// aio is already on the list. Wrong behaviour from user
-			nni_msg_free(msg);
-			nni_mtx_unlock(&s->mtx);
-			nni_aio_set_msg(aio, NULL);
-			nni_aio_finish_error(aio, NNG_EBUSY);
-		}
-		return;
-	}
-	if ((rv = mqtt_send_msg(aio, msg, s)) >= 0) {
-		nni_mtx_unlock(&s->mtx);
-		// nni_aio_set_msg(aio, NULL);
-		nni_aio_finish(aio, rv, 0);
-		return;
-	}
-	nni_mtx_unlock(&s->mtx);
-	nni_aio_set_msg(aio, NULL);
-	return;
+	mqtt_sock_t *s = arg;
+	mqtt_quic_ctx_send(s->master, aio);
 }
 
 static void
@@ -969,8 +923,14 @@ quic_mqtt_stream_close(void *arg)
  ******************************************************************************/
 
 static void
-mqtt_quic_ctx_init(void *arg, nni_sock *sock)
+mqtt_quic_ctx_init(void *arg, void *sock)
 {
+	mqtt_quic_ctx *ctx = arg;
+	mqtt_sock_t   *s   = sock;
+
+	ctx->mqtt_sock = s;
+	NNI_LIST_NODE_INIT(&ctx->sqnode);
+	NNI_LIST_NODE_INIT(&ctx->rqnode);
 }
 
 static void
@@ -979,12 +939,61 @@ mqtt_quic_ctx_fini(void *arg)
 }
 
 static void
-mqtt_quic_ctx_recv(void *arg, nni_aio *aio)
+mqtt_quic_ctx_send(void *arg, nni_aio *aio)
 {
+	mqtt_quic_ctx *ctx = arg;
+	mqtt_sock_t   *s   = ctx->mqtt_sock;
+	mqtt_pipe_t   *p   = s->pipe;
+	nni_msg *msg;
+
+	if (nni_aio_begin(aio) != 0) {
+		return;
+	}
+
+	nni_mtx_lock(&s->mtx);
+
+	if (nni_atomic_get_bool(&s->closed)) {
+		nni_mtx_unlock(&s->mtx);
+		nni_aio_finish_error(aio, NNG_ECLOSED);
+		return;
+	}
+
+	msg = nni_aio_get_msg(aio);
+	if (msg == NULL) {
+		nni_mtx_unlock(&s->mtx);
+		nni_aio_set_msg(aio, NULL);
+		nni_aio_finish_error(aio, NNG_EPROTO);
+		return;
+	}
+
+	if (p == NULL) {
+		// connection is lost or not established yet
+		if (!nni_list_active(&s->send_queue, aio)) {
+			// cache aio
+			nni_list_append(&s->send_queue, aio);
+			nni_mtx_unlock(&s->mtx);
+		} else {
+			// aio is already on the list. Wrong behaviour from user
+			nni_msg_free(msg);
+			nni_mtx_unlock(&s->mtx);
+			nni_aio_set_msg(aio, NULL);
+			nni_aio_finish_error(aio, NNG_EBUSY);
+		}
+		return;
+	}
+	if ((rv = mqtt_send_msg(aio, msg, s)) >= 0) {
+		nni_mtx_unlock(&s->mtx);
+		// nni_aio_set_msg(aio, NULL);
+		nni_aio_finish(aio, rv, 0);
+		return;
+	}
+	nni_mtx_unlock(&s->mtx);
+	nni_aio_set_msg(aio, NULL);
+	return;
 }
 
 static void
-mqtt_quic_ctx_send(void *arg, nni_aio *aio)
+mqtt_quic_ctx_recv(void *arg, nni_aio *aio)
 {
 }
 
