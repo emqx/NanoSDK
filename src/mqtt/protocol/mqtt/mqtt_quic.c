@@ -33,6 +33,18 @@ static void mqtt_quic_sock_recv(void *arg, nni_aio *aio);
 static void mqtt_quic_send_cb(void *arg);
 static void mqtt_quic_recv_cb(void *arg);
 static void mqtt_timer_cb(void *arg);
+
+static int  quic_mqtt_stream_init(void *arg, void *qstrm, void *sock);
+static void quic_mqtt_stream_fini(void *arg);
+static void quic_mqtt_stream_start(void *arg);
+static void quic_mqtt_stream_stop(void *arg);
+static void quic_mqtt_stream_close(void *arg);
+
+static void mqtt_quic_ctx_init(void *arg, nni_sock *sock);
+static void mqtt_quic_ctx_fini(void *arg);
+static void mqtt_quic_ctx_recv(void *arg, nni_aio *aio);
+static void mqtt_quic_ctx_send(void *arg, nni_aio *aio);
+
 // TODO as same as the mqtt_client mqttv5_client. move to supplemental!
 static void  flush_offline_cache(mqtt_sock_t *s);
 static nni_msg* get_cache_msg(mqtt_sock_t *s);
@@ -630,7 +642,10 @@ mqtt_timer_cb(void *arg)
 	return;
 }
 
-/*       MQTT over Quic Sock        */
+/* MQTT over Quic Sock */
+/******************************************************************************
+ *                            Socket Implementation                           *
+ ******************************************************************************/
 
 static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 {
@@ -824,7 +839,9 @@ wait:
 	return;
 }
 
-/* Stream = Pipe */
+/******************************************************************************
+ *                          Stream(Pipe) Implementation                       *
+ ******************************************************************************/
 
 static int
 quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
@@ -897,7 +914,6 @@ quic_mqtt_stream_start(void *arg)
 	if (NULL != (msg = get_cache_msg(s))) {
 		p->busy = true;
 		nni_aio_set_msg(&p->send_aio, msg);
-		p->busy = true;
 		quic_strm_send(p->qstream, &p->send_aio);
 	}
 	if ((aio = nni_list_first(&s->send_queue)) != NULL) {
@@ -948,6 +964,30 @@ quic_mqtt_stream_close(void *arg)
 	nni_atomic_set_bool(&p->closed, true);
 }
 
+/******************************************************************************
+ *                             Context Implementation                         *
+ ******************************************************************************/
+
+static void
+mqtt_quic_ctx_init(void *arg, nni_sock *sock)
+{
+}
+
+static void
+mqtt_quic_ctx_fini(void *arg)
+{
+}
+
+static void
+mqtt_quic_ctx_recv(void *arg, nni_aio *aio)
+{
+}
+
+static void
+mqtt_quic_ctx_send(void *arg, nni_aio *aio)
+{
+}
+
 static nni_proto_pipe_ops mqtt_quic_pipe_ops = {
 	.pipe_size  = sizeof(mqtt_pipe_t),
 	.pipe_init  = quic_mqtt_stream_init,
@@ -966,6 +1006,10 @@ static nni_option mqtt_quic_ctx_options[] = {
 static nni_proto_ctx_ops mqtt_quic_ctx_ops = {
 	.ctx_size    = sizeof(mqtt_quic_ctx),
 	.ctx_options = mqtt_quic_ctx_options,
+	.ctx_init    = mqtt_quic_ctx_init,
+	.ctx_fini    = mqtt_quic_ctx_fini,
+	.ctx_recv    = mqtt_quic_ctx_recv,
+	.ctx_send    = mqtt_quic_ctx_send,
 };
 
 static nni_option mqtt_quic_sock_options[] = {
