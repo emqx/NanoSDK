@@ -34,9 +34,9 @@ static void mqtt_quic_send_cb(void *arg);
 static void mqtt_quic_recv_cb(void *arg);
 static void mqtt_timer_cb(void *arg);
 
-static int  quic_mqtt_stream_init(void *arg, void *qstrm, void *sock);
+static int  quic_mqtt_stream_init(void *arg, nni_pipe *qstrm, void *sock);
 static void quic_mqtt_stream_fini(void *arg);
-static void quic_mqtt_stream_start(void *arg);
+static int  quic_mqtt_stream_start(void *arg);
 static void quic_mqtt_stream_stop(void *arg);
 static void quic_mqtt_stream_close(void *arg);
 
@@ -60,6 +60,14 @@ struct mqtt_client_cb {
 	void *discarg;
 };
 
+struct mqtt_quic_ctx {
+	mqtt_sock_t * mqtt_sock;
+	nni_aio *     saio;
+	nni_aio *     raio;
+	nni_list_node sqnode;
+	nni_list_node rqnode;
+};
+
 // A mqtt_sock_s is our per-socket protocol private structure.
 struct mqtt_sock_s {
 	nni_atomic_bool closed;
@@ -73,7 +81,7 @@ struct mqtt_sock_s {
 	conf_bridge_node *bridge_conf;
 #endif
 	nni_mtx mtx; // more fine grained mutual exclusion
-	mqtt_ctx_t master; // to which we delegate send/recv calls
+	mqtt_quic_ctx master; // to which we delegate send/recv calls
 	// mqtt_pipe_t *   mqtt_pipe;
 	nni_list recv_queue;    // aio pending to receive
 	nni_list send_queue;    // aio pending to send
@@ -100,14 +108,6 @@ struct mqtt_pipe_s {
 	nni_aio    recv_aio;      // recv aio to the underlying transport
 	nni_aio	   rep_aio;	  // aio for resending qos msg and PINGREQ  
 	nni_lmq    recv_messages; // recv messages queue
-};
-
-struct mqtt_quic_ctx {
-	mqtt_sock_t * mqtt_sock;
-	nni_aio *     saio;
-	nni_aio *     raio;
-	nni_list_node sqnode;
-	nni_list_node rqnode;
 };
 
 static inline void
@@ -217,7 +217,7 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 
 	case NNG_MQTT_PUBLISH:
 		qos = nni_mqtt_msg_get_publish_qos(msg);
-		if (0 == qos) {
+		if (qos == 0) {
 			break; // QoS 0 need no packet id
 		}
 	case NNG_MQTT_SUBSCRIBE:
@@ -487,16 +487,17 @@ mqtt_quic_recv_cb(void *arg)
 	case NNG_MQTT_PUBLISH:
 		// we have received a PUBLISH
 		qos = nni_mqtt_msg_get_publish_qos(msg);
-		uint8_t  buf[4];
 
 		if (2 > qos) {
 			if (qos == 1) {
 				// QoS 1 return PUBACK
 				nni_msg *ack;
 				nni_mqtt_msg_alloc(&ack, 0);
+				/*
 				uint8_t *payload;
 				uint32_t payload_len;
 				payload = nng_mqtt_msg_get_publish_payload(msg, &payload_len);
+				*/
 				packet_id = nni_mqtt_msg_get_publish_packet_id(msg);
 				nni_mqtt_msg_set_packet_type(ack, NNG_MQTT_PUBACK);
 				nni_mqtt_msg_set_puback_packet_id(ack, packet_id);
@@ -534,10 +535,12 @@ mqtt_quic_recv_cb(void *arg)
 			// return PUBREC
 			nni_msg *ack;
 			nni_mqtt_msg_alloc(&ack, 0);
+			/*
 			uint8_t *payload;
 			uint32_t payload_len;
 			payload = nng_mqtt_msg_get_publish_payload(
 			    msg, &payload_len);
+			*/
 			nni_mqtt_msg_set_packet_type(ack, NNG_MQTT_PUBREC);
 			nni_mqtt_msg_set_puback_packet_id(ack, packet_id);
 			nni_mqtt_msg_encode(ack);
@@ -606,8 +609,6 @@ mqtt_timer_cb(void *arg)
 	}
 
 	// start message resending
-	uint64_t row_id = 0;
-
 	msg = nni_id_get_any(&p->sent_unack, &pid);
 	if (msg != NULL) {
 		uint16_t ptype;
@@ -695,7 +696,7 @@ mqtt_quic_sock_fini(void *arg)
 		nni_lmq_fini(&s->offline_cache);
 	}
 #endif
-	mqtt_ctx_fini(&s->master);
+	mqtt_quic_ctx_fini(&s->master);
 	nni_lmq_fini(&s->send_messages);
 	nni_aio_fini(&s->time_aio);
 }
@@ -745,7 +746,7 @@ static void
 mqtt_quic_sock_send(void *arg, nni_aio *aio)
 {
 	mqtt_sock_t *s = arg;
-	mqtt_quic_ctx_send(s->master, aio);
+	mqtt_quic_ctx_send(&s->master, aio);
 }
 
 static void
@@ -760,7 +761,7 @@ mqtt_quic_sock_recv(void *arg, nni_aio *aio)
  ******************************************************************************/
 
 static int
-quic_mqtt_stream_init(void *arg, void *qstrm, void *sock)
+quic_mqtt_stream_init(void *arg,nni_pipe *qstrm, void *sock)
 {
 	mqtt_pipe_t *p = arg;
 	p->qstream = qstrm;
@@ -814,7 +815,7 @@ quic_mqtt_stream_fini(void *arg)
 	}
 }
 
-static void
+static int
 quic_mqtt_stream_start(void *arg)
 {
 	mqtt_pipe_t *p = arg;
@@ -840,12 +841,12 @@ quic_mqtt_stream_start(void *arg)
 			nni_mtx_unlock(&s->mtx);
 			nni_aio_finish(aio, rv, 0);
 			quic_strm_recv(p->qstream, &p->recv_aio);
-			return;
+			return 0;
 		}
 	}
 	nni_mtx_unlock(&s->mtx);
 	quic_strm_recv(p->qstream, &p->recv_aio);
-	return;
+	return 0;
 }
 
 static void
@@ -898,6 +899,7 @@ mqtt_quic_ctx_init(void *arg, void *sock)
 static void
 mqtt_quic_ctx_fini(void *arg)
 {
+	NNI_ARG_UNUSED(arg);
 }
 
 static void
@@ -907,6 +909,7 @@ mqtt_quic_ctx_send(void *arg, nni_aio *aio)
 	mqtt_sock_t   *s   = ctx->mqtt_sock;
 	mqtt_pipe_t   *p   = s->pipe;
 	nni_msg *msg;
+	int rv;
 
 	if (nni_aio_begin(aio) != 0) {
 		return;
