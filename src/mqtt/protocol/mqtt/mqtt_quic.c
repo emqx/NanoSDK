@@ -110,6 +110,8 @@ struct mqtt_pipe_s {
 	nni_lmq    recv_messages; // recv messages queue
 };
 
+
+
 static inline void
 mqtt_pipe_recv_msgq_putq(mqtt_pipe_t *p, nni_msg *msg)
 {
@@ -126,6 +128,28 @@ mqtt_pipe_recv_msgq_putq(mqtt_pipe_t *p, nni_msg *msg)
 		// nni_lmq_put(&p->recv_messages, msg);
 		nni_msg_free(msg);
 	}
+}
+
+static inline bool
+get_persist(mqtt_sock_t *s)
+{
+#ifdef NNG_HAVE_MQTT_BROKER
+	return s->bridge_conf != NULL ? s->bridge_conf->sqlite->enable : false;
+#else
+	NNI_ARG_UNUSED(s);
+	return false;
+#endif
+}
+
+static inline char *
+get_config_name(mqtt_sock_t *s)
+{
+#ifdef NNG_HAVE_MQTT_BROKER
+	return s->bridge_conf != NULL ? s->bridge_conf->name : NULL;
+#else
+	NNI_ARG_UNUSED(s);
+	return NULL;
+#endif
 }
 
 static uint16_t
