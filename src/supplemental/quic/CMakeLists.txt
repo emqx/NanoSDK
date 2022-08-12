@@ -11,6 +11,7 @@ if (NNG_ENABLE_QUIC)
     # We assume msquic for now.
     set(NNG_QUIC_LIB msquic CACHE STRING "QUIC lib to use.")
     add_subdirectory(msquic)
+    include_directories(${PROJECT_SOURCE_DIR}/extern/msquic)
 
     nng_sources(quic_api.c)
     nng_sources(quic_api.h)
