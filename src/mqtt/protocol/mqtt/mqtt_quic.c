@@ -752,45 +752,7 @@ static void
 mqtt_quic_sock_recv(void *arg, nni_aio *aio)
 {
 	mqtt_sock_t *s   = arg;
-	mqtt_pipe_t *p   = s->pipe;
-	nni_msg     *msg = NULL;
-
-	if (nni_aio_begin(aio) != 0) {
-		return;
-	}
-
-	nni_mtx_lock(&s->mtx);
-	if ( p == NULL ) {
-		goto wait;
-	} 
-
-	if (nni_atomic_get_bool(&s->closed) || nni_atomic_get_bool(&p->closed)) {
-		nni_mtx_unlock(&s->mtx);
-		nni_aio_finish_error(aio, NNG_ECLOSED);
-		return;
-	}
-
-	if (nni_lmq_get(&p->recv_messages, &msg) == 0) {
-		nni_aio_set_msg(aio, msg);
-		nni_mtx_unlock(&s->mtx);
-		//let user gets a quick reply
-		nni_aio_finish(aio, 0, nni_msg_len(msg));
-		return;
-	}
-	// no open pipe or msg wating
-wait:
-	// nni_plat_printf("connection lost! caching aio \n");
-	if (!nni_list_active(&s->recv_queue, aio)) {
-		// cache aio
-		nni_list_append(&s->recv_queue, aio);
-		nni_mtx_unlock(&s->mtx);
-	} else {
-		nni_mtx_unlock(&s->mtx);
-		nni_aio_set_msg(aio, NULL);
-		// nni_println("ERROR! former aio not finished!");
-		nni_aio_finish_error(aio, NNG_EBUSY);
-	}
-	return;
+	mqtt_quic_ctx_recv(&s->master, aio);
 }
 
 /******************************************************************************
@@ -995,6 +957,47 @@ mqtt_quic_ctx_send(void *arg, nni_aio *aio)
 static void
 mqtt_quic_ctx_recv(void *arg, nni_aio *aio)
 {
+	mqtt_quic_ctx *ctx = arg;
+	mqtt_sock_t *s   = ctx->mqtt_sock;
+	mqtt_pipe_t *p   = s->pipe;
+	nni_msg     *msg = NULL;
+
+	if (nni_aio_begin(aio) != 0) {
+		return;
+	}
+
+	nni_mtx_lock(&s->mtx);
+	if (p == NULL) {
+		goto wait;
+	}
+
+	if (nni_atomic_get_bool(&s->closed) || nni_atomic_get_bool(&p->closed)) {
+		nni_mtx_unlock(&s->mtx);
+		nni_aio_finish_error(aio, NNG_ECLOSED);
+		return;
+	}
+
+	if (nni_lmq_get(&p->recv_messages, &msg) == 0) {
+		nni_aio_set_msg(aio, msg);
+		nni_mtx_unlock(&s->mtx);
+		//let user gets a quick reply
+		nni_aio_finish(aio, 0, nni_msg_len(msg));
+		return;
+	}
+	// no open pipe or msg wating
+wait:
+	// nni_plat_printf("connection lost! caching aio \n");
+	if (!nni_list_active(&s->recv_queue, aio)) {
+		// cache aio
+		nni_list_append(&s->recv_queue, aio);
+		nni_mtx_unlock(&s->mtx);
+	} else {
+		nni_mtx_unlock(&s->mtx);
+		nni_aio_set_msg(aio, NULL);
+		// nni_println("ERROR! former aio not finished!");
+		nni_aio_finish_error(aio, NNG_EBUSY);
+	}
+	return;
 }
 
 static nni_proto_pipe_ops mqtt_quic_pipe_ops = {
