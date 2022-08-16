@@ -620,6 +620,7 @@ mqtt_timer_cb(void *arg)
 	}
 	nni_mtx_lock(&s->mtx);
 	if (NULL == p || nni_atomic_get_bool(&p->closed)) {
+		nni_mtx_unlock(&s->mtx);
 		return;
 	}
 	s->counter += s->retry;
