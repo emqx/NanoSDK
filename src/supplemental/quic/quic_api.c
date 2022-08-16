@@ -427,6 +427,7 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		// Close and finite nng pipe ONCE disconnect
 		if (qstrm->pipe) {
 			pipe_ops->pipe_fini(qstrm->pipe);
+			nng_free(qstrm->pipe, 0);
 		}
 
 		if (qstrm->rticket_active) {
