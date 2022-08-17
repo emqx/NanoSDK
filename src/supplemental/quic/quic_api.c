@@ -14,8 +14,8 @@
 #include <time.h>
 #include <unistd.h>
 
-#define QUIC_API_C_DEBUG 0
-#define QUIC_API_C_INFO 0
+#define QUIC_API_C_DEBUG 1
+#define QUIC_API_C_INFO 1
 
 #if QUIC_API_C_DEBUG
 #define qdebug(fmt, ...)                                                 \
@@ -50,7 +50,6 @@ struct quic_strm_s {
 	nni_lmq  recv_messages; // recv messages queue
 	nni_lmq  send_messages; // send messages queue
 
-	nni_aio  rraio; // Use for re-receive when packet length is not enough
 	uint32_t rxlen; // Length received
 	uint32_t rwlen; // Length wanted
 	uint8_t  rxbuf[5];
@@ -140,8 +139,6 @@ quic_strm_init(quic_strm_t *qstrm)
 	nni_lmq_init(&qstrm->recv_messages, NNG_MAX_RECV_LMQ);
 	nni_lmq_init(&qstrm->send_messages, NNG_MAX_SEND_LMQ);
 
-	nni_aio_init(&qstrm->rraio, quic_strm_recv_start, qstrm);
-
 	qstrm->rxlen = 0;
 	qstrm->rxmsg = NULL;
 
@@ -187,7 +184,6 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			nni_mtx_unlock(&qstrm->mtx);
 			smsg = nni_aio_get_msg(aio);
 			nni_msg_free(smsg);
-			printf("aio found!!!! finish aio\n");
 			nni_aio_finish_sync(aio, 0, 0);
 			break;
 		}
@@ -204,12 +200,14 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		qdebug("Body is [%d]-[0x%x 0x%x].\n", rlen, *(rbuf), *(rbuf + 1));
 
 		// Not get enough len, wait to be re-schedule
+		nni_mtx_lock(&qstrm->mtx);
 		if (Event->RECEIVE.Buffers->Length + qstrm->rxlen < qstrm->rwlen ||
 		    count == 0) {
 			if (!nni_list_empty(&qstrm->recvq)) {
 				quic_strm_recv_start(qstrm);
 			}
 			// TODO I'am not sure if the buffer in msquic would be free
+			nni_mtx_unlock(&qstrm->mtx);
 			return QUIC_STATUS_PENDING;
 		}
 
@@ -237,11 +235,10 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 				qstrm->rwlen = n + 3;
 
 			// Wait to be re-schedule
-			// aio = &qstrm->rraio;
-			// nni_aio_finish_sync(aio, 0, 1);
 			if (!nni_list_empty(&qstrm->recvq)) {
 				quic_strm_recv_start(qstrm);
 			}
+			nni_mtx_unlock(&qstrm->mtx);
 			// TODO I'am not sure if the buffer in msquic would be free
 			qdebug("1after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 			return QUIC_STATUS_PENDING;
@@ -296,11 +293,10 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 				nni_msg_append(qstrm->rxmsg, qstrm->rxbuf + 2, 3);
 			} else {
 				// Wait to be re-schedule
-				// nni_aio * aio = &qstrm->rraio;
-				// nni_aio_finish(aio, 0, 1);
 				if (!nni_list_empty(&qstrm->recvq)) {
 					quic_strm_recv_start(qstrm);
 				}
+				nni_mtx_unlock(&qstrm->mtx);
 				// TODO I'am not sure if the buffer in msquic would be free
 				qdebug("3after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 				return QUIC_STATUS_PENDING;
@@ -329,10 +325,9 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		}
 		qdebug("4after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 
-upload:		// get aio and trigger cb of protocol layer
-		nni_mtx_lock(&qstrm->mtx);
+upload: ;
+		// get aio and trigger cb of protocol layer
 		nni_aio *aio = nni_list_first(&qstrm->recvq);
-		qdebug("get aio from list!!!!!!****************\n");
 		nni_aio_list_remove(aio);
 		nni_mtx_unlock(&qstrm->mtx);
 
@@ -847,7 +842,6 @@ quic_strm_recv(void *arg, nni_aio *raio)
 int
 quic_strm_send(void *arg, nni_aio *aio)
 {
-	int          rv;
 	quic_strm_t *qstrm = arg;
 
 	if (nni_aio_begin(aio) != 0) {
