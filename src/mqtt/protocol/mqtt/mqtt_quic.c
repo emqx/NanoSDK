@@ -443,6 +443,7 @@ mqtt_quic_recv_cb(void *arg)
 
 	int32_t       packet_id;
 	uint8_t       qos;
+	nni_msg      *ack;
 
 	// schedule another receive
 	quic_strm_recv(p->qstream, &p->recv_aio);
@@ -488,7 +489,6 @@ mqtt_quic_recv_cb(void *arg)
 		nni_id_remove(&p->recv_unack, packet_id);
 
 		// return PUBCOMP
-		nni_msg *ack;
 		nni_mqtt_msg_alloc(&ack, 0);
 		packet_id = nni_mqtt_msg_get_pubrel_packet_id(msg);
 		nni_mqtt_msg_set_packet_type(ack, NNG_MQTT_PUBCOMP);
@@ -514,7 +514,6 @@ mqtt_quic_recv_cb(void *arg)
 		if (2 > qos) {
 			if (qos == 1) {
 				// QoS 1 return PUBACK
-				nni_msg *ack;
 				nni_mqtt_msg_alloc(&ack, 0);
 				/*
 				uint8_t *payload;
@@ -556,7 +555,6 @@ mqtt_quic_recv_cb(void *arg)
 			}
 			nni_id_set(&p->recv_unack, packet_id, msg);
 			// return PUBREC
-			nni_msg *ack;
 			nni_mqtt_msg_alloc(&ack, 0);
 			/*
 			uint8_t *payload;
@@ -579,6 +577,14 @@ mqtt_quic_recv_cb(void *arg)
 		nni_mtx_unlock(&s->mtx);
 		return;
 	case NNG_MQTT_PUBREC:
+		// return PUBREL
+		packet_id = nni_mqtt_msg_get_pubrec_packet_id(msg);
+		nni_mqtt_msg_alloc(&ack, 0);
+		nni_mqtt_msg_set_packet_type(ack, NNG_MQTT_PUBREL);
+		nni_mqtt_msg_set_puback_packet_id(ack, packet_id);
+		nni_mqtt_msg_encode(ack);
+		// ignore result of this send ?
+		mqtt_send_msg(NULL, ack, s);
 		nni_msg_free(msg);
 		nni_mtx_unlock(&s->mtx);
 		return;
