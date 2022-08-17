@@ -187,7 +187,8 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 			nni_mtx_unlock(&qstrm->mtx);
 			smsg = nni_aio_get_msg(aio);
 			nni_msg_free(smsg);
-			nni_aio_finish(aio, 0, 0);
+			printf("aio found!!!! finish aio\n");
+			nni_aio_finish_sync(aio, 0, 0);
 			break;
 		}
 		quic_strm_send_start(qstrm);
@@ -203,9 +204,11 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		qdebug("Body is [%d]-[0x%x 0x%x].\n", rlen, *(rbuf), *(rbuf + 1));
 
 		// Not get enough len, wait to be re-schedule
-		if (Event->RECEIVE.Buffers->Length + qstrm->rxlen < qstrm->rwlen || count == 0) {
-			nni_aio * aio = &qstrm->rraio;
-			nni_aio_finish(aio, 0, 1);
+		if (Event->RECEIVE.Buffers->Length + qstrm->rxlen < qstrm->rwlen ||
+		    count == 0) {
+			if (!nni_list_empty(&qstrm->recvq)) {
+				quic_strm_recv_start(qstrm);
+			}
 			// TODO I'am not sure if the buffer in msquic would be free
 			return QUIC_STATUS_PENDING;
 		}
@@ -234,8 +237,11 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 				qstrm->rwlen = n + 3;
 
 			// Wait to be re-schedule
-			aio = &qstrm->rraio;
-			nni_aio_finish(aio, 0, 1);
+			// aio = &qstrm->rraio;
+			// nni_aio_finish_sync(aio, 0, 1);
+			if (!nni_list_empty(&qstrm->recvq)) {
+				quic_strm_recv_start(qstrm);
+			}
 			// TODO I'am not sure if the buffer in msquic would be free
 			qdebug("1after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 			return QUIC_STATUS_PENDING;
@@ -290,8 +296,11 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 				nni_msg_append(qstrm->rxmsg, qstrm->rxbuf + 2, 3);
 			} else {
 				// Wait to be re-schedule
-				nni_aio * aio = &qstrm->rraio;
-				nni_aio_finish(aio, 0, 1);
+				// nni_aio * aio = &qstrm->rraio;
+				// nni_aio_finish(aio, 0, 1);
+				if (!nni_list_empty(&qstrm->recvq)) {
+					quic_strm_recv_start(qstrm);
+				}
 				// TODO I'am not sure if the buffer in msquic would be free
 				qdebug("3after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
 				return QUIC_STATUS_PENDING;
@@ -323,6 +332,7 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 upload:		// get aio and trigger cb of protocol layer
 		nni_mtx_lock(&qstrm->mtx);
 		nni_aio *aio = nni_list_first(&qstrm->recvq);
+		qdebug("get aio from list!!!!!!****************\n");
 		nni_aio_list_remove(aio);
 		nni_mtx_unlock(&qstrm->mtx);
 
@@ -330,8 +340,9 @@ upload:		// get aio and trigger cb of protocol layer
 			// Set msg and remove from list and finish
 			nni_aio_set_msg(aio, qstrm->rxmsg);
 			qstrm->rxmsg = NULL;
-			nni_aio_finish(aio, 0, 0);
+			nni_aio_finish_sync(aio, 0, 0);
 		}
+		qdebug("over\n");
 		return QUIC_STATUS_PENDING;
 
 	case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
@@ -733,9 +744,6 @@ quic_strm_send_start(quic_strm_t *qstrm)
 
 	uint8_t type = (((uint8_t *)nni_msg_header(msg))[0] & 0xf0) >> 4;
 	qdebug("type is 0x%x %x.\n", type, ((uint8_t *)nni_msg_header(msg))[0]);
-	if (type == 1) {
-		qdebug("clientid is %s.\n", nng_mqtt_msg_get_connect_client_id(msg));
-	}
 
 	if (!buf)
 		qdebug("error in iov.\n");
