@@ -14,8 +14,8 @@
 #include <time.h>
 #include <unistd.h>
 
-#define QUIC_API_C_DEBUG 1
-#define QUIC_API_C_INFO 1
+#define QUIC_API_C_DEBUG 0
+#define QUIC_API_C_INFO 0
 
 #if QUIC_API_C_DEBUG
 #define qdebug(fmt, ...)                                                 \

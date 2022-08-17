@@ -250,7 +250,6 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 		nni_mqtt_msg_set_packet_id(msg, packet_id);
 		nni_mqtt_msg_set_aio(msg, aio);
 		tmsg = nni_id_get(&p->sent_unack, packet_id);
-		printf("pid %ld cached !!!!!!!\n", packet_id);
 		if (tmsg != NULL) {
 			nni_plat_printf("Warning : msg %d lost due to "
 			                "packetID duplicated!",
@@ -277,7 +276,6 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 		nni_aio_set_msg(&p->send_aio, msg);
 		p->busy = true;
 		quic_strm_send(p->qstream, &p->send_aio);
-		printf("quic send completed !!!!!!!\n");
 	} else {
 		if (nni_lmq_full(&s->send_messages)) {
 			(void) nni_lmq_get(&s->send_messages, &tmsg);
@@ -347,12 +345,10 @@ mqtt_quic_send_cb(void *arg)
 	nni_msg *    msg = NULL;
 	nni_aio * aio;
 
-	printf("send cb !!!!!!!!!!!\n");
 	if (nni_aio_result(&p->send_aio) != 0) {
 		// We failed to send... clean up and deal with it.
 		nni_msg_free(nni_aio_get_msg(&p->send_aio));
 		nni_aio_set_msg(&p->send_aio, NULL);
-		printf("error!!!!!!!!!!!");
 		// TODO close quic stream
 		return;
 	}
@@ -478,7 +474,6 @@ mqtt_quic_recv_cb(void *arg)
 			// 	nni_aio_set_msg(user_aio, msg);
 			// }
 			nni_msg_free(cached_msg);
-			printf("pid %ld removed!!!!!!!!!\n", packet_id);
 		}
 		nni_msg_free(msg);
 		break;
@@ -580,7 +575,6 @@ mqtt_quic_recv_cb(void *arg)
 		// PINGRESP is ignored in protocol layer
 		// Rely on health checker of Quic stream
 		// free msg
-		printf("got pingresp!!!!!!!!!\n");
 		nni_msg_free(msg);
 		nni_mtx_unlock(&s->mtx);
 		return;
@@ -591,7 +585,6 @@ mqtt_quic_recv_cb(void *arg)
 	default:
 		// unexpected packet type, server misbehaviour
 		nni_msg_free(msg);
-		printf("unknown msg!!!!!!!!!\n");
 		nni_mtx_unlock(&s->mtx);
 		// close quic stream
 		// nni_pipe_close(p->pipe);
@@ -819,7 +812,6 @@ quic_mqtt_stream_init(void *arg,nni_pipe *qstrm, void *sock)
 static void
 quic_mqtt_stream_fini(void *arg)
 {
-	nni_plat_printf("quic_mqtt_stream_finit.\n");
 	mqtt_pipe_t *p = arg;
 	mqtt_sock_t *s = p->mqtt_sock;
 
