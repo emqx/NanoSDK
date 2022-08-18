@@ -490,7 +490,6 @@ mqtt_quic_recv_cb(void *arg)
 
 		// return PUBCOMP
 		nni_mqtt_msg_alloc(&ack, 0);
-		packet_id = nni_mqtt_msg_get_pubrel_packet_id(msg);
 		nni_mqtt_msg_set_packet_type(ack, NNG_MQTT_PUBCOMP);
 		nni_mqtt_msg_set_puback_packet_id(ack, packet_id);
 		nni_mqtt_msg_encode(ack);
@@ -556,12 +555,6 @@ mqtt_quic_recv_cb(void *arg)
 			nni_id_set(&p->recv_unack, packet_id, msg);
 			// return PUBREC
 			nni_mqtt_msg_alloc(&ack, 0);
-			/*
-			uint8_t *payload;
-			uint32_t payload_len;
-			payload = nng_mqtt_msg_get_publish_payload(
-			    msg, &payload_len);
-			*/
 			nni_mqtt_msg_set_packet_type(ack, NNG_MQTT_PUBREC);
 			nni_mqtt_msg_set_puback_packet_id(ack, packet_id);
 			nni_mqtt_msg_encode(ack);
