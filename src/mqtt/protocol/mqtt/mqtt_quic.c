@@ -9,11 +9,11 @@
 
 #include "nng/mqtt/mqtt_quic.h"
 #include "core/nng_impl.h"
+#include "nng/protocol/mqtt/mqtt.h"
 #include "supplemental/quic/quic_api.h"
 #include "supplemental/mqtt/mqtt_msg.h"
 #include "supplemental/mqtt/mqtt_qos_db_api.h"
 
-#define NANO_CONF "nano:conf"
 #define NNG_MQTT_SELF 0
 #define NNG_MQTT_SELF_NAME "mqtt-client"
 #define NNG_MQTT_PEER 0
@@ -74,10 +74,12 @@ struct mqtt_sock_s {
 	nni_atomic_bool closed;
 	nni_duration    retry;
 	mqtt_pipe_t    *pipe;
+	/*
 #ifdef NNG_SUPP_SQLITE
 	sqlite3 *sqlite_db;
 	nni_lmq  offline_cache;
 #endif
+	*/
 #ifdef NNG_HAVE_MQTT_BROKER
 	conf_bridge_node *bridge_conf;
 #endif
@@ -134,23 +136,27 @@ mqtt_pipe_recv_msgq_putq(mqtt_pipe_t *p, nni_msg *msg)
 static inline bool
 get_persist(mqtt_sock_t *s)
 {
+	/*
 #ifdef NNG_HAVE_MQTT_BROKER
 	return s->bridge_conf != NULL ? s->bridge_conf->sqlite->enable : false;
 #else
 	NNI_ARG_UNUSED(s);
 	return false;
 #endif
+*/
 }
 
 static inline char *
 get_config_name(mqtt_sock_t *s)
 {
+	/*
 #ifdef NNG_HAVE_MQTT_BROKER
 	return s->bridge_conf != NULL ? s->bridge_conf->name : NULL;
 #else
 	NNI_ARG_UNUSED(s);
 	return NULL;
 #endif
+	*/
 }
 
 static uint16_t
@@ -168,12 +174,54 @@ mqtt_pipe_get_next_packet_id(mqtt_pipe_t *p)
 static void
 flush_offline_cache(mqtt_sock_t *s)
 {
+	/*
+#if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
+	if (s->bridge_conf) {
+		char *config_name = get_config_name(s);
+		nni_mqtt_qos_db_set_client_offline_msg_batch(s->sqlite_db,
+		    &s->offline_cache, config_name,
+		    MQTT_PROTOCOL_VERSION_v311);
+		nni_mqtt_qos_db_remove_oldest_client_offline_msg(s->sqlite_db,
+		    s->bridge_conf->sqlite->disk_cache_size, config_name);
+	}
+#else
+	NNI_ARG_UNUSED(s);
+#endif
+	*/
 }
 
 static inline nni_msg *
 get_cache_msg(mqtt_sock_t *s)
 {
 	nni_msg *msg = NULL;
+	/*
+#if defined(NNG_HAVE_MQTT_BROKER)
+	if (s->bridge_conf == NULL) {
+		return NULL;
+	}
+	conf_sqlite *sqlite = s->bridge_conf->sqlite;
+#if defined(NNG_SUPP_SQLITE)
+	if (sqlite->enable) {
+		int64_t row_id = 0;
+
+		msg = nni_mqtt_qos_db_get_client_offline_msg(
+		    s->sqlite_db, &row_id, get_config_name(s));
+		if (!nni_lmq_empty(&s->offline_cache)) {
+			flush_offline_cache(s);
+		}
+		if (msg != NULL) {
+			nni_mqtt_qos_db_remove_client_offline_msg(
+			    s->sqlite_db, row_id);
+		}
+	}
+#else
+	NNI_ARG_UNUSED(sqlite);
+	return NULL;
+#endif
+#else
+	return NULL;
+#endif
+	*/
 	return msg;
 }
 
@@ -266,6 +314,39 @@ static int
 quic_sock_set_conf_with_db(void *arg, const void *v, size_t sz, nni_opt_type t)
 {
 	NNI_ARG_UNUSED(sz);
+	/*
+#ifdef NNG_HAVE_MQTT_BROKER
+	mqtt_sock_t *s = arg;
+	if (t == NNI_TYPE_OPAQUE) {
+		nni_mtx_lock(&s->mtx);
+		s->bridge_conf = (conf_bridge_node *) v;
+
+#ifdef NNG_SUPP_SQLITE
+		conf_bridge_node *bridge_conf = s->bridge_conf;
+		if (bridge_conf != NULL && bridge_conf->sqlite->enable) {
+			s->retry = bridge_conf->sqlite->resend_interval;
+			nni_lmq_init(&s->offline_cache,
+			    bridge_conf->sqlite->flush_mem_threshold);
+			nni_qos_db_init_sqlite(s->sqlite_db,
+			    bridge_conf->sqlite->mounted_file_path, DB_NAME,
+			    false);
+			nni_qos_db_reset_client_msg_pipe_id(
+			    bridge_conf->sqlite->enable, s->sqlite_db,
+			    bridge_conf->name);
+			nni_mqtt_qos_db_set_client_info(s->sqlite_db,
+			    bridge_conf->name, NULL, "MQTT",
+			    bridge_conf->proto_ver);
+		}
+#endif
+		nni_mtx_unlock(&s->mtx);
+		return 0;
+	}
+#else
+	NNI_ARG_UNUSED(arg);
+	NNI_ARG_UNUSED(v);
+	NNI_ARG_UNUSED(t);
+#endif
+	*/
 	return NNG_EUNREACHABLE;
 }
 
@@ -327,6 +408,7 @@ mqtt_quic_send_cb(void *arg)
 		nni_mtx_unlock(&s->mtx);
 		return;
 	}
+	nni_aio_set_msg(&p->send_aio, NULL);
 	p->busy = false;
 	nni_mtx_unlock(&s->mtx);
 
@@ -382,7 +464,6 @@ mqtt_quic_recv_cb(void *arg)
 	
 	switch (packet_type) {
 	case NNG_MQTT_CONNACK:
-		nni_msg_free(msg);
 		break;
 	case NNG_MQTT_PUBACK:
 		// we have received a PUBACK, successful delivery of a QoS 1
@@ -401,11 +482,11 @@ mqtt_quic_recv_cb(void *arg)
 			nni_id_remove(&p->sent_unack, packet_id);
 			user_aio = nni_mqtt_msg_get_aio(cached_msg);
 			// should we support sub/unsub cb here?
-			// if (packet_type == NNG_MQTT_SUBACK ||
-			//     packet_type == NNG_MQTT_UNSUBACK) {
-			// 	nni_msg_clone(msg);
-			// 	nni_aio_set_msg(user_aio, msg);
-			// }
+			if (packet_type == NNG_MQTT_SUBACK ||
+			    packet_type == NNG_MQTT_UNSUBACK) {
+				nni_msg_clone(msg);
+				nni_aio_set_msg(user_aio, msg);
+			}
 			nni_msg_free(cached_msg);
 		}
 		nni_msg_free(msg);
@@ -621,6 +702,14 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 	nni_mtx_init(&s->mtx);
 	mqtt_quic_ctx_init(&s->master, s);
 
+	/*
+#if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
+	nni_qos_db_init_sqlite(s->sqlite_db,
+	    s->bridge_conf->sqlite->mounted_file_path, DB_NAME, false);
+	nni_qos_db_reset_client_msg_pipe_id(s->bridge_conf->sqlite->enable,
+	    s->sqlite_db, s->bridge_conf->name);
+#endif
+	*/
 	nni_lmq_init(&s->send_messages, NNG_MAX_SEND_LMQ);
 	nni_aio_list_init(&s->send_queue);
 	nni_aio_list_init(&s->recv_queue);
@@ -638,6 +727,15 @@ static void
 mqtt_quic_sock_fini(void *arg)
 {
 	mqtt_sock_t *s = arg;
+	/*
+#if defined(NNG_SUPP_SQLITE) && defined(NNG_HAVE_MQTT_BROKER)
+	bool is_sqlite = get_persist(s);
+	if (is_sqlite) {
+		nni_qos_db_fini_sqlite(s->sqlite_db);
+		nni_lmq_fini(&s->offline_cache);
+	}
+#endif
+	*/
 	mqtt_quic_ctx_fini(&s->master);
 	nni_lmq_fini(&s->send_messages);
 	nni_aio_fini(&s->time_aio);
@@ -746,9 +844,11 @@ quic_mqtt_stream_fini(void *arg)
 	nni_aio_fini(&p->send_aio);
 	nni_aio_fini(&p->recv_aio);
 	nni_aio_fini(&p->rep_aio);
+	/*
 #if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
 	nni_id_map_fini(&p->sent_unack);
 #endif
+	*/
 	nni_id_map_fini(&p->recv_unack);
 	nni_lmq_fini(&p->recv_messages);
 	if (s->cb.disconnect_cb != NULL) {
@@ -813,9 +913,11 @@ quic_mqtt_stream_close(void *arg)
 	nni_aio_close(&p->rep_aio);
 	nni_lmq_flush(&p->recv_messages);
 	nni_lmq_flush(&s->send_messages);
+	/*
 #if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
 	nni_id_map_foreach(&p->sent_unack, mqtt_close_unack_msg_cb);
 #endif
+	*/
 	nni_id_map_foreach(&p->recv_unack, mqtt_close_unack_msg_cb);
 	nni_mtx_unlock(&s->mtx);
 
