@@ -55,10 +55,17 @@ struct quic_strm_s {
 	uint8_t  rxbuf[5];
 	nni_msg *rxmsg; // nng_msg for received
 
+	nni_aio  rraio;
+	uint8_t *rrbuf; // Buffer for remaining packet
+	uint32_t rrlen; // Length of rrbuf
+	uint32_t rrpos; // Start position of rrbuf
+	uint32_t rrcap; // Start position of rrbuf
+
 	uint8_t  rticket[2048];
 	uint16_t rticket_sz;
 	bool     rticket_active;
 	nng_url *url_s;
+	conn_param *cparam;
 };
 
 // Config for msquic
@@ -78,10 +85,10 @@ static int     quic_strm_start(HQUIC Connection, void *Context, HQUIC *Streamp, 
 static int     quic_strm_close(HQUIC Connection, HQUIC Stream);
 static void    quic_strm_send_cancel(nni_aio *aio, void *arg, int rv);
 static void    quic_strm_send_start(quic_strm_t *qstrm);
-static void    quic_strm_recv_cb();
+static void    quic_strm_recv_cb(void *arg);
+static void    quic_strm_recv_start(void *arg);
 static void    quic_strm_init(quic_strm_t *qstrm);
 static void    quic_strm_fini(quic_strm_t *qstrm);
-static void    quic_strm_recv_start(void *arg);
 static int     quic_reconnect(quic_strm_t *qstrm);
 
 // Helper function to load a client configuration.
@@ -90,7 +97,7 @@ LoadConfiguration(BOOLEAN Unsecure)
 {
 	QUIC_SETTINGS Settings = { 0 };
 	// Configures the client's idle timeout.
-	Settings.IdleTimeoutMs       = 60*1000;
+	Settings.IdleTimeoutMs       = 100*1000;
 	Settings.IsSet.IdleTimeoutMs = TRUE;
 
 	// Configures a default client configuration, optionally disabling
@@ -139,12 +146,20 @@ quic_strm_init(quic_strm_t *qstrm)
 	nni_lmq_init(&qstrm->recv_messages, NNG_MAX_RECV_LMQ);
 	nni_lmq_init(&qstrm->send_messages, NNG_MAX_SEND_LMQ);
 
+	nni_aio_init(&qstrm->rraio, quic_strm_recv_cb, qstrm);
+
 	qstrm->rxlen = 0;
 	qstrm->rxmsg = NULL;
+
+	qstrm->rrbuf = NULL;
+	qstrm->rrlen = 0;
+	qstrm->rrpos = 0;
+	qstrm->rrcap = 0;
 
 	qstrm->url_s = NULL;
 	qstrm->rticket_sz = 0;
 	qstrm->rticket_active = false;
+	conn_param_alloc(&qstrm->cparam);
 }
 
 static void
@@ -152,6 +167,14 @@ quic_strm_fini(quic_strm_t *qstrm)
 {
 	if (qstrm->rxmsg)
 		free(qstrm->rxmsg);
+	if (qstrm->rrbuf)
+		free(qstrm->rrbuf);
+
+	conn_param_free(qstrm->cparam);
+
+	nni_lmq_fini(&qstrm->recv_messages);
+	nni_lmq_fini(&qstrm->send_messages);
+
 	return;
 }
 
@@ -163,10 +186,9 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
         _Inout_ QUIC_STREAM_EVENT *Event)
 {
 	quic_strm_t *qstrm = Context;
-	int rlen, n;
-	uint32_t remain_len;
-	uint8_t *rbuf, usedbytes;
-	nni_msg *rmsg, *smsg;
+	uint32_t rlen;
+	uint8_t *rbuf;
+	nni_msg *smsg;
 	nni_aio *aio;
 
 	switch (Event->Type) {
@@ -199,145 +221,31 @@ QuicStreamCallback(_In_ HQUIC Stream, _In_opt_ void *Context,
 		qinfo("[strm][%p] Data received\n", Stream);
 		qdebug("Body is [%d]-[0x%x 0x%x].\n", rlen, *(rbuf), *(rbuf + 1));
 
-		// Not get enough len, wait to be re-schedule
 		nni_mtx_lock(&qstrm->mtx);
-		if (Event->RECEIVE.Buffers->Length + qstrm->rxlen < qstrm->rwlen ||
-		    count == 0) {
-			if (!nni_list_empty(&qstrm->recvq)) {
-				quic_strm_recv_start(qstrm);
-			}
-			// TODO I'am not sure if the buffer in msquic would be free
+
+		// Get all the buffers in quic stream
+		if (count == 0 || rlen <= 0) {
 			nni_mtx_unlock(&qstrm->mtx);
 			return QUIC_STATUS_PENDING;
 		}
 
-		qdebug("before rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
-
-		// Already get 2 Bytes
-		if (qstrm->rxlen == 0) {
-			n = 2; // new
-			memcpy(qstrm->rxbuf, rbuf, n);
-			qstrm->rxlen = 0 + n;
-			MsQuic->StreamReceiveComplete(qstrm->stream, n);
-			if (qstrm->rxbuf[1] == 0) {
-				// 0 remaining length could be
-				// PINGRESP/DISCONNECT
-				if (0 != nng_msg_alloc(&qstrm->rxmsg, 0)) {
-					qdebug("error in msg allocated.\n");
-				}
-				nni_msg_header_append(
-				    qstrm->rxmsg, qstrm->rxbuf, 2);
-				goto upload;
-			}
-			if (qstrm->rxbuf[1] == 2)
-				qstrm->rwlen = n + 2; // Only this case exclude
-			else
-				qstrm->rwlen = n + 3;
-
-			// Wait to be re-schedule
-			if (!nni_list_empty(&qstrm->recvq)) {
-				quic_strm_recv_start(qstrm);
-			}
-			nni_mtx_unlock(&qstrm->mtx);
-			// TODO I'am not sure if the buffer in msquic would be free
-			qdebug("1after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
-			return QUIC_STATUS_PENDING;
+		if (rlen > qstrm->rrcap - qstrm->rrlen - qstrm->rrpos) {
+			qstrm->rrbuf = realloc(qstrm->rrbuf, rlen + qstrm->rrlen);
+			qstrm->rrcap = rlen + qstrm->rrlen;
 		}
-
-		// Already get 4 Bytes
-		if (qstrm->rxbuf[1] == 2 && qstrm->rwlen == 4) {
-			// Handle 4 bytes msg
-			n = 2; // new
-			memcpy(qstrm->rxbuf + 2, rbuf, n);
-			qstrm->rxlen += n;
-			MsQuic->StreamReceiveComplete(qstrm->stream, n);
-
-			// Compose msg
-			if (0 != nng_msg_alloc(&qstrm->rxmsg, 4)) {
-				qdebug("error in msg allocated.\n");
-			}
-
-			nni_msg_header_clear(qstrm->rxmsg);
-			nni_msg_clear(qstrm->rxmsg);
-			// Copy Header
-			nni_msg_header_append(qstrm->rxmsg, qstrm->rxbuf, 2);
-			// Copy Body
-			nni_msg_append(qstrm->rxmsg, qstrm->rxbuf + 2, 2);
-
-			// Done
-			qdebug("2after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
-		}
-
-		// Already get 5 Bytes
-		if (qstrm->rxbuf[1] > 0x02 && qstrm->rwlen == 5) {
-			n = 3; // new
-			memcpy(qstrm->rxbuf + 2, rbuf, n);
-			qstrm->rxlen += n;
-			MsQuic->StreamReceiveComplete(qstrm->stream, n);
-
-			usedbytes = 0;
-			if (0 != mqtt_get_remaining_length(qstrm->rxbuf, qstrm->rxlen, &remain_len, &usedbytes)) {
-				qdebug("error in get remain_len.\n");
-			}
-			if (0 != nng_msg_alloc(&qstrm->rxmsg, 1 + usedbytes + remain_len)) {
-				qdebug("error in msg allocated.\n");
-			}
-			qstrm->rwlen = remain_len + usedbytes + 1;
-
-			if (qstrm->rxbuf[1] == 0x03) {
-				nni_msg_header_clear(qstrm->rxmsg);
-				nni_msg_clear(qstrm->rxmsg);
-				// Copy Header
-				nni_msg_header_append(qstrm->rxmsg, qstrm->rxbuf, 2);
-				// Copy Body
-				nni_msg_append(qstrm->rxmsg, qstrm->rxbuf + 2, 3);
-			} else {
-				// Wait to be re-schedule
-				if (!nni_list_empty(&qstrm->recvq)) {
-					quic_strm_recv_start(qstrm);
-				}
-				nni_mtx_unlock(&qstrm->mtx);
-				// TODO I'am not sure if the buffer in msquic would be free
-				qdebug("3after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
-				return QUIC_STATUS_PENDING;
-			}
-		}
-
-		// Already get remain_len Bytes
-		if (qstrm->rwlen > 0x05 && qstrm->rxmsg != NULL) {
-			usedbytes = 0;
-			if (0 != mqtt_get_remaining_length(qstrm->rxbuf, qstrm->rxlen, &remain_len, &usedbytes)) {
-				qdebug("error in get remain_len.\n");
-			}
-			n = 1 + usedbytes + remain_len - 5; // new
-
-			nni_msg_header_clear(qstrm->rxmsg);
-			nni_msg_clear(qstrm->rxmsg);
-			// Copy Header
-			nni_msg_header_append(qstrm->rxmsg, qstrm->rxbuf, 1 + usedbytes);
-			// Copy Body
-			nni_msg_append(qstrm->rxmsg,
-				qstrm->rxbuf + (1 + usedbytes), 5 - (1 + usedbytes));
-			nni_msg_append(qstrm->rxmsg, rbuf, n);
-
-			qstrm->rxlen += n;
-			MsQuic->StreamReceiveComplete(qstrm->stream, n);
-		}
-		qdebug("4after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
-
-upload: ;
-		// get aio and trigger cb of protocol layer
-		nni_aio *aio = nni_list_first(&qstrm->recvq);
-		nni_aio_list_remove(aio);
+		// Copy data from quic stream to rrbuf
+		memcpy(qstrm->rrbuf + (int)qstrm->rrlen, rbuf, rlen);
+		qstrm->rrlen += rlen;
+		MsQuic->StreamReceiveComplete(qstrm->stream, rlen);
 		nni_mtx_unlock(&qstrm->mtx);
-
-		if (aio != NULL) {
-			// Set msg and remove from list and finish
-			nni_aio_set_msg(aio, qstrm->rxmsg);
-			qstrm->rxmsg = NULL;
-			nni_aio_finish(aio, 0, 0);
+		if (!nni_list_empty(&qstrm->recvq)) {
+			// We should not do executing now, Or circle calling occurs
+			nng_aio_wait(&qstrm->rraio);
+			nni_aio_finish_sync(&qstrm->rraio, 0, 0);
+			// nng_aio_wait(&qstrm->rraio);
 		}
-		qdebug("over\n");
+		qdebug("stream cb over\n");
+
 		return QUIC_STATUS_PENDING;
 
 	case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
@@ -440,6 +348,7 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 			qinfo("[conn][%p] try to resume by ticket\n", Connection);
 			quic_reconnect(qstrm);
 		} else { // No rticket
+			qdebug("No ticket and done.\n", Connection);
 			quic_strm_fini(qstrm);
 			nng_free(qstrm, sizeof(quic_strm_t));
 		}
@@ -478,6 +387,7 @@ quic_strm_close(HQUIC Connection, HQUIC Stream)
 		MsQuic->StreamClose(Stream);
 	if (Connection)
 		MsQuic->ConnectionShutdown(Connection, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
+	return 0;
 }
 
 /**
@@ -493,6 +403,8 @@ quic_strm_start(HQUIC Connection, void *Context, HQUIC *Streamp, bool active)
 {
 	HQUIC       Stream = NULL;
 	QUIC_STATUS Status;
+
+	NNI_ARG_UNUSED(active);
 
 	// Create/allocate a new bidirectional stream. The stream is just
 	// allocated and no QUIC stream identifier is assigned until it's
@@ -740,8 +652,6 @@ quic_strm_send_start(quic_strm_t *qstrm)
 	uint8_t type = (((uint8_t *)nni_msg_header(msg))[0] & 0xf0) >> 4;
 	qdebug("type is 0x%x %x.\n", type, ((uint8_t *)nni_msg_header(msg))[0]);
 
-	if (!buf)
-		qdebug("error in iov.\n");
 	qdebug(" body len: %d header len: %d \n", buf[1].Length, buf[0].Length);
 
 	if (QUIC_FAILED(Status = MsQuic->StreamSend(qstrm->stream, buf, bl > 0 ? 2:1,
@@ -780,10 +690,10 @@ quic_strm_recv_start(void *arg)
 {
 	qdebug("quic_strm_recv_start.\n");
 	quic_strm_t *qstrm = arg;
+	nni_aio *aio = NULL;
 
 	// TODO recv_start can be called from sender
 	if (qstrm->closed) {
-		nni_aio *aio;
 		while ((aio = nni_list_first(&qstrm->recvq)) != NULL) {
 			nni_list_remove(&qstrm->recvq, aio);
 			nni_aio_finish_error(aio, NNG_ECLOSED);
@@ -793,8 +703,207 @@ quic_strm_recv_start(void *arg)
 	if (nni_list_empty(&qstrm->recvq)) {
 		return;
 	}
+	if (qstrm->rrlen > qstrm->rwlen && &qstrm->rrlen == 0) {
+		nni_aio_finish(&qstrm->rraio, 0, 0);
+		return;
+	}
 
+	// Wait MsQuic take back data
 	MsQuic->StreamReceiveSetEnabled(qstrm->stream, TRUE);
+	/*
+	if (rlen < qstrm->rwlen) {
+		if (rlen > 0) {
+			memmove(qstrm->rrbuf, qstrm->rrbuf+qstrm->rrpos, qstrm->rrlen);
+			qstrm->rrpos = 0;
+		}
+		MsQuic->StreamReceiveSetEnabled(qstrm->stream, TRUE);
+		return;
+	}
+	*/
+}
+
+static void
+quic_strm_recv_cb(void *arg)
+{
+	quic_strm_t *qstrm = arg;
+	nni_aio *aio = NULL;
+
+	qdebug("before rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+	qdebug("rrpos %d rrlen %d rrbuf %x %x.\n", qstrm->rrpos, qstrm->rrlen,
+	    qstrm->rrbuf[qstrm->rrpos], qstrm->rrbuf[qstrm->rrpos + 1]);
+
+	uint8_t  usedbytes;
+	uint8_t *rbuf = qstrm->rrbuf + qstrm->rrpos;
+	uint32_t rlen = qstrm->rrlen, n, remain_len;
+	if (nni_aio_result(&qstrm->rraio) != 0)
+		qdebug("cacacacacacas@@@@@@@@@@@@@@@@@@@@@@@@@");
+	nni_mtx_lock(&qstrm->mtx);
+	// Wait MsQuic take back data
+	if (rlen < qstrm->rwlen - qstrm->rxlen) {
+		qdebug("Data is not enough and rrpos %d rrlen %d.\n", qstrm->rrpos, qstrm->rrlen);
+		if (rlen > 0) {
+			memmove(qstrm->rrbuf, qstrm->rrbuf+qstrm->rrpos, qstrm->rrlen);
+			qstrm->rrpos = 0;
+		}
+		MsQuic->StreamReceiveSetEnabled(qstrm->stream, TRUE);
+		nni_mtx_unlock(&qstrm->mtx);
+		return;
+	}
+	// We get enough data
+
+	// Already get 2 Bytes
+	if (qstrm->rxlen == 0) {
+		n = 2; // new
+		qdebug("type !!!!!!!: %x\n", *rbuf);
+		memcpy(qstrm->rxbuf, rbuf, n);
+		qstrm->rxlen = 0 + n;
+		qstrm->rrpos += n;
+		qstrm->rrlen -= n;
+		if (qstrm->rxbuf[1] == 0) {
+			// 0 remaining length could be
+			// PINGRESP/DISCONNECT
+			if (0 != nng_msg_alloc(&qstrm->rxmsg, 0)) {
+				qdebug("error in msg allocated.\n");
+			}
+			nni_msg_header_append(
+			    qstrm->rxmsg, qstrm->rxbuf, 2);
+			goto upload;
+		}
+		if (qstrm->rxbuf[1] == 2)
+			qstrm->rwlen = n + 2; // Only this case exclude
+		else
+			qstrm->rwlen = n + 3;
+
+		nni_mtx_unlock(&qstrm->mtx);
+		// Re-schedule now
+		if (!nni_list_empty(&qstrm->recvq)) {
+			nni_aio_finish_sync(&qstrm->rraio, 0, 0);
+		}
+		qdebug("1after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+		return;
+	}
+
+	// Already get 4 Bytes
+	if (qstrm->rxbuf[1] == 2 && qstrm->rwlen == 4) {
+		// Handle 4 bytes msg
+		n = 2; // new
+		memcpy(qstrm->rxbuf + 2, rbuf, n);
+		qstrm->rxlen += n;
+		qstrm->rrpos += n;
+		qstrm->rrlen -= n;
+		qdebug("4bytes byte1 !!!!!!!: %x\n", *rbuf);
+
+		// Compose msg
+		if (0 != nng_msg_alloc(&qstrm->rxmsg, 4)) {
+			qdebug("error in msg allocated.\n");
+		}
+
+		nni_msg_header_clear(qstrm->rxmsg);
+		nni_msg_clear(qstrm->rxmsg);
+		// Copy Header
+		nni_msg_header_append(qstrm->rxmsg, qstrm->rxbuf, 2);
+		// Copy Body
+		nni_msg_append(qstrm->rxmsg, qstrm->rxbuf + 2, 2);
+
+		// Done
+		qdebug("2after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+	}
+
+	// Already get 5 Bytes
+	if (qstrm->rxbuf[1] > 0x02 && qstrm->rwlen == 5) {
+		n = 3; // new
+		memcpy(qstrm->rxbuf + 2, rbuf, n);
+		qstrm->rxlen += n;
+		qstrm->rrpos += n;
+		qstrm->rrlen -= n;
+
+		usedbytes = 0;
+		if (0 != mqtt_get_remaining_length(qstrm->rxbuf, qstrm->rxlen, &remain_len, &usedbytes)) {
+			qdebug("error in get remain_len.\n");
+		}
+		if (0 != nng_msg_alloc(&qstrm->rxmsg, 1 + usedbytes + remain_len)) {
+			qdebug("error in msg allocated.\n");
+		}
+		qstrm->rwlen = remain_len + usedbytes + 1;
+
+		if (qstrm->rxbuf[1] == 0x03) {
+			nni_msg_header_clear(qstrm->rxmsg);
+			nni_msg_clear(qstrm->rxmsg);
+			// Copy Header
+			nni_msg_header_append(qstrm->rxmsg, qstrm->rxbuf, 2);
+			// Copy Body
+			nni_msg_append(qstrm->rxmsg, qstrm->rxbuf + 2, 3);
+		} else {
+			nni_mtx_unlock(&qstrm->mtx);
+			// Wait to be re-schedule
+			if (!nni_list_empty(&qstrm->recvq)) {
+				nni_aio_finish_sync(&qstrm->rraio, 0, 0);
+			}
+			qdebug("3after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+			return;
+		}
+	}
+
+	// Already get remain_len Bytes
+	if (qstrm->rwlen > 0x05 && qstrm->rxmsg != NULL) {
+		usedbytes = 0;
+		if (0 != mqtt_get_remaining_length(qstrm->rxbuf, qstrm->rxlen, &remain_len, &usedbytes)) {
+			qdebug("error in get remain_len.\n");
+		}
+		n = 1 + usedbytes + remain_len - 5; // new
+
+		nni_msg_header_clear(qstrm->rxmsg);
+		nni_msg_clear(qstrm->rxmsg);
+		// Copy Header
+		nni_msg_header_append(qstrm->rxmsg, qstrm->rxbuf, 1 + usedbytes);
+		// Copy Body
+		nni_msg_append(qstrm->rxmsg,
+			qstrm->rxbuf + (1 + usedbytes), 5 - (1 + usedbytes));
+		nni_msg_append(qstrm->rxmsg, rbuf, n);
+
+		qstrm->rxlen += n;
+		qstrm->rrpos += n;
+		qstrm->rrlen -= n;
+	}
+	qdebug("4after  rxlen %d rwlen %d rrlen %d.\n", qstrm->rxlen, qstrm->rwlen, qstrm->rrlen);
+
+upload:
+	// get aio and trigger cb of protocol layer
+	aio = nni_list_first(&qstrm->recvq);
+	qdebug("push to upper layer!!!!!!!!!!\n");
+
+	if (qstrm->cparam)
+		nng_msg_set_conn_param(qstrm->rxmsg, qstrm->cparam);
+
+	if (aio != NULL) {
+		nni_list_remove(&qstrm->recvq, aio);
+		// Set msg and remove from list and finish
+		nni_aio_set_msg(aio, qstrm->rxmsg);
+		qstrm->rxmsg = NULL;
+		qdebug("AIO FINISH\n");
+		nni_mtx_unlock(&qstrm->mtx);
+		nni_aio_finish_sync(aio, 0, 0);
+	} else {
+		if (nni_lmq_full(&qstrm->recv_messages)) {
+			if (0 != nni_lmq_resize(&qstrm->recv_messages,
+				2 * nni_lmq_cap(&qstrm->recv_messages))) {
+				// memory error
+				nni_msg_free(qstrm->rxmsg);
+				printf("msg dropped due to no more memory!\n");
+			}
+		}
+		nni_lmq_put(&qstrm->recv_messages, qstrm->rxmsg);
+		qstrm->rxmsg = NULL;
+		nni_mtx_unlock(&qstrm->mtx);
+	}
+
+	if (qstrm->rrlen > 0)
+		if (!nni_list_empty(&qstrm->recvq))
+			nni_aio_finish_sync(&qstrm->rraio, 0, 0);
+
+	memmove(qstrm->rrbuf, qstrm->rrbuf+qstrm->rrpos, qstrm->rrlen);
+	qstrm->rrpos = 0;
+	qdebug("over\n");
 }
 
 static void
@@ -807,6 +916,12 @@ mqtt_quic_strm_recv_cancel(nni_aio *aio, void *arg, int rv)
 		nni_mtx_unlock(&p->mtx);
 		return;
 	}
+	if (nni_list_first(&p->recvq) == aio) {
+		nni_aio_list_remove(aio);
+		nni_mtx_unlock(&p->mtx);
+		nni_aio_finish_error(aio, rv);
+		return;
+	}
 	nni_aio_list_remove(aio);
 	nni_mtx_unlock(&p->mtx);
 	nni_aio_finish_error(aio, rv);
@@ -815,17 +930,28 @@ mqtt_quic_strm_recv_cancel(nni_aio *aio, void *arg, int rv)
 int
 quic_strm_recv(void *arg, nni_aio *raio)
 {
-	quic_strm_t *qstrm = arg;
 	int                rv;
+	quic_strm_t *qstrm = arg;
+	nng_msg *msg;
 
 	if (nni_aio_begin(raio) != 0) {
-		return;
+		return -1;
 	}
 	nni_mtx_lock(&qstrm->mtx);
 	if ((rv = nni_aio_schedule(raio, mqtt_quic_strm_recv_cancel, qstrm)) !=
 	    0) {
+		nni_mtx_unlock(&qstrm->mtx);
 		nni_aio_finish_error(raio, rv);
-		return;
+		return 0;
+	}
+	// Get msg from cache
+	if (!nni_lmq_empty(&qstrm->recv_messages)) {
+		nni_lmq_get(&qstrm->recv_messages, &msg);
+		nni_mtx_unlock(&qstrm->mtx);
+
+		nni_aio_set_msg(raio, msg);
+		nni_aio_finish_sync(raio, 0, 0);
+		return 0;
 	}
 
 	nni_list_append(&qstrm->recvq, raio);
@@ -843,19 +969,17 @@ int
 quic_strm_send(void *arg, nni_aio *aio)
 {
 	quic_strm_t *qstrm = arg;
+	int          rv;
 
-	if (nni_aio_begin(aio) != 0) {
-		return;
+	if ((rv = nni_aio_begin(aio)) != 0) {
+		return rv;
 	}
 	nni_mtx_lock(&qstrm->mtx);
-	/*
-	qstrm->txaio = aio;
 	if ((rv = nni_aio_schedule(aio, quic_strm_send_cancel, qstrm)) != 0) {
 	        nni_mtx_unlock(&qstrm->mtx);
 	        nni_aio_finish_error(aio, rv);
 	        return (-1);
 	}
-	*/
 	nni_list_append(&qstrm->sendq, aio);
 	if (nni_list_first(&qstrm->sendq) == aio) {
 		quic_strm_send_start(qstrm);
@@ -875,11 +999,15 @@ quic_alloc()
 int
 nni_msquic_dialer_alloc(nng_stream_dialer **dp, const nng_url *url)
 {
+	NNI_ARG_UNUSED(dp);
+	NNI_ARG_UNUSED(url);
 	return 0;
 }
 
 int
 nni_msquic_listener_alloc(nng_stream_listener **lp, const nng_url *url)
 {
+	NNI_ARG_UNUSED(lp);
+	NNI_ARG_UNUSED(url);
 	return 0;
 }
