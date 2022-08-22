@@ -335,7 +335,7 @@ upload: ;
 			// Set msg and remove from list and finish
 			nni_aio_set_msg(aio, qstrm->rxmsg);
 			qstrm->rxmsg = NULL;
-			nni_aio_finish_sync(aio, 0, 0);
+			nni_aio_finish(aio, 0, 0);
 		}
 		qdebug("over\n");
 		return QUIC_STATUS_PENDING;
