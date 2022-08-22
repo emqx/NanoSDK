@@ -9,11 +9,11 @@
 
 #include "nng/mqtt/mqtt_quic.h"
 #include "core/nng_impl.h"
-#include "nng/protocol/mqtt/mqtt.h"
 #include "supplemental/quic/quic_api.h"
 #include "supplemental/mqtt/mqtt_msg.h"
 #include "supplemental/mqtt/mqtt_qos_db_api.h"
 
+#define NANO_CONF "nano:conf"
 #define NNG_MQTT_SELF 0
 #define NNG_MQTT_SELF_NAME "mqtt-client"
 #define NNG_MQTT_PEER 0

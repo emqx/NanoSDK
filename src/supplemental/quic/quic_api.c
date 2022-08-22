@@ -65,7 +65,9 @@ struct quic_strm_s {
 	uint16_t rticket_sz;
 	bool     rticket_active;
 	nng_url *url_s;
+	/*
 	conn_param *cparam;
+	*/
 };
 
 // Config for msquic
@@ -159,7 +161,9 @@ quic_strm_init(quic_strm_t *qstrm)
 	qstrm->url_s = NULL;
 	qstrm->rticket_sz = 0;
 	qstrm->rticket_active = false;
+	/*
 	conn_param_alloc(&qstrm->cparam);
+	*/
 }
 
 static void
@@ -170,7 +174,9 @@ quic_strm_fini(quic_strm_t *qstrm)
 	if (qstrm->rrbuf)
 		free(qstrm->rrbuf);
 
+	/*
 	conn_param_free(qstrm->cparam);
+	*/
 
 	nni_lmq_fini(&qstrm->recv_messages);
 	nni_lmq_fini(&qstrm->send_messages);
@@ -872,8 +878,10 @@ upload:
 	aio = nni_list_first(&qstrm->recvq);
 	qdebug("push to upper layer!!!!!!!!!!\n");
 
+	/*
 	if (qstrm->cparam)
 		nng_msg_set_conn_param(qstrm->rxmsg, qstrm->cparam);
+	*/
 
 	if (aio != NULL) {
 		nni_list_remove(&qstrm->recvq, aio);
