@@ -262,11 +262,11 @@ endif()
 add_subdirectory(src)
 
 if (NNG_TESTS)
-    add_subdirectory(tests)
+	#    add_subdirectory(tests)
 endif ()
 
 #  Build the tools
-add_subdirectory(docs/man)
+#add_subdirectory(docs/man)
 
 set(CPACK_PACKAGE_NAME ${PROJECT_NAME})
 set(CPACK_PACKAGE_VERSION ${NNG_PACKAGE_VERSION})
