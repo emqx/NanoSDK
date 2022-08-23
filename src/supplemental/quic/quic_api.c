@@ -890,7 +890,7 @@ upload:
 		qstrm->rxmsg = NULL;
 		qdebug("AIO FINISH\n");
 		nni_mtx_unlock(&qstrm->mtx);
-		nni_aio_finish_sync(aio, 0, 0);
+		nni_aio_finish(aio, 0, 0);
 	} else {
 		if (nni_lmq_full(&qstrm->recv_messages)) {
 			if (0 != nni_lmq_resize(&qstrm->recv_messages,
