@@ -10,7 +10,6 @@
 #ifndef NNG_MQTT_QUIC_CLIENT_H
 #define NNG_MQTT_QUIC_CLIENT_H
 
-#include <nng/nng.h>
 #include <stdbool.h>
 #include <stdint.h>
 
