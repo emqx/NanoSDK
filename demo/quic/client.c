@@ -179,10 +179,12 @@ client(int type, const char *url, const char *qos, const char *topic, const char
 	msg = mqtt_msg_compose(1, 0, NULL, NULL);
 	nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
 
-	q = atoi(qos);
-	if (q < 0 || q > 2) {
-		printf("Qos should be in range(0~2).\n");
-		q = 0;
+	if (qos) {
+		q = atoi(qos);
+		if (q < 0 || q > 2) {
+			printf("Qos should be in range(0~2).\n");
+			q = 0;
+		}
 	}
 
 	switch (type) {
