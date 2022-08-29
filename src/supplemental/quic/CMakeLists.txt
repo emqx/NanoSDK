@@ -8,7 +8,8 @@
 if (NNG_ENABLE_QUIC)
     nng_sources(quic_api.c)
     nng_sources(quic_api.h)
-    target_link_libraries(nng PRIVATE msquic)
+    find_package(msquic)
+    nng_link_libraries(msquic)
 
 endif ()
 
