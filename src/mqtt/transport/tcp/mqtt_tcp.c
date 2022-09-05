@@ -411,6 +411,12 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 			if (data) {
 				p->qosmax = data->p_value.u8;
 			}
+
+			data = property_get_value(ep->property, SERVER_KEEP_ALIVE);
+			if (data) {
+				p->keepalive = data->p_value.u16;
+			}
+
 		} else {
 			if ((rv = nni_mqtt_msg_decode(p->rxmsg)) != MQTT_SUCCESS) {
 				ep->reason_code = rv;
