@@ -353,4 +353,10 @@ nni_plat_file_unlock(nni_plat_flock *lk)
 	lk->h = INVALID_HANDLE_VALUE;
 }
 
+char *
+nni_plat_getcwd(char *buf, size_t size)
+{
+	return _getcwd(buf, size);
+}
+
 #endif // NNG_PLATFORM_WINDOWS

@@ -14,6 +14,7 @@
 // Safe string functions, in case the platform misses these.
 
 extern char * nni_strdup(const char *);
+extern char * nni_strndup(const char *, size_t);
 extern void   nni_strfree(char *);
 extern size_t nni_strlcpy(char *, const char *, size_t);
 extern size_t nni_strnlen(const char *, size_t);
