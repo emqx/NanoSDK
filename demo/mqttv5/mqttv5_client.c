@@ -81,8 +81,6 @@ print80(const char *prefix, const char *str, size_t len, bool quote)
 static void
 disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 {
-	nng_msg * msg = arg;
-	nng_msg_free(msg);
 	int reason = 0;
 	// get connect reason
 	nng_pipe_get_int(p, NNG_OPT_MQTT_DISCONNECT_REASON, &reason);
@@ -138,7 +136,7 @@ client_connect(nng_socket *sock, const char *url, bool verbose)
 	mqtt_property_append(p, p1);
 	nng_mqtt_msg_set_connect_property(connmsg, p);
 
-	nng_mqtt_set_connect_cb(*sock, connect_cb, &sock);
+	nng_mqtt_set_connect_cb(*sock, connect_cb, sock);
 	nng_mqtt_set_disconnect_cb(*sock, disconnect_cb, connmsg);
 
 	uint8_t buff[1024] = { 0 };
@@ -329,14 +327,40 @@ publish_cb(void *args)
 	int                rv;
 	struct pub_params *params = args;
 	do {
-		rv = client_publish(*params->sock, params->topic, params->data,
+		client_publish(*params->sock, params->topic, params->data,
 		    params->data_len, params->qos, params->verbose);
 		nng_msleep(params->interval);
-	} while (params->interval > 0 && rv == 0);
+	} while (params->interval > 0);
 	printf("thread_exit\n");
 }
 
 struct pub_params params;
+
+static int
+sqlite_config(nng_socket *sock, uint8_t proto_ver)
+{
+#if defined(NNG_SUPP_SQLITE)
+	int rv;
+	// create sqlite option
+	nng_mqtt_sqlite_option *sqlite;
+	if ((rv = nng_mqtt_alloc_sqlite_opt(&sqlite)) != 0) {
+		fatal("nng_mqtt_alloc_sqlite_opt", rv);
+	}
+	// set sqlite option
+	nng_mqtt_set_sqlite_enable(sqlite, true);
+	nng_mqtt_set_sqlite_flush_threshold(sqlite, 10);
+	nng_mqtt_set_sqlite_max_rows(sqlite, 20);
+	nng_mqtt_set_sqlite_db_dir(sqlite, "/tmp/nanomq");
+
+	// init sqlite db
+	nng_mqtt_sqlite_db_init(sqlite, "mqttv5_client.db", proto_ver);
+
+	// set sqlite option pointer to socket
+	return nng_socket_set_ptr(*sock, NNG_OPT_MQTT_SQLITE, sqlite);
+#else
+	return (0);
+#endif
+}
 
 int
 main(const int argc, const char **argv)
@@ -363,6 +387,7 @@ main(const int argc, const char **argv)
 	bool        verbose     = verbose_env && strlen(verbose_env) > 0;
 
 	client_connect(&sock, url, verbose);
+	nng_msleep(1000);
 
 	signal(SIGINT, intHandler);
 
@@ -387,6 +412,8 @@ main(const int argc, const char **argv)
 		params.verbose  = verbose;
 
 		char thread_name[20];
+
+		sqlite_config(params.sock, MQTT_PROTOCOL_VERSION_v5);
 
 		size_t i = 0;
 		for (i = 0; i < nthread; i++) {
@@ -443,7 +470,6 @@ main(const int argc, const char **argv)
 			// we should only receive publish messages
 			assert(nng_mqtt_msg_get_packet_type(msg) == NNG_MQTT_PUBLISH);
 			msg_recv_deal(msg, verbose);
-			break;
 		}
 
 		// Sync unsubscription
