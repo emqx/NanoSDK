@@ -9,7 +9,6 @@
 #include <unistd.h>
 
 #include <nng/mqtt/mqtt_client.h>
-#include <nng/protocol/mqtt/mqtt.h>
 #include <nng/nng.h>
 #include <nng/supplemental/util/platform.h>
 
@@ -141,7 +140,41 @@ alloc_work(nng_socket sock)
 void
 connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 {
-	printf("%s: connected!\n", __FUNCTION__);
+	int reason = 0;
+	// get connect reason
+	nng_pipe_get_int(p, NNG_OPT_MQTT_CONNECT_REASON, &reason);
+	// get property for MQTT V5
+	// property *prop;
+	// nng_pipe_get_ptr(p, NNG_OPT_MQTT_CONNECT_PROPERTY, &prop);
+	printf("%s: connected[%d]!\n", __FUNCTION__, reason);
+
+	if (reason == 0) {
+		nng_socket *sock = arg;
+		nng_mqtt_topic_qos topic_qos[] = {
+			{ .qos     = 0,
+			    .topic = { .buf = (uint8_t *) SUB_TOPIC1,
+			        .length     = strlen(SUB_TOPIC1) } },
+			{ .qos     = 1,
+			    .topic = { .buf = (uint8_t *) SUB_TOPIC2,
+			        .length     = strlen(SUB_TOPIC2) } },
+			{ .qos     = 2,
+			    .topic = { .buf = (uint8_t *) SUB_TOPIC3,
+			        .length     = strlen(SUB_TOPIC3) } }
+		};
+
+		size_t topic_qos_count =
+		    sizeof(topic_qos) / sizeof(nng_mqtt_topic_qos);
+
+		// Connected succeed
+		nng_msg *submsg;
+		nng_mqtt_msg_alloc(&submsg, 0);
+		nng_mqtt_msg_set_packet_type(submsg, NNG_MQTT_SUBSCRIBE);
+		nng_mqtt_msg_set_subscribe_topics(
+		    submsg, topic_qos, topic_qos_count);
+
+		// Send subscribe message
+		nng_sendmsg(*sock, submsg, NNG_FLAG_NONBLOCK);
+	}
 }
 
 void
@@ -151,7 +184,7 @@ disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 }
 
 int
-client(const char *url)
+client(const char *url, uint8_t proto_ver)
 {
 	nng_socket   sock;
 	nng_dialer   dialer;
@@ -159,9 +192,35 @@ client(const char *url)
 	int          i;
 	int          rv;
 
-	if ((rv = nng_mqtt_client_open(&sock)) != 0) {
-		fatal("nng_socket", rv);
+	if (proto_ver == MQTT_PROTOCOL_VERSION_v5) {
+		if ((rv = nng_mqttv5_client_open(&sock)) != 0) {
+			fatal("nng_socket", rv);
+		}
+	} else {
+		if ((rv = nng_mqtt_client_open(&sock)) != 0) {
+			fatal("nng_socket", rv);
+		}
 	}
+
+#if defined(NNG_SUPP_SQLITE)
+	// create sqlite option
+	nng_mqtt_sqlite_option *sqlite;
+	if ((rv = nng_mqtt_alloc_sqlite_opt(&sqlite)) != 0) {
+		fatal("nng_mqtt_alloc_sqlite_opt", rv);
+	}
+	// set sqlite option
+	nng_mqtt_set_sqlite_enable(sqlite, true);
+	nng_mqtt_set_sqlite_flush_threshold(sqlite, 10);
+	nng_mqtt_set_sqlite_max_rows(sqlite, 20);
+	nng_mqtt_set_sqlite_db_dir(sqlite, "/tmp/nanomq");
+
+	// init sqlite db
+	nng_mqtt_sqlite_db_init(
+	    sqlite, "mqtt_client.db", proto_ver);
+
+	// set sqlite option pointer to socket
+	nng_socket_set_ptr(sock, NNG_OPT_MQTT_SQLITE, sqlite);
+#endif
 
 	for (i = 0; i < nwork; i++) {
 		works[i] = alloc_work(sock);
@@ -173,7 +232,7 @@ client(const char *url)
 	nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
 	nng_mqtt_msg_set_connect_keep_alive(msg, 60);
 	nng_mqtt_msg_set_connect_proto_version(
-	    msg, MQTT_PROTOCOL_VERSION_v311);
+	    msg, proto_ver);
 	nng_mqtt_msg_set_connect_clean_session(msg, true);
 
 	nng_mqtt_set_connect_cb(sock, connect_cb, &sock);
@@ -186,29 +245,6 @@ client(const char *url)
 	nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, msg);
 	nng_dialer_start(dialer, NNG_FLAG_NONBLOCK);
 
-	nng_mqtt_topic_qos topic_qos[] = {
-		{ .qos     = 0,
-		    .topic = { .buf = (uint8_t *) SUB_TOPIC1,
-		        .length     = strlen(SUB_TOPIC1) } },
-		{ .qos     = 1,
-		    .topic = { .buf = (uint8_t *) SUB_TOPIC2,
-		        .length     = strlen(SUB_TOPIC2) } },
-		{ .qos     = 2,
-		    .topic = { .buf = (uint8_t *) SUB_TOPIC3,
-		        .length     = strlen(SUB_TOPIC3) } }
-	};
-
-	size_t topic_qos_count =
-	    sizeof(topic_qos) / sizeof(nng_mqtt_topic_qos);
-
-	// Connected succeed
-	nng_msg *submsg;
-	nng_mqtt_msg_alloc(&submsg, 0);
-	nng_mqtt_msg_set_packet_type(submsg, NNG_MQTT_SUBSCRIBE);
-	nng_mqtt_msg_set_subscribe_topics(submsg, topic_qos, topic_qos_count);
-
-	// Send subscribe message
-	nng_sendmsg(sock, submsg, NNG_FLAG_NONBLOCK);
 
 	for (i = 0; i < nwork; i++) {
 		client_cb(works[i]);
@@ -217,6 +253,11 @@ client(const char *url)
 	for (;;) {
 		nng_msleep(3600000); // neither pause() nor sleep() portable
 	}
+
+#if defined(NNG_SUPP_SQLITE)
+	nng_mqtt_free_sqlite_opt(sqlite);
+#endif
+
 }
 
 #ifdef NNG_SUPP_TLS
@@ -370,6 +411,8 @@ usage(void)
 	printf("mqtt_async: \n");
 	printf("	-u <url> \n");
 	printf("	-n <number of works> (default: 32)\n");
+	printf("	-V <version> The MQTT version used by the client "
+	       "(default: 4)\n");
 #ifdef NNG_SUPP_TLS
 	printf("	-s enable ssl/tls mode (default: disable)\n");
 	printf("	-a <cafile path>\n");
@@ -386,20 +429,22 @@ main(int argc, char **argv)
 	char * path;
 	size_t file_len;
 
-	bool  enable_ssl = false;
-	char *url        = NULL;
-	char *cafile     = NULL;
-	char *cert       = NULL;
-	char *key        = NULL;
-	char *key_psw    = NULL;
+	bool    enable_ssl = false;
+	char *  url        = NULL;
+	char *  cafile     = NULL;
+	char *  cert       = NULL;
+	char *  key        = NULL;
+	char *  key_psw    = NULL;
+	uint8_t proto_ver  = MQTT_PROTOCOL_VERSION_v311;
 
 	int   opt;
 	int   digit_optind  = 0;
 	int   option_index  = 0;
-	char *short_options = "u:n:sa:c:k:p:W;";
+	char *short_options = "u:V:n:sa:c:k:p:W;";
 
 	static struct option long_options[] = {
 		{ "url", required_argument, NULL, 0 },
+		{ "version", required_argument, NULL, 0 },
 		{ "nwork", no_argument, NULL, 'n' },
 		{ "ssl", no_argument, NULL, false },
 		{ "cafile", required_argument, NULL, 0 },
@@ -422,6 +467,9 @@ main(int argc, char **argv)
 			exit(0);
 		case 'u':
 			url = argv[optind - 1];
+			break;
+		case 'V':
+			proto_ver = atoi(argv[optind - 1]);
 			break;
 		case 'n':
 			nwork = atoi(argv[optind - 1]);
@@ -466,7 +514,7 @@ main(int argc, char **argv)
 #endif
 
 	} else {
-		client(url);
+		client(url, proto_ver);
 	}
 
 	return 0;
