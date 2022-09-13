@@ -3563,11 +3563,11 @@ property_remove(property *prop_list, uint8_t prop_id)
 int
 property_dup(property **dup, const property *src)
 {
-	property *list = property_alloc();
 	property *item = NULL;
 	if (src == NULL) {
 		return -1;
 	}
+	property *list = property_alloc();
 
 	for (property *p = src->next; p != NULL; p = p->next) {
 		property_type_enum type = property_get_value_type(p->id);
@@ -3790,6 +3790,60 @@ property_get_value(property *prop, uint8_t prop_id)
 		}
 	}
 	return NULL;
+}
+
+int
+property_value_copy(property *dest,const property *src)
+{
+	if (dest == NULL || src == NULL) {
+		return -1;
+	}
+
+	dest->data.is_copy = src->data.is_copy;
+	dest->data.p_type  = src->data.p_type;
+	switch (src->data.p_type) {
+	case U8:
+		dest->data.p_value.u8 = src->data.p_value.u8;
+		break;
+	case U16:
+		dest->data.p_value.u16 = src->data.p_value.u16;
+		break;
+	case U32:
+		dest->data.p_value.u32 = src->data.p_value.u32;
+		break;
+	case VARINT:
+		dest->data.p_value.varint = src->data.p_value.varint;
+		break;
+	case BINARY:
+		if (src->data.is_copy) {
+			mqtt_buf_dup(&dest->data.p_value.binary,
+			    &src->data.p_value.binary);
+		} else {
+			dest->data.p_value.binary = src->data.p_value.binary;
+		}
+		break;
+	case STR:
+		if (src->data.is_copy) {
+			mqtt_buf_dup(
+			    &dest->data.p_value.str, &src->data.p_value.str);
+		} else {
+			dest->data.p_value.str = src->data.p_value.str;
+		}
+		break;
+	case STR_PAIR:
+		if (src->data.is_copy) {
+			mqtt_kv_dup(&dest->data.p_value.strpair,
+			    &src->data.p_value.strpair);
+		} else {
+			dest->data.p_value.strpair = src->data.p_value.strpair;
+		}
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
 }
 
 property *
