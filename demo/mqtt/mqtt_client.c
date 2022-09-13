@@ -55,7 +55,7 @@ intHandler(int dummy)
 {
 	keepRunning = 0;
 	fprintf(stderr, "\nclient exit(0).\n");
-	nng_closeall();
+	// nng_closeall();
 	exit(0);
 }
 
@@ -82,9 +82,7 @@ print80(const char *prefix, const char *str, size_t len, bool quote)
 static void
 disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 {
-	nng_msg * msg = arg;
-	nng_msg_free(msg);
-	int reason;
+	int reason = 0;
 	// get connect reason
 	nng_pipe_get_int(p, NNG_OPT_MQTT_DISCONNECT_REASON, &reason);
 	// property *prop;
@@ -107,16 +105,16 @@ connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 
 // Connect to the given address.
 int
-client_connect(nng_socket *sock, const char *url, bool verbose)
+client_connect(
+    nng_socket *sock, nng_dialer *dialer, const char *url, bool verbose)
 {
-	nng_dialer dialer;
 	int        rv;
 
 	if ((rv = nng_mqtt_client_open(sock)) != 0) {
 		fatal("nng_socket", rv);
 	}
 
-	if ((rv = nng_dialer_create(&dialer, *sock, url)) != 0) {
+	if ((rv = nng_dialer_create(dialer, *sock, url)) != 0) {
 		fatal("nng_dialer_create", rv);
 	}
 
@@ -134,7 +132,7 @@ client_connect(nng_socket *sock, const char *url, bool verbose)
 	nng_mqtt_msg_set_connect_will_topic(connmsg, "will_topic");
 	nng_mqtt_msg_set_connect_clean_session(connmsg, true);
 
-	nng_mqtt_set_connect_cb(*sock, connect_cb, &sock);
+	nng_mqtt_set_connect_cb(*sock, connect_cb, sock);
 	nng_mqtt_set_disconnect_cb(*sock, disconnect_cb, connmsg);
 
 	uint8_t buff[1024] = { 0 };
@@ -145,8 +143,8 @@ client_connect(nng_socket *sock, const char *url, bool verbose)
 	}
 
 	printf("Connecting to server ...\n");
-	nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, connmsg);
-	nng_dialer_start(dialer, NNG_FLAG_NONBLOCK);
+	nng_dialer_set_ptr(*dialer, NNG_OPT_MQTT_CONNMSG, connmsg);
+	nng_dialer_start(*dialer, NNG_FLAG_NONBLOCK);
 
 	return (0);
 }
@@ -199,14 +197,40 @@ publish_cb(void *args)
 	int                rv;
 	struct pub_params *params = args;
 	do {
-		rv = client_publish(*params->sock, params->topic, params->data,
+		client_publish(*params->sock, params->topic, params->data,
 		    params->data_len, params->qos, params->verbose);
 		nng_msleep(params->interval);
-	} while (params->interval > 0 && rv == 0);
+	} while (params->interval > 0);
 	printf("thread_exit\n");
 }
 
 struct pub_params params;
+
+static int
+sqlite_config(nng_socket *sock, uint8_t proto_ver)
+{
+#if defined(NNG_SUPP_SQLITE)
+	int rv;
+	// create sqlite option
+	nng_mqtt_sqlite_option *sqlite;
+	if ((rv = nng_mqtt_alloc_sqlite_opt(&sqlite)) != 0) {
+		fatal("nng_mqtt_alloc_sqlite_opt", rv);
+	}
+	// set sqlite option
+	nng_mqtt_set_sqlite_enable(sqlite, true);
+	nng_mqtt_set_sqlite_flush_threshold(sqlite, 10);
+	nng_mqtt_set_sqlite_max_rows(sqlite, 20);
+	nng_mqtt_set_sqlite_db_dir(sqlite, "/tmp/nanomq");
+
+	// init sqlite db
+	nng_mqtt_sqlite_db_init(sqlite, "mqtt_client.db", proto_ver);
+
+	// set sqlite option pointer to socket
+	return nng_socket_set_ptr(*sock, NNG_OPT_MQTT_SQLITE, sqlite);
+#else
+	return (0);
+#endif
+}
 
 static void
 sub_callback(void *arg) {
@@ -239,6 +263,7 @@ int
 main(const int argc, const char **argv)
 {
 	nng_socket sock;
+	nng_dialer dailer;
 
 	const char *exe = argv[0];
 
@@ -259,7 +284,7 @@ main(const int argc, const char **argv)
 	char *      verbose_env = getenv("VERBOSE");
 	bool        verbose     = verbose_env && strlen(verbose_env) > 0;
 
-	client_connect(&sock, url, verbose);
+	client_connect(&sock, &dailer, url, verbose);
 
 	signal(SIGINT, intHandler);
 
@@ -285,6 +310,8 @@ main(const int argc, const char **argv)
 
 		char thread_name[20];
 
+		sqlite_config(params.sock, MQTT_PROTOCOL_VERSION_v311);
+
 		size_t i = 0;
 		for (i = 0; i < nthread; i++) {
 			nng_thread_create(&threads[i], publish_cb, &params);
@@ -295,11 +322,20 @@ main(const int argc, const char **argv)
 		}
 	} else if (strcmp(SUBSCRIBE, cmd) == 0) {
 		nng_mqtt_topic_qos subscriptions[] = {
-			{ .qos     = qos,
-			    .topic = { .buf = (uint8_t *) topic,
-			        .length     = strlen(topic) } },
+			{
+			    .qos   = qos,
+			    .topic = { 
+					.buf    = (uint8_t *) topic,
+			        .length = strlen(topic), 
+				},
+			},
 		};
-
+		nng_mqtt_topic unsubscriptions[] = {
+			{
+			    .buf    = (uint8_t *) topic,
+			    .length = strlen(topic),
+			},
+		};
 
 		nng_mqtt_cb_opt cb_opt = { 
 			.sub_ack_cb = sub_callback,
@@ -339,15 +375,14 @@ main(const int argc, const char **argv)
 			}
 
 			nng_msg_free(msg);
-			break;
+			// break;
 		}
 
-		nng_mqtt_unsubscribe_async(client, subscriptions, 1, NULL);
-
+		nng_mqtt_unsubscribe_async(client, unsubscriptions, 1, NULL);
 	}
 
 	nng_msleep(1000);
-	nng_mqtt_disconnect(&sock, 5, NULL);
+	// nng_mqtt_disconnect(&sock, 5, NULL);
 
 	return 0;
 

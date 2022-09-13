@@ -22,4 +22,9 @@ if(NNG_ENABLE_TLS)
     add_definitions(-DNNG_SUPP_TLS)
 endif()
 
+if (NNG_ENABLE_SQLITE)
+    add_definitions(-DNNG_SUPP_SQLITE)
+    target_link_libraries(mqttv5_client dl)
+endif (NNG_ENABLE_SQLITE)
+
 target_compile_definitions(mqttv5_client PRIVATE NNG_ELIDE_DEPRECATED)
