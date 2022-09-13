@@ -33,8 +33,6 @@ static void mqtt_sock_fini(void *arg);
 static void mqtt_sock_open(void *arg);
 static void mqtt_sock_send(void *arg, nni_aio *aio);
 static void mqtt_sock_recv(void *arg, nni_aio *aio);
-static int  mqtt_sock_set_sqlite_option(
-     void *arg, const void *v, size_t sz, nni_opt_type t);
 static void mqtt_send_cb(void *arg);
 static void mqtt_recv_cb(void *arg);
 static void mqtt_timer_cb(void *arg);
@@ -51,6 +49,8 @@ static void mqtt_ctx_send(void *arg, nni_aio *aio);
 static void mqtt_ctx_recv(void *arg, nni_aio *aio);
 
 typedef nni_mqtt_packet_type packet_type_t;
+
+static void *mqtt_sock_get_sqlite_option(mqtt_sock_t *s);
 
 // A mqtt_ctx_s is our per-ctx protocol private state.
 struct mqtt_ctx_s {
@@ -167,6 +167,7 @@ mqtt_sock_get_sqlite_option(mqtt_sock_t *s)
 #ifdef NNG_SUPP_SQLITE
 	return (s->sqlite_opt);
 #else
+	NNI_ARG_UNUSED(s);
 	return (NULL);
 #endif
 }
@@ -184,6 +185,10 @@ mqtt_sock_set_sqlite_option(
 		nni_mtx_unlock(&s->mtx);
 		return (0);
 	}
+#else
+	NNI_ARG_UNUSED(arg);
+	NNI_ARG_UNUSED(v);
+	NNI_ARG_UNUSED(t);
 #endif
 	return NNG_EUNREACHABLE;
 }
@@ -306,11 +311,11 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 	mqtt_sock_t *s     = ctx->mqtt_sock;
 	mqtt_pipe_t *p     = s->mqtt_pipe;
 	uint16_t     ptype = 0, packet_id = 0;
-	uint8_t      qos = 0;
-	nni_msg *    msg;
-	nni_msg *    tmsg;
+	uint8_t      qos  = 0;
+	nni_msg *    msg  = NULL;
+	nni_msg *    tmsg = NULL;
 
-	if (NULL == aio || NULL == (msg = nni_aio_get_msg(aio))) {
+	if (NULL == aio || (msg = nni_aio_get_msg(aio)) == NULL) {
 #if defined(NNG_SUPP_SQLITE)
 		nni_mqtt_sqlite_option *sqlite =
 		    mqtt_sock_get_sqlite_option(s);
@@ -403,7 +408,6 @@ mqtt_pipe_start(void *arg)
 	mqtt_pipe_t *p   = arg;
 	mqtt_sock_t *s   = p->mqtt_sock;
 	mqtt_ctx_t * c   = NULL;
-	nni_msg *    msg = NULL;
 
 	nni_mtx_lock(&s->mtx);
 	s->mqtt_pipe       = p;
@@ -424,7 +428,7 @@ mqtt_pipe_start(void *arg)
 		if (!nni_lmq_empty(&sqlite->offline_cache)) {
 			sqlite_flush_offline_cache(sqlite);
 		}
-		msg = sqlite_get_cache_msg(sqlite);
+		nni_msg *msg = sqlite_get_cache_msg(sqlite);
 		if (NULL != msg) {
 			p->busy = true;
 			nni_aio_set_msg(&p->send_aio, msg);
