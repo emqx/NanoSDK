@@ -1,5 +1,6 @@
 #include "mqtt_msg.h"
 #include <string.h>
+#include "mqtt_qos_db.h"
 
 int
 nng_mqtt_msg_proto_data_alloc(nng_msg *msg)
@@ -29,6 +30,18 @@ int
 nng_mqtt_msg_decode(nng_msg *msg)
 {
 	return nni_mqtt_msg_decode(msg);
+}
+
+int
+nng_mqttv5_msg_encode(nng_msg *msg)
+{
+	return nni_mqttv5_msg_encode(msg);
+}
+
+int
+nng_mqttv5_msg_decode(nng_msg *msg)
+{
+	return nni_mqttv5_msg_decode(msg);
 }
 
 void
@@ -597,6 +610,12 @@ mqtt_property_pub_by_will(property *will_prop)
 	return property_pub_by_will(will_prop);
 }
 
+int
+mqtt_property_value_copy(property *dst, const property *src)
+{
+	return property_value_copy(dst, src);
+}
+
 property *
 mqtt_property_alloc(void)
 {
@@ -689,7 +708,7 @@ nng_mqtt_client_free(nng_mqtt_client *client, bool is_async)
 }
 
 int
-nng_mqtt_unsubscribe(nng_socket *sock, nng_mqtt_topic_qos *sbs, size_t count, property *pl)
+nng_mqtt_unsubscribe(nng_socket *sock, nng_mqtt_topic *sbs, size_t count, property *pl)
 {
 	int rv = 0;
 	// create a SUBSCRIBE message
@@ -699,7 +718,7 @@ nng_mqtt_unsubscribe(nng_socket *sock, nng_mqtt_topic_qos *sbs, size_t count, pr
 	nng_mqtt_msg_set_unsubscribe_topics(unsubmsg, sbs, count);
 
 	if (pl) {
-		nng_mqtt_msg_set_subscribe_property(unsubmsg, pl);
+		nng_mqtt_msg_set_unsubscribe_property(unsubmsg, pl);
 	}
 
 	if ((rv = nng_sendmsg(*sock, unsubmsg, NNG_FLAG_ALLOC)) != 0) {
@@ -710,7 +729,7 @@ nng_mqtt_unsubscribe(nng_socket *sock, nng_mqtt_topic_qos *sbs, size_t count, pr
 }
 
 int 
-nng_mqtt_unsubscribe_async(nng_mqtt_client *client, nng_mqtt_topic_qos *sbs, size_t count, property *pl)
+nng_mqtt_unsubscribe_async(nng_mqtt_client *client, nng_mqtt_topic *sbs, size_t count, property *pl)
 {
 	int rv = 0;
 	nng_aio *aio = client->unsub_aio;
@@ -718,10 +737,10 @@ nng_mqtt_unsubscribe_async(nng_mqtt_client *client, nng_mqtt_topic_qos *sbs, siz
 	nng_msg *unsubmsg;
 	nng_mqtt_msg_alloc(&unsubmsg, 0);
 	nng_mqtt_msg_set_packet_type(unsubmsg, NNG_MQTT_UNSUBSCRIBE);
-	nng_mqtt_msg_set_subscribe_topics(unsubmsg, sbs, count);
+	nng_mqtt_msg_set_unsubscribe_topics(unsubmsg, sbs, count);
 
 	if (pl) {
-		nng_mqtt_msg_set_subscribe_property(unsubmsg, pl);
+		nng_mqtt_msg_set_unsubscribe_property(unsubmsg, pl);
 	}
 
 	nng_aio_set_msg(aio, unsubmsg);
@@ -758,6 +777,7 @@ int
 nng_mqtt_subscribe_async(nng_mqtt_client *client, nng_mqtt_topic_qos *sbs, size_t count, property *pl)
 {
 	int rv = 0;
+
 	nng_aio *aio = client->sub_aio;
 	// create a SUBSCRIBE message
 	nng_msg *submsg;
@@ -773,7 +793,6 @@ nng_mqtt_subscribe_async(nng_mqtt_client *client, nng_mqtt_topic_qos *sbs, size_
 	nng_send_aio(*(client->sock), aio);
 
 	return rv;
-
 }
 
 int
@@ -801,3 +820,72 @@ nng_mqtt_disconnect(nng_socket *sock, uint8_t reason_code, property *pl)
 
 	return (rv);
 }
+
+#if defined(NNG_SUPP_SQLITE)
+
+void
+nng_mqtt_sqlite_db_init(
+    nng_mqtt_sqlite_option *sqlite, const char *db_name, uint8_t proto_version)
+{
+	nni_mqtt_sqlite_db_init(sqlite, db_name, proto_version);
+}
+
+void
+nng_mqtt_sqlite_db_fini(nng_mqtt_sqlite_option *sqlite)
+{
+	nni_mqtt_sqlite_db_fini(sqlite);
+}
+
+int
+nng_mqtt_alloc_sqlite_opt(nng_mqtt_sqlite_option **sqlite)
+{
+	int                     rv  = 0;
+	nng_mqtt_sqlite_option *opt = NULL;
+	if ((opt = nni_zalloc(sizeof(nng_mqtt_sqlite_option))) == NULL) {
+		return (NNG_ENOMEM);
+	}
+
+	opt->enable              = true;
+	opt->disk_cache_size     = 102400;
+	opt->mounted_file_path   = NULL;
+	opt->flush_mem_threshold = 100;
+
+	*sqlite                  = opt;
+	return (rv);
+}
+
+int
+nng_mqtt_free_sqlite_opt(nng_mqtt_sqlite_option *sqlite)
+{
+	if (sqlite) {
+		nni_free(sqlite, sizeof(nng_mqtt_sqlite_option));
+	}
+	return 0;
+}
+
+void
+nng_mqtt_set_sqlite_enable(nng_mqtt_sqlite_option *sqlite, bool enable)
+{
+	sqlite->enable = enable;
+}
+
+void
+nng_mqtt_set_sqlite_db_dir(nng_mqtt_sqlite_option *sqlite, const char *dir)
+{
+	sqlite->mounted_file_path = nni_strdup(dir);
+}
+
+void
+nng_mqtt_set_sqlite_max_rows(nng_mqtt_sqlite_option *sqlite, size_t max_rows)
+{
+	sqlite->disk_cache_size = max_rows;
+}
+
+void
+nng_mqtt_set_sqlite_flush_threshold(
+    nng_mqtt_sqlite_option *sqlite, size_t msg_count)
+{
+	sqlite->flush_mem_threshold = msg_count;
+}
+
+#endif

@@ -462,8 +462,9 @@ extern property *property_set_value_str( uint8_t prop_id, const char *value, uin
 extern property *property_set_value_strpair(uint8_t prop_id, const char *key, uint32_t key_len, const char *value, uint32_t value_len, bool copy_value);
 
 extern property_type_enum property_get_value_type(uint8_t prop_id);
-extern property_data *property_get_value(property *prop, uint8_t prop_id);
-extern void      property_append(property *prop_list, property *last);
+extern property_data *    property_get_value(property *prop, uint8_t prop_id);
+extern void               property_append(property *prop_list, property *last);
+extern int property_value_copy(property *dest, const property *src);
 
 /* introduced from mqtt_parser, might be duplicated */
 NNG_DECL int  nni_mqtt_pubres_decode(nng_msg *msg, uint16_t *packet_id,
