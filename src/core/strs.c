@@ -37,6 +37,21 @@ nni_strdup(const char *src)
 	return (dst);
 }
 
+char *
+nni_strndup(const char *src, size_t n)
+{
+	size_t len = strnlen(src, n);
+	char *dst = NULL;
+	dst = malloc(len + 1);
+
+	if (!dst)
+		return NULL;
+	memcpy(dst, src, len);
+	dst[len] = '\0';
+
+	return (dst);
+}
+
 void
 nni_strfree(char *s)
 {

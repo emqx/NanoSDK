@@ -331,4 +331,11 @@ nni_plat_join_dir(const char *prefix, const char *suffix)
 	return (NULL);
 }
 
+char *
+nni_plat_getcwd(char *buf, size_t size)
+{
+	return getcwd(buf, size);
+}
+
+
 #endif // NNG_PLATFORM_POSIX
