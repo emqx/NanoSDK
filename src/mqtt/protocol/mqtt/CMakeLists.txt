@@ -8,8 +8,13 @@
 #  MQTT protocol
 nng_directory(mqtt)
 
-nng_sources_if(NNG_PROTO_MQTT_CLIENT mqtt_client.c)
-nng_sources_if(NNG_PROTO_MQTT_CLIENT mqttv5_client.c)
+nng_sources_if(
+    NNG_PROTO_MQTT_CLIENT
+    mqtt_client.c
+    mqttv5_client.c
+    sqlite_handler.c
+    sqlite_handler.h
+)
 nng_headers_if(NNG_PROTO_MQTT_CLIENT nng/mqtt/mqtt_client.h)
 nng_defines_if(NNG_PROTO_MQTT_CLIENT NNG_HAVE_MQTT_CLIENT)
 

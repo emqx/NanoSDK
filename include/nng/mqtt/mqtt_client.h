@@ -65,6 +65,8 @@ extern "C" {
 
 #define NNG_OPT_MQTT_DISCONNECT_REASON "mqtt-disconnect-reason"
 
+#define NNG_OPT_MQTT_SQLITE "mqtt-sqlite-option"
+
 // NNG_OPT_MQTT_QOS is a byte (only lower two bits significant) representing
 // the quality of service.  At this time, only level zero is supported.
 // TODO: level 1 and level 2 QoS
@@ -520,13 +522,36 @@ typedef struct {
 	nng_mqtt_cb *unsub_ack_cb;
 } nng_mqtt_cb_opt;
 
-NNG_DECL nng_mqtt_client *nng_mqtt_client_alloc(nng_socket*, nng_mqtt_cb_opt*, bool);
-NNG_DECL void nng_mqtt_client_free(nng_mqtt_client*, bool);
-NNG_DECL int nng_mqtt_subscribe(nng_socket*, nng_mqtt_topic_qos *, size_t, property *);
-NNG_DECL int nng_mqtt_subscribe_async(nng_mqtt_client *, nng_mqtt_topic_qos *, size_t, property *);
-NNG_DECL int nng_mqtt_unsubscribe(nng_socket*, nng_mqtt_topic_qos *, size_t, property *);
-NNG_DECL int nng_mqtt_unsubscribe_async(nng_mqtt_client *, nng_mqtt_topic_qos *sbs, size_t count, property *pl);
-NNG_DECL int nng_mqtt_disconnect(nng_socket *, uint8_t, property*);
+NNG_DECL nng_mqtt_client *nng_mqtt_client_alloc(
+    nng_socket *, nng_mqtt_cb_opt *, bool);
+NNG_DECL void nng_mqtt_client_free(nng_mqtt_client *, bool);
+NNG_DECL int  nng_mqtt_subscribe(
+     nng_socket *, nng_mqtt_topic_qos *, size_t, property *);
+NNG_DECL int nng_mqtt_subscribe_async(
+    nng_mqtt_client *, nng_mqtt_topic_qos *, size_t, property *);
+NNG_DECL int nng_mqtt_unsubscribe(
+    nng_socket *, nng_mqtt_topic *, size_t, property *);
+NNG_DECL int nng_mqtt_unsubscribe_async(
+    nng_mqtt_client *, nng_mqtt_topic *sbs, size_t count, property *pl);
+NNG_DECL int nng_mqtt_disconnect(nng_socket *, uint8_t, property *);
+
+typedef struct nng_mqtt_sqlite_option nng_mqtt_sqlite_option;
+
+#if defined(NNG_SUPP_SQLITE)
+
+NNG_DECL int  nng_mqtt_alloc_sqlite_opt(nng_mqtt_sqlite_option **);
+NNG_DECL int  nng_mqtt_free_sqlite_opt(nng_mqtt_sqlite_option *);
+NNG_DECL void nng_mqtt_set_sqlite_enable(nng_mqtt_sqlite_option *, bool);
+NNG_DECL void nng_mqtt_set_sqlite_db_dir(
+    nng_mqtt_sqlite_option *, const char *);
+NNG_DECL void nng_mqtt_set_sqlite_max_rows(nng_mqtt_sqlite_option *, size_t);
+NNG_DECL void nng_mqtt_set_sqlite_flush_threshold(
+    nng_mqtt_sqlite_option *, size_t);
+NNG_DECL void nng_mqtt_sqlite_db_init(
+    nng_mqtt_sqlite_option *, const char *, uint8_t);
+NNG_DECL void nng_mqtt_sqlite_db_fini(nng_mqtt_sqlite_option *);
+
+#endif
 
 #ifdef __cplusplus
 }
