@@ -19,14 +19,15 @@ nng_sources(
    mqtt_public.c
    mqtt_codec.c
    mqtt_msg.c
-   mqtt_msg.h
+   mqtt_msg.h 
+   mqtt_qos_db_api.c
    mqtt_qos_db_api.h
 )
 
 nng_test(mqtt_test)
 
-nng_sources_if(NNG_ENABLE_SQLITE
-   mqtt_qos_db.c
+nng_sources_if(NNG_ENABLE_SQLITE  
+   mqtt_qos_db.c 
    mqtt_qos_db.h
 )
 
