@@ -183,6 +183,53 @@ disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 	printf("%s: disconnected!\n", __FUNCTION__);
 }
 
+static void
+send_message_interval(void *arg)
+{
+	nng_socket *sock = arg;
+	nng_msg *   pub_msg;
+	nng_mqtt_msg_alloc(&pub_msg, 0);
+
+	nng_mqtt_msg_set_packet_type(pub_msg, NNG_MQTT_PUBLISH);
+	nng_mqtt_msg_set_publish_topic(pub_msg, SUB_TOPIC1);
+	nng_mqtt_msg_set_publish_payload(
+	    pub_msg, (uint8_t *) "offline message", strlen("offline message"));
+
+	for (;;) {
+		nng_msleep(2000);
+		nng_msg *dup_msg;
+		nng_msg_dup(&dup_msg, pub_msg);
+		nng_sendmsg(*sock, dup_msg, NNG_FLAG_ALLOC);
+		printf("sending message\n");
+	}
+}
+
+static int
+sqlite_config(nng_socket *sock, uint8_t proto_ver)
+{
+#if defined(NNG_SUPP_SQLITE)
+	int rv;
+	// create sqlite option
+	nng_mqtt_sqlite_option *sqlite;
+	if ((rv = nng_mqtt_alloc_sqlite_opt(&sqlite)) != 0) {
+		fatal("nng_mqtt_alloc_sqlite_opt", rv);
+	}
+	// set sqlite option
+	nng_mqtt_set_sqlite_enable(sqlite, true);
+	nng_mqtt_set_sqlite_flush_threshold(sqlite, 10);
+	nng_mqtt_set_sqlite_max_rows(sqlite, 20);
+	nng_mqtt_set_sqlite_db_dir(sqlite, "/tmp/nanomq");
+
+	// init sqlite db
+	nng_mqtt_sqlite_db_init(sqlite, "mqtt_client.db", proto_ver);
+
+	// set sqlite option pointer to socket
+	return nng_socket_set_ptr(*sock, NNG_OPT_MQTT_SQLITE, sqlite);
+#else
+	return (0);
+#endif
+}
+
 int
 client(const char *url, uint8_t proto_ver)
 {
@@ -202,25 +249,7 @@ client(const char *url, uint8_t proto_ver)
 		}
 	}
 
-#if defined(NNG_SUPP_SQLITE)
-	// create sqlite option
-	nng_mqtt_sqlite_option *sqlite;
-	if ((rv = nng_mqtt_alloc_sqlite_opt(&sqlite)) != 0) {
-		fatal("nng_mqtt_alloc_sqlite_opt", rv);
-	}
-	// set sqlite option
-	nng_mqtt_set_sqlite_enable(sqlite, true);
-	nng_mqtt_set_sqlite_flush_threshold(sqlite, 10);
-	nng_mqtt_set_sqlite_max_rows(sqlite, 20);
-	nng_mqtt_set_sqlite_db_dir(sqlite, "/tmp/nanomq");
-
-	// init sqlite db
-	nng_mqtt_sqlite_db_init(
-	    sqlite, "mqtt_client.db", proto_ver);
-
-	// set sqlite option pointer to socket
-	nng_socket_set_ptr(sock, NNG_OPT_MQTT_SQLITE, sqlite);
-#endif
+	sqlite_config(&sock, proto_ver);
 
 	for (i = 0; i < nwork; i++) {
 		works[i] = alloc_work(sock);
@@ -245,6 +274,10 @@ client(const char *url, uint8_t proto_ver)
 	nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, msg);
 	nng_dialer_start(dialer, NNG_FLAG_NONBLOCK);
 
+#if defined(NNG_SUPP_SQLITE)
+	nng_thread *thread;
+	nng_thread_create(&thread, send_message_interval, &sock);
+#endif
 
 	for (i = 0; i < nwork; i++) {
 		client_cb(works[i]);
@@ -253,11 +286,6 @@ client(const char *url, uint8_t proto_ver)
 	for (;;) {
 		nng_msleep(3600000); // neither pause() nor sleep() portable
 	}
-
-#if defined(NNG_SUPP_SQLITE)
-	nng_mqtt_free_sqlite_opt(sqlite);
-#endif
-
 }
 
 #ifdef NNG_SUPP_TLS
