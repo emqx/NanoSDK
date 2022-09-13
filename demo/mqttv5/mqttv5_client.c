@@ -35,7 +35,7 @@
 #include <signal.h>
 #include <time.h>
 
-#include "nng/mqtt/mqtt_client.h"
+#include <nng/mqtt/mqtt_client.h>
 #include <nng/nng.h>
 #include <nng/supplemental/util/platform.h>
 
@@ -55,7 +55,6 @@ intHandler(int dummy)
 {
 	keepRunning = 0;
 	fprintf(stderr, "\nclient exit(0).\n");
-	nng_closeall();
 	exit(0);
 }
 
@@ -260,7 +259,8 @@ client_publish(nng_socket sock, const char *topic, uint8_t *payload,
 	mqtt_property_append(plist, p3);
 	property *p4 = mqtt_property_set_value_str(RESPONSE_TOPIC, "aaaaaa", strlen("aaaaaa"), true);
 	mqtt_property_append(plist, p4);
-	property *p5 = mqtt_property_set_value_binary(CORRELATION_DATA, "aaaaaa", strlen("aaaaaa"), true);
+	property *p5 = mqtt_property_set_value_binary(
+	    CORRELATION_DATA, (uint8_t *) "aaaaaa", strlen("aaaaaa"), true);
 	mqtt_property_append(plist, p5);
 	property *p6 = mqtt_property_set_value_strpair(USER_PROPERTY, "aaaaaa", strlen("aaaaaa"), "aaaaaa", strlen("aaaaaa"), true);
 	mqtt_property_append(plist, p6);
@@ -303,9 +303,11 @@ void msg_recv_deal(nng_msg *msg, bool verbose)
 		uint32_t topic_len = 0;
 		uint32_t payload_len = 0;
 		const char *topic = nng_mqtt_msg_get_publish_topic(msg, &topic_len);
-		char *payload = nng_mqtt_msg_get_publish_payload(msg, &payload_len);
+	        char *      payload =
+	            (char *) nng_mqtt_msg_get_publish_payload(
+	                msg, &payload_len);
 
-		printf("Receive \'%.*s\' from \'%.*s\'\n", payload_len, payload, topic_len, topic);
+	        printf("Receive \'%.*s\' from \'%.*s\'\n", payload_len, payload, topic_len, topic);
 		property *pl = nng_mqtt_msg_get_publish_property(msg);
 		if (pl != NULL) {
 			mqtt_property_foreach(pl, print_property);
@@ -396,15 +398,27 @@ main(const int argc, const char **argv)
 		}
 	} else if (strcmp(SUBSCRIBE, cmd) == 0) {
 		nng_mqtt_topic_qos subscriptions[] = {
-			{ .qos     = qos,
-			    .topic = { .buf = (uint8_t *) topic,
-			        .length     = strlen(topic) } },
+			{
+			    .qos   = qos,
+			    .topic = { 
+					.buf    = (uint8_t *) topic,
+			        .length = strlen(topic), 
+				},
+			},
+		};
+		nng_mqtt_topic unsubscriptions[] = {
+			{
+			    .buf    = (uint8_t *) topic,
+			    .length = strlen(topic),
+			},
 		};
 
 		property *plist = mqtt_property_alloc();
 		mqtt_property_append(plist,
 		    mqtt_property_set_value_varint(
 		        SUBSCRIPTION_IDENTIFIER, 120));
+		property *unsub_plist = NULL;
+		mqtt_property_dup(&unsub_plist, plist);
 
 		// Sync subscription
 		// rv = nng_mqtt_subscribe(&sock, subscriptions, 1, plist);
@@ -435,7 +449,8 @@ main(const int argc, const char **argv)
 		// Sync unsubscription
 		// rv = nng_mqtt_unsubscribe(&sock, subscriptions, 1, plist);
 		// Asynchronous unsubscription
-		nng_mqtt_unsubscribe_async(client, subscriptions, 1, plist);
+		nng_mqtt_unsubscribe_async(
+		    client, unsubscriptions, 1, unsub_plist);
 		nng_mqtt_client_free(client, true);
 	}
 
