@@ -36,7 +36,8 @@ struct mqtt_tcptran_pipe {
 	uint16_t         peer;    // broker info
 	uint16_t         proto;   // MQTT version
 	uint16_t         keepalive;
-	uint16_t         sndmax; // MQTT Receive Maximum (QoS 1/2 packet)
+	uint16_t         sndmax;  // MQTT Receive Maximum (QoS 1/2 packet)
+	uint8_t          pingcnt; // pingreq counter
 	uint8_t          qosmax;
 	uint8_t          txlen[sizeof(uint64_t)];
 	uint8_t          rxlen[sizeof(uint64_t)]; // fixed header
@@ -120,34 +121,6 @@ mqtt_tcptran_fini(void)
 }
 
 static void
-mqtt_pipe_timer_cb(void *arg)
-{
-	mqtt_tcptran_pipe *p = arg;
-	uint8_t            buf[2];
-
-	if (nng_aio_result(&p->tmaio) != 0) {
-		return;
-	}
-	// send PINGREQ with tmaio itself?
-	// nng_msleep(p->keepalive);
-	nni_mtx_lock(&p->mtx);
-	if (!p->busy) {
-		// send pingreq
-		buf[0] = 0xC0;
-		buf[1] = 0x00;
-
-		nni_iov iov;
-		iov.iov_len = 2;
-		iov.iov_buf = &buf;
-		// send it down...
-		nni_aio_set_iov(p->qsaio, 1, &iov);
-		nng_stream_send(p->conn, p->qsaio);
-	}
-	nni_mtx_unlock(&p->mtx);
-	nni_sleep_aio(p->keepalive, &p->tmaio);
-}
-
-static void
 mqtt_tcptran_pipe_close(void *arg)
 {
 	mqtt_tcptran_pipe *p = arg;
@@ -165,6 +138,41 @@ mqtt_tcptran_pipe_close(void *arg)
 	nni_aio_close(p->rpaio);
 	nni_aio_close(&p->tmaio);
 	nng_stream_close(p->conn);
+}
+
+static void
+mqtt_pipe_timer_cb(void *arg)
+{
+	mqtt_tcptran_pipe *p = arg;
+	uint8_t            buf[2];
+
+	if (nng_aio_result(&p->tmaio) != 0) {
+		// log_error("Timer error!");
+		return;
+	}
+
+	if (p->pingcnt > 1) {
+		mqtt_tcptran_pipe_close(p);
+		return;
+	}
+	// send PINGREQ with tmaio itself?
+	// nng_msleep(p->keepalive);
+	nni_mtx_lock(&p->mtx);
+	if (!p->busy) {
+		// send pingreq
+		buf[0] = 0xC0;
+		buf[1] = 0x00;
+
+		nni_iov iov;
+		iov.iov_len = 2;
+		iov.iov_buf = &buf;
+		// send it down...
+		nni_aio_set_iov(p->qsaio, 1, &iov);
+		nng_stream_send(p->conn, p->qsaio);
+		p->pingcnt ++;
+	}
+	nni_mtx_unlock(&p->mtx);
+	nni_sleep_aio(p->keepalive, &p->tmaio);
 }
 
 static void
@@ -190,6 +198,7 @@ mqtt_tcptran_pipe_init(void *arg, nni_pipe *npipe)
 	p->busy = false;
 	p->packmax = 0xFFFF;
 	p->qosmax  = 2;
+	p->pingcnt = 0;
 	nni_sleep_aio(p->keepalive, &p->tmaio);
 	return (0);
 }
@@ -783,8 +792,8 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 	}
 
 	nni_aio_set_msg(aio, msg);
+	p->pingcnt = 0;
 	nni_mtx_unlock(&p->mtx);
-
 	nni_aio_finish_sync(aio, 0, n);
 	return;
 
