@@ -33,6 +33,18 @@ as well as the normal installation directories for libraries on your system.
 If you have installed mbedTLS elsewhere, you can direct the NNG configuration
 to it by setting the `MBEDTLS_ROOT_DIR` CMake variable.
 
+== Configuring NNG with msQUIC
+
+QUIC = TLS 1.3 + UDP, so we put it here temporarily
+QUIC support is not disabled by default, but can be enabled by configuring
+with the CMake option `NNG_ENABLE_QUIC=ON`.
+
+By default NNG searches for an installed copy of msQUIC in `/usr/local`,
+as well as the normal installation directories for libraries on your system.
+
+If you have installed mbedTLS elsewhere, you can direct the NNG configuration
+to it by setting the `MSQUIC_ROOT_DIR` CMake variable.
+
 == Example
 
 The following example would work on either Linux or macOS, and assumes
