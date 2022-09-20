@@ -15,6 +15,7 @@ project(quic_client)
 find_package(nng CONFIG REQUIRED)
 
 find_package(Threads)
+find_package(msquic)
 
 add_executable(quic_client client.c)
 target_link_libraries(quic_client nng msquic pthread)

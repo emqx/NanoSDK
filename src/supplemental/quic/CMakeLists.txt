@@ -6,18 +6,11 @@
 #
 
 if (NNG_ENABLE_QUIC)
-    set(NNG_QUIC_LIBS msquic none)
-
-    # We assume msquic for now.
-    set(NNG_QUIC_LIB msquic CACHE STRING "QUIC lib to use.")
-    add_subdirectory(msquic)
-    include_directories(${PROJECT_SOURCE_DIR}/extern/msquic)
-
     nng_sources(quic_api.c)
     nng_sources(quic_api.h)
-    set_property(CACHE NNG_QUIC_LIB PROPERTY STRINGS ${NNG_TLS_ENGINES})
-else ()
-    set(NNG_QUIC_LIB none)
+    find_package(msquic)
+    nng_link_libraries(msquic)
+
 endif ()
 
 # default QUIC implementation for now is msquic.
