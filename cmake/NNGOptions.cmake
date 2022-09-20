@@ -97,7 +97,7 @@ endif ()
 
 if (NNG_ENABLE_QUIC)
     set(NNG_QUIC_LIBS msquic none)
-    # We assume Mbed for now.  (Someday replaced perhaps with Bear.)
+    # We assume MSQUIC only for now.  (Someday replaced perhaps with ngtcp.)
     set(NNG_QUIC_LIB msquic CACHE STRING "Quic lib to use.")
     set_property(CACHE NNG_QUIC_LIB PROPERTY STRINGS ${NNG_QUIC_LIBS})
 else ()

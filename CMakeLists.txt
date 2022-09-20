@@ -254,7 +254,6 @@ if (NNG_TESTS)
 endif ()
 
 if(NNG_ENABLE_QUIC)
-  include_directories(${PROJECT_SOURCE_DIR}/extern/msquic/src/inc)
   set(NNG_PROTO_MQTT_QUIC_CLIENT ON)
   add_definitions(-DSUPP_QUIC)
 endif()
