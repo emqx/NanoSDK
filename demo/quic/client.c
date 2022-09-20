@@ -34,6 +34,7 @@
 //
 
 #include <nng/nng.h>
+#include <nng/supplemental/util/platform.h>
 #include <nng/mqtt/mqtt_quic.h>
 #include <nng/mqtt/mqtt_client.h>
 
