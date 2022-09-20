@@ -36,7 +36,7 @@ if(NNG_QUIC_LIB STREQUAL "msquic")
         ${MSQUIC_LIBRARIES})
     mark_as_advanced(QUIC_LIBRARIES)
 
-    if(TARGET nanomq)
+    if(NNG_PROTO_MQTT_BROKER)
         message("Build msquic with nanonng")
         # nng_link_libraries(${QUIC_LIBRARIES})
         include_directories(${PROJECT_SOURCE_DIR}/extern/msquic)
