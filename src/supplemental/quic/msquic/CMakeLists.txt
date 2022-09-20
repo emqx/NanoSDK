@@ -29,7 +29,8 @@ if(NNG_QUIC_LIB STREQUAL "msquic")
 
     find_library(MSQUIC_LIBRARIES
         NAMES msquic
-        PATHS ${PROJECT_SOURCE_DIR}/extern/msquic
+        HINTS ${_MSQUIC_ROOT_HINTS}
+        PATHS /usr/local
         PATH_SUFFIXES lib)
 
     set(QUIC_LIBRARIES
@@ -37,7 +38,7 @@ if(NNG_QUIC_LIB STREQUAL "msquic")
     mark_as_advanced(QUIC_LIBRARIES)
 
     if(NNG_PROTO_MQTT_BROKER)
-        message("Build msquic with nanonng")
+        message(" ** Build msquic with nanonng ** ")
         # nng_link_libraries(${QUIC_LIBRARIES})
         include_directories(${PROJECT_SOURCE_DIR}/extern/msquic)
     else()
