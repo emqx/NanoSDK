@@ -1,0 +1,73 @@
+= nng_mqtt_unsubscribe_async(3)
+// This document is supplied under the terms of the MIT License, a
+// copy of which should be located in the distribution where this
+// file was obtained (LICENSE.txt).  A copy of the license may also be
+// found online at https://opensource.org/licenses/MIT.
+//
+
+== NAME
+
+nng_mqtt_unsubscribe_async - perform an MQTT unsubscribe request asynchnously with __mqtt_client__, __subscription_list__ and __property_data__ (for MQTT V5 if you specify one) for __mqtt__
+
+== SYNOPSIS
+
+[source, c]
+----
+#include <nng/nng.h>
+#include <nng/mqtt/mqtt_client.h>
+
+int 
+nng_mqtt_unsubscribe_async(nng_mqtt_client *client, nng_mqtt_topic *sbs, size_t count, property *pl)
+----
+
+== DESCRIPTION
+
+The `nng_mqtt_unsubscribe_async()` function sends a UNSUBSCRIBE packet with user-specified topic+qos list: _size_ of _nng_mqtt_topic_qos_ and a pre-establised _nng_mqtt_client_ object which contains necessary _nng_aio_ for the action. You can set unsubscribe callback for _nng_mqtt_client_ with _nng_mqtt_client_alloc_ API. The _property_ is optional, and only takes effect if you are using an MQTT 5.0 client.
+
+== RETURN VALUES
+
+This function returns 0 by default, please check the subscribe result in the callback func set in _nng_mqtt_client_alloc_ API.
+
+== ERRORS
+
+[horizontal]
+`NNG_ENOMEM`:: Insufficient free memory exists to allocate a message.
+
+
+client demo snippet
+[source, c]
+----
+static void
+unsub_callback(void *arg) {
+    nng_mqtt_client *client = (nng_mqtt_client *) arg;
+	nng_aio *aio = client->sub_aio;
+	nng_msg *msg = nng_aio_get_msg(aio);
+	nng_msg_free(msg);
+}
+	char               topic1[4]       = { "msg" };
+	nng_mqtt_topic_qos subscriptions[] = {
+		{ .qos     = 1,
+		    .topic = { .buf = (uint8_t *) topic1,
+			    .length     = strlen(
+		            topic1) } } nng_mqtt_client *client =
+			nng_mqtt_client_alloc(sock, sub_callback, true);
+	nng_mqtt_unsubscribe_async(client, subscriptions, 1, NULL);
+----
+
+== SEE ALSO
+
+[.text-left]
+xref:nng_mqtt_msg_decode.3.adoc[nng_mqtt_msg_decode(3)],
+xref:nng_mqtt_msg_encode.3.adoc[nng_mqtt_msg_encode(3)],
+xref:nng_msg_free.3.adoc[nng_msg_free(3)],
+xref:nng_msg_body.3.adoc[nng_msg_body(3)],
+xref:nng_msg_dup.3.adoc[nng_msg_dup(3)],
+xref:nng_msg_header.3.adoc[nng_msg_header(3)],
+xref:nng_msg_header_len.3.adoc[nng_msg_header_len(3)],
+xref:nng_msg_len.3.adoc[nng_msg_len(3)],
+xref:nng_msg_capacity.3.adoc[nng_msg_capacity(3)],
+xref:nng_msg_reserve.3.adoc[nng_msg_reserve(3)],
+xref:nng_msg_realloc.3.adoc[nng_msg_realloc(3)],
+xref:nng_strerror.3.adoc[nng_strerror(3)],
+xref:nng_msg.5.adoc[nng_msg(5)],
+xref:nng.7.adoc[nng(7)]
