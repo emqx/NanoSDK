@@ -457,13 +457,17 @@ with TLS support.
 
 === MQTT Support
 
-The library support MQTT V3.1.1 for now (V5.0 is being prepared for development)
+The library support MQTT V3.1.1/5.0
 
 ==== MQTT Message Handling
 |===
 |xref:nng_mqtt_msg_alloc.3.adoc[nng_mqtt_msg_alloc()]|allocate a message with proto_data for  mqtt
 |xref:nng_mqtt_msg_decode.3.adoc[nng_mqtt_msg_decode()]|decode a mqtt bytes stream from nng_msg_body and nng_msg_header to proto_data
 |xref:nng_mqtt_msg_encode.3.adoc[nng_mqtt_msg_encode()]|encode a mqtt message from proto_data to nng_msg_body and nng_msg_header
+|xref:nng_mqtt_subscribe.3.adoc[nng_mqtt_subscribe()]|perform a subscribe request synchnously
+|xref:nng_mqtt_subscribe_async.3.adoc[nng_mqtt_subscribe_unasync()]|perform a subscribe request asynchnously
+|xref:nng_mqtt_unsubscribe.3.adoc[nng_mqtt_subscribe()]|perform a subscribe request synchnously
+|xref:nng_mqtt_unsubscribe_async.3.adoc[nng_mqtt_subscribe_unasync()]|perform a subscribe request asynchnously
 |xref:nng_mqtt_msg_get_connect.3.adoc[nng_mqtt_msg_get_connect()]|get mqtt connect message 
 |xref:nng_mqtt_msg_get_packet_type.3.adoc[nng_mqtt_msg_get_packet_type()]|get mqtt packet type
 |xref:nng_mqtt_msg_get_publish.3.adoc[nng_mqtt_msg_get_publish()]|get mqtt publish message 
@@ -482,6 +486,7 @@ These functions are intended for use with MQTT client applications.
 
 |===
 |xref:nng_mqtt_client_open.3.adoc[nng_mqtt_client_open]|open mqtt client socket
+|xref:nng_mqttv5_client_open.3.adoc[nng_mqttv5_client_open]|open mqtt V5 client socket
 |xref:nng_mqtt_set_cb.3.adoc[nng_mqtt_set_connect_cb]| set mqtt connect callback function
 |xref:nng_mqtt_set_cb.3.adoc[nng_mqtt_set_disconnect_cb]| set mqtt disconnect callback function
 |===
