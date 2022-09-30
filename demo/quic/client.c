@@ -47,6 +47,12 @@
 
 static nng_socket * g_sock;
 
+static void
+fatal(const char *msg, int rv)
+{
+	fprintf(stderr, "%s: %s\n", msg, nng_strerror(rv));
+}
+
 static nng_msg *
 mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 {
@@ -57,7 +63,7 @@ mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 	if (type == 1) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
 
-		nng_mqtt_msg_set_connect_keep_alive(msg, 60);
+		nng_mqtt_msg_set_connect_keep_alive(msg, 10);
 		nng_mqtt_msg_set_connect_clean_session(msg, false);
 	} else if (type == 2) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_SUBSCRIBE);
@@ -93,18 +99,21 @@ static int
 connect_cb(void *rmsg, void * arg)
 {
 	printf("[Connected][%s]...\n", (char *)arg);
+	return 0;
 }
 
 static int
 disconnect_cb(void *rmsg, void * arg)
 {
 	printf("[Disconnected][%s]...\n", (char *)arg);
+	return 0;
 }
 
 static int
 msg_send_cb(void *rmsg, void * arg)
 {
 	printf("[Msg Sent][%s]...\n", (char *)arg);
+	return 0;
 }
 
 static int
@@ -119,6 +128,47 @@ msg_recv_cb(void *rmsg, void * arg)
 
 	printf("topic   => %.*s\n"
 	       "payload => %.*s\n",topicsz, topic, payloadsz, payload);
+	return 0;
+}
+
+static int
+sqlite_config(nng_socket *sock, uint8_t proto_ver)
+{
+#if defined(NNG_SUPP_SQLITE)
+	int rv;
+	// create sqlite option
+	nng_mqtt_sqlite_option *sqlite;
+	if ((rv = nng_mqtt_alloc_sqlite_opt(&sqlite)) != 0) {
+		fatal("nng_mqtt_alloc_sqlite_opt", rv);
+	}
+	// set sqlite option
+	nng_mqtt_set_sqlite_enable(sqlite, true);
+	nng_mqtt_set_sqlite_flush_threshold(sqlite, 10);
+	nng_mqtt_set_sqlite_max_rows(sqlite, 20);
+	nng_mqtt_set_sqlite_db_dir(sqlite, "/tmp/nanomq");
+
+	// init sqlite db
+	nng_mqtt_sqlite_db_init(sqlite, "mqtt_quic_client.db", proto_ver);
+
+	// set sqlite option pointer to socket
+	return nng_socket_set_ptr(*sock, NNG_OPT_MQTT_SQLITE, sqlite);
+#else
+	return (0);
+#endif
+}
+
+static void
+sendmsg_func(void *arg)
+{
+	nng_socket *sock = arg;
+	nng_msg *msg = mqtt_msg_compose(3, 1, "topic123", "hello quic");
+
+	for (;;) {
+		nng_msleep(1000);
+		nng_msg *smsg;
+		nng_msg_dup(&smsg, msg);
+		nng_sendmsg(*sock, smsg, NNG_FLAG_NONBLOCK);
+	}
 }
 
 int
@@ -132,6 +182,9 @@ client(int type, const char *url, const char *qos, const char *topic, const char
 	if ((rv = nng_mqtt_quic_client_open(&sock, url)) != 0) {
 		printf("error in quic client open.\n");
 	}
+
+	sqlite_config(&sock, MQTT_PROTOCOL_VERSION_v311);
+
 	if (0 != nng_mqtt_quic_set_connect_cb(&sock, connect_cb, (void *)arg) ||
 	    0 != nng_mqtt_quic_set_disconnect_cb(&sock, disconnect_cb, (void *)arg) ||
 	    0 != nng_mqtt_quic_set_msg_recv_cb(&sock, msg_recv_cb, (void *)arg) ||
@@ -163,6 +216,11 @@ client(int type, const char *url, const char *qos, const char *topic, const char
 	case 3:
 		msg = mqtt_msg_compose(3, q, (char *)topic, (char *)data);
 		nng_sendmsg(*g_sock, msg, NNG_FLAG_ALLOC);
+
+#if defined(NNG_SUPP_SQLITE)
+		nng_thread *thr;
+		nng_thread_create(&thr, sendmsg_func, &sock);
+#endif
 
 		break;
 	default:
