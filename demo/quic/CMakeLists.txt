@@ -20,3 +20,8 @@ find_package(msquic)
 add_executable(quic_client client.c)
 target_link_libraries(quic_client nng msquic pthread)
 target_compile_definitions(quic_client PRIVATE NNG_ELIDE_DEPRECATED)
+
+if (NNG_ENABLE_SQLITE)
+    add_definitions(-DNNG_SUPP_SQLITE)
+    target_link_libraries(quic_client dl)
+endif (NNG_ENABLE_SQLITE)
