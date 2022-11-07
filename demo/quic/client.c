@@ -231,6 +231,7 @@ client(int type, const char *url, const char *qos, const char *topic, const char
 		nng_msleep(1000);
 
 	nng_close(sock);
+	fprintf(stderr, "Done.\n");
 
 	return (0);
 }
@@ -249,14 +250,26 @@ main(int argc, char **argv)
 {
 	int rc;
 
-	if (argc < 3)
-		printf_helper(argv[0]);
-	if (0 == strncmp(argv[1], "conn", 4) && argc == 3)
+	if (argc < 3) {
+		goto error;
+	}
+	if (0 == strncmp(argv[1], "conn", 4) && argc == 3) {
 		client(1, argv[2], NULL, NULL, NULL);
-	if (0 == strncmp(argv[1], "sub", 3)  && argc == 5)
+	}
+	else if (0 == strncmp(argv[1], "sub", 3)  && argc == 5) {
 		client(2, argv[2], argv[3], argv[4], NULL);
-	if (0 == strncmp(argv[1], "pub", 3)  && argc == 6)
+	}
+	else if (0 == strncmp(argv[1], "pub", 3)  && argc == 6) {
 		client(3, argv[2], argv[3], argv[4], argv[5]);
+	}
+	else {
+		goto error;
+	}
+
+	return 0;
+
+error:
 
 	printf_helper(argv[0]);
+	return 0;
 }
