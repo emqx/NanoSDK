@@ -1113,6 +1113,7 @@ nng_mqtt_quic_client_open(nng_socket *sock, const char *url)
 		} else {
 			rv = -1;
 		}
+		nni_sock_rele(nsock);
 	}
 	return rv;
 }
@@ -1133,6 +1134,7 @@ nng_mqtt_quic_open_keepalive(nng_socket *sock, const char *url, uint64_t interva
 		} else {
 			rv = -1;
 		}
+		nni_sock_rele(nsock);
 	}
 	return rv;
 }
@@ -1147,6 +1149,7 @@ nng_mqtt_quic_set_connect_cb(nng_socket *sock, int (*cb)(void *, void *), void *
 		mqtt_sock_t *mqtt_sock = nni_sock_proto_data(nsock);
 		mqtt_sock->cb.connect_cb = cb;
 		mqtt_sock->cb.connarg = arg;
+		nni_sock_rele(nsock);
 	} else {
 		return -1;
 	}
@@ -1163,6 +1166,7 @@ nng_mqtt_quic_set_disconnect_cb(nng_socket *sock, int (*cb)(void *, void *), voi
 		mqtt_sock_t *mqtt_sock = nni_sock_proto_data(nsock);
 		mqtt_sock->cb.disconnect_cb = cb;
 		mqtt_sock->cb.discarg = arg;
+		nni_sock_rele(nsock);
 	} else {
 		return -1;
 	}
@@ -1179,6 +1183,7 @@ nng_mqtt_quic_set_msg_recv_cb(nng_socket *sock, int (*cb)(void *, void *), void 
 		mqtt_sock_t *mqtt_sock = nni_sock_proto_data(nsock);
 		mqtt_sock->cb.msg_recv_cb = cb;
 		mqtt_sock->cb.recvarg = arg;
+		nni_sock_rele(nsock);
 	} else {
 		return -1;
 	}
@@ -1195,6 +1200,7 @@ nng_mqtt_quic_set_msg_send_cb(nng_socket *sock, int (*cb)(void *, void *), void 
 		mqtt_sock_t *mqtt_sock = nni_sock_proto_data(nsock);
 		mqtt_sock->cb.msg_send_cb = cb;
 		mqtt_sock->cb.sendarg = arg;
+		nni_sock_rele(nsock);
 	} else {
 		return -1;
 	}
