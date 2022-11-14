@@ -858,6 +858,7 @@ int
 nng_mqtt_free_sqlite_opt(nng_mqtt_sqlite_option *sqlite)
 {
 	if (sqlite) {
+		nni_mqtt_sqlite_db_fini(sqlite);
 		nni_free(sqlite, sizeof(nng_mqtt_sqlite_option));
 	}
 	return 0;
