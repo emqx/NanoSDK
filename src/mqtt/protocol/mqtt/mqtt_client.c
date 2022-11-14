@@ -122,9 +122,6 @@ static void
 mqtt_sock_fini(void *arg)
 {
 	mqtt_sock_t *s = arg;
-#ifdef NNG_SUPP_SQLITE
-	nni_mqtt_sqlite_db_fini(s->sqlite_opt);
-#endif
 	mqtt_ctx_fini(&s->master);
 	nni_mtx_fini(&s->mtx);
 }
