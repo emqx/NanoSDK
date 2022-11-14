@@ -640,9 +640,6 @@ static void
 mqtt_quic_sock_fini(void *arg)
 {
 	mqtt_sock_t *s = arg;
-#ifdef NNG_SUPP_SQLITE
-	nni_mqtt_sqlite_db_fini(s->sqlite_opt);
-#endif
 	mqtt_quic_ctx_fini(&s->master);
 	nni_lmq_fini(&s->send_messages);
 	nni_aio_fini(&s->time_aio);
