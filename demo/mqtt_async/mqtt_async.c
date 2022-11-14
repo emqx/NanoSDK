@@ -204,16 +204,13 @@ send_message_interval(void *arg)
 	}
 }
 
-static int
-sqlite_config(nng_socket *sock, uint8_t proto_ver)
-{
 #if defined(NNG_SUPP_SQLITE)
+static int
+sqlite_config(
+    nng_socket *sock, nng_mqtt_sqlite_option *sqlite, uint8_t proto_ver)
+{
 	int rv;
-	// create sqlite option
-	nng_mqtt_sqlite_option *sqlite;
-	if ((rv = nng_mqtt_alloc_sqlite_opt(&sqlite)) != 0) {
-		fatal("nng_mqtt_alloc_sqlite_opt", rv);
-	}
+
 	// set sqlite option
 	nng_mqtt_set_sqlite_enable(sqlite, true);
 	nng_mqtt_set_sqlite_flush_threshold(sqlite, 10);
@@ -225,10 +222,10 @@ sqlite_config(nng_socket *sock, uint8_t proto_ver)
 
 	// set sqlite option pointer to socket
 	return nng_socket_set_ptr(*sock, NNG_OPT_MQTT_SQLITE, sqlite);
-#else
+
 	return (0);
-#endif
 }
+#endif
 
 int
 client(const char *url, uint8_t proto_ver)
@@ -249,7 +246,14 @@ client(const char *url, uint8_t proto_ver)
 		}
 	}
 
-	sqlite_config(&sock, proto_ver);
+#if defined(NNG_SUPP_SQLITE)
+	nng_mqtt_sqlite_option *sqlite;
+	if ((rv = nng_mqtt_alloc_sqlite_opt(&sqlite)) != 0) {
+		fatal("nng_mqtt_alloc_sqlite_opt", rv);
+	}
+	sqlite_config(&sock, sqlite, proto_ver);
+
+#endif
 
 	for (i = 0; i < nwork; i++) {
 		works[i] = alloc_work(sock);
@@ -286,6 +290,10 @@ client(const char *url, uint8_t proto_ver)
 	for (;;) {
 		nng_msleep(3600000); // neither pause() nor sleep() portable
 	}
+#if defined(NNG_SUPP_SQLITE)
+	nng_mqtt_free_sqlite_opt(sqlite);
+#endif
+	return 0;
 }
 
 #ifdef NNG_SUPP_TLS
