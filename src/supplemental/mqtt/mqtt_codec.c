@@ -3071,9 +3071,12 @@ mqtt_get_remaining_length(uint8_t *packet, uint32_t len,
 int
 mqtt_buf_create(mqtt_buf *mbuf, const uint8_t *buf, uint32_t length)
 {
-	if ((mbuf->buf = nni_alloc(length)) != NULL) {
+	void *new = NULL;
+	if ((new = nni_alloc(length)) != NULL) {
+		free(mbuf->buf);
+		memcpy(new, buf, length);
 		mbuf->length = length;
-		memcpy(mbuf->buf, buf, mbuf->length);
+		mbuf->buf = new;
 		return (0);
 	}
 	return NNG_ENOMEM;

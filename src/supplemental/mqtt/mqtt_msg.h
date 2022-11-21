@@ -337,7 +337,7 @@ NNG_DECL uint8_t     nni_mqtt_msg_get_connect_proto_version(nni_msg *);
 NNG_DECL uint16_t    nni_mqtt_msg_get_connect_keep_alive(nni_msg *);
 NNG_DECL const char *nni_mqtt_msg_get_connect_user_name(nni_msg *);
 NNG_DECL const char *nni_mqtt_msg_get_connect_password(nni_msg *);
-NNG_DECL const char *nni_mqtt_msg_get_connect_client_id(nni_msg *);
+NNG_DECL mqtt_buf    nni_mqtt_msg_get_connect_client_id(nni_msg *);
 NNG_DECL const char *nni_mqtt_msg_get_connect_will_topic(nni_msg *);
 NNG_DECL bool        nni_mqtt_msg_get_connect_will_retain(nni_msg *);
 NNG_DECL uint8_t *nni_mqtt_msg_get_connect_will_msg(nni_msg *, uint32_t *);

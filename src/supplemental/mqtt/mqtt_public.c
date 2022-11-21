@@ -172,7 +172,7 @@ nng_mqtt_msg_get_connect_keep_alive(nng_msg *msg)
 	return nni_mqtt_msg_get_connect_keep_alive(msg);
 }
 
-const char *
+mqtt_buf
 nng_mqtt_msg_get_connect_client_id(nng_msg *msg)
 {
 	return nni_mqtt_msg_get_connect_client_id(msg);
@@ -1061,6 +1061,7 @@ int
 nng_mqtt_free_sqlite_opt(nng_mqtt_sqlite_option *opt)
 {
 	if (opt) {
+		nni_free(opt->mounted_file_path, strlen(opt->mounted_file_path));
 		nni_mqtt_sqlite_db_fini(opt);
 		nni_free(opt, sizeof(nng_mqtt_sqlite_option));
 	}
