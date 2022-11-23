@@ -521,7 +521,7 @@ mqtt_timer_cb(void *arg)
 		return;
 	}
 	// start message resending
-	msg = nni_id_get_any(&p->sent_unack, &pid);
+	msg = nni_id_get_min(&p->sent_unack, &pid);
 	if (msg != NULL) {
 		uint16_t ptype;
 		ptype = nni_mqtt_msg_get_packet_type(msg);
