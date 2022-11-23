@@ -154,7 +154,7 @@ nni_id_get(nni_id_map *m, uint32_t id)
 void *
 nni_id_get_min(nni_id_map *m, uint16_t *pid)
 {
-	size_t index = 0;
+	size_t index = 1;
 	size_t start = index;
 	if (m->id_count == 0 || m->id_entries == NULL) {
 		return NULL;
@@ -168,7 +168,8 @@ nni_id_get_min(nni_id_map *m, uint16_t *pid)
 		}
 		index++;
 		if (index == m->id_cap) {
-			//found nothing
+			index = 0;
+		} else if (index == 0) {
 			break;
 		}
 	}
