@@ -63,6 +63,5 @@ extern void  nni_id_map_sys_fini(void);
 // NanoSDK
 extern void *nni_id_get_min(nni_id_map *m, uint16_t *pid);
 extern void  nni_id_msgfree_cb(nni_msg *msg);
-extern void  nni_id_show_cb(nni_msg *msg);
 
 #endif // CORE_IDHASH_H
