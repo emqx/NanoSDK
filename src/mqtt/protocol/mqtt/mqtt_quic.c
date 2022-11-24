@@ -104,6 +104,7 @@ struct mqtt_pipe_s {
 	nni_aio         recv_aio;      // recv aio to the underlying transport
 	nni_aio	        rep_aio;	   // aio for resending qos msg and PINGREQ
 	nni_lmq         recv_messages; // recv messages queue
+	uint16_t        rid;           // index of resending packet id
 };
 
 static inline void
@@ -221,14 +222,6 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 	}
 	return -1;
 }
-
-// static void
-// mqtt_qos_send_cb(void *arg)
-// {
-// }
-
-
-
 
 static void
 mqtt_quic_send_cb(void *arg)
@@ -376,6 +369,7 @@ mqtt_quic_recv_cb(void *arg)
 	case NNG_MQTT_UNSUBACK:
 		// we have received a UNSUBACK, successful unsubscription
 		packet_id  = nni_mqtt_msg_get_packet_id(msg);
+		p->rid     = packet_id;
 		cached_msg = nni_id_get(&p->sent_unack, packet_id);
 		if (cached_msg != NULL) {
 			nni_id_remove(&p->sent_unack, packet_id);
@@ -526,7 +520,7 @@ mqtt_timer_cb(void *arg)
 	mqtt_pipe_t *p = s->pipe;
 	nni_msg *  msg;
 	nni_aio *  aio;
-	uint16_t   pid = 0;
+	uint16_t   pid = p->rid;
 
 	if (nng_aio_result(&s->time_aio) != 0) {
 		return;
@@ -725,6 +719,7 @@ quic_mqtt_stream_init(void *arg, nni_pipe *qstrm, void *sock)
 	p->qstream         = qstrm;
 	p->mqtt_sock       = sock;
 	p->mqtt_sock->pipe = p;
+	p->rid             = 0;
 
 	nni_atomic_init_bool(&p->closed);
 	nni_atomic_set_bool(&p->closed, false);
