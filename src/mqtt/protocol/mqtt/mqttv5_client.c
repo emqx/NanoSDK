@@ -75,6 +75,7 @@ struct mqtt_pipe_s {
 	nni_aio    time_aio;      // timer aio to resend unack msg
 	nni_lmq    recv_messages; // recv messages queue
 	nni_lmq    send_messages; // send messages queue
+	uint16_t   rid;           // index of resending packet id
 	bool       busy;
 };
 
@@ -261,6 +262,7 @@ mqtt_pipe_init(void *arg, nni_pipe *pipe, void *s)
 	nni_atomic_set(&p->next_packet_id, 1);
 	p->pipe      = pipe;
 	p->mqtt_sock = s;
+	p->rid       = 1;
 	nni_aio_init(&p->send_aio, mqtt_send_cb, p);
 	nni_aio_init(&p->recv_aio, mqtt_recv_cb, p);
 	nni_aio_init(&p->time_aio, mqtt_timer_cb, p);
@@ -506,9 +508,9 @@ mqtt_timer_cb(void *arg)
 {
 	mqtt_pipe_t *p = arg;
 	mqtt_sock_t *s = p->mqtt_sock;
-	nni_msg *    msg;
-	nni_aio *    aio;
-	uint16_t     pid = 0;
+	nni_msg *  msg;
+	nni_aio *  aio;
+	uint16_t   pid = p->rid;
 
 	if (nng_aio_result(&p->time_aio) != 0) {
 		return;
@@ -703,6 +705,7 @@ mqtt_recv_cb(void *arg)
 	case NNG_MQTT_UNSUBACK:
 		// we have received a UNSUBACK, successful unsubscription
 		packet_id  = nni_mqtt_msg_get_packet_id(msg);
+		p->rid     = packet_id;
 		cached_msg = nni_id_get(&p->sent_unack, packet_id);
 		if (cached_msg != NULL) {
 			nni_id_remove(&p->sent_unack, packet_id);
