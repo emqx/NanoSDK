@@ -836,6 +836,12 @@ nng_mqtt_sqlite_db_fini(nng_mqtt_sqlite_option *sqlite)
 	nni_mqtt_sqlite_db_fini(sqlite);
 }
 
+size_t
+nng_mqtt_sqlite_db_get_cached_size(nng_mqtt_sqlite_option *sqlite)
+{
+	return nni_mqtt_sqlite_db_get_cached_size(sqlite);
+}
+
 int
 nng_mqtt_alloc_sqlite_opt(nng_mqtt_sqlite_option **sqlite)
 {

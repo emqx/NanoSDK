@@ -408,6 +408,26 @@ nni_mqtt_qos_db_set_client_offline_msg_batch(
 	return rv;
 }
 
+size_t
+nni_mqtt_qos_db_get_client_offline_msg_count(
+    sqlite3 *db, const char *config_name)
+{
+	char sql[] = "SELECT COUNT(*) FROM " table_client_offline_msg
+	             " WHERE info_id = (SELECT id FROM " table_client_info
+	             " WHERE config_name = ? LIMIT 1) ";
+	sqlite3_stmt *stmt;
+	sqlite3_exec(db, "BEGIN;", 0, 0, 0);
+	sqlite3_prepare_v2(db, sql, strlen(sql), &stmt, 0);
+	sqlite3_reset(stmt);
+	sqlite3_bind_text(
+	    stmt, 1, config_name, strlen(config_name), SQLITE_TRANSIENT);
+	sqlite3_step(stmt);
+	size_t count = sqlite3_column_int64(stmt, 0);
+	sqlite3_finalize(stmt);
+	sqlite3_exec(db, "COMMIT;", 0, 0, 0);
+	return count;
+}
+
 nng_msg *
 nni_mqtt_qos_db_get_client_offline_msg(
     sqlite3 *db, int64_t *row_id, const char *config_name)
@@ -668,4 +688,13 @@ nni_mqtt_sqlite_db_fini(nni_mqtt_sqlite_option *sqlite)
 		nni_strfree(sqlite->db_name);
 		nni_mqtt_qos_db_close(sqlite->db);
 	}
+}
+
+size_t
+nni_mqtt_sqlite_db_get_cached_size(nni_mqtt_sqlite_option *sqlite)
+{
+	size_t sz = nni_mqtt_qos_db_get_client_offline_msg_count(
+	    sqlite->db, sqlite->db_name);
+	sz += nni_lmq_len(&sqlite->offline_cache);
+	return sz;
 }
