@@ -72,6 +72,8 @@ extern int nni_mqtt_qos_db_set_client_msg(
     sqlite3 *, uint32_t, uint16_t, nni_msg *, const char *, uint8_t);
 extern nni_msg *nni_mqtt_qos_db_get_client_msg(
     sqlite3 *, uint32_t, uint16_t, const char *);
+extern size_t nni_mqtt_qos_db_get_client_offline_msg_count(
+    sqlite3 *, const char *);
 extern void nni_mqtt_qos_db_remove_client_msg(
     sqlite3 *, uint32_t, uint16_t, const char *);
 extern void nni_mqtt_qos_db_remove_client_msg_by_id(sqlite3 *, uint64_t);
@@ -93,5 +95,6 @@ extern int nni_mqtt_qos_db_set_client_info(
 extern void nni_mqtt_sqlite_db_init(
     nni_mqtt_sqlite_option *, const char *, uint8_t);
 extern void nni_mqtt_sqlite_db_fini(nni_mqtt_sqlite_option *);
+extern size_t nni_mqtt_sqlite_db_get_cached_size(nni_mqtt_sqlite_option *);
 
 #endif

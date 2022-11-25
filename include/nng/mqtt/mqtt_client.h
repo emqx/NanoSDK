@@ -549,6 +549,7 @@ NNG_DECL void nng_mqtt_set_sqlite_flush_threshold(
     nng_mqtt_sqlite_option *, size_t);
 NNG_DECL void nng_mqtt_sqlite_db_init(
     nng_mqtt_sqlite_option *, const char *, uint8_t);
+NNG_DECL size_t nng_mqtt_sqlite_db_get_cached_size(nng_mqtt_sqlite_option *);
 
 #endif
 
