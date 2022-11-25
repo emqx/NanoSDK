@@ -872,9 +872,11 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 		if (sqlite_is_enabled(sqlite)) {
 			// the msg order is exactly as same as the ctx
 			// in send_queue
-			nni_lmq_put(&sqlite->offline_cache, msg);
 			if (nni_lmq_full(&sqlite->offline_cache)) {
 				sqlite_flush_offline_cache(sqlite);
+			}
+			if (0 != nni_lmq_put(&sqlite->offline_cache, msg)) {
+				nni_msg_free(msg);
 			}
 			nni_mtx_unlock(&s->mtx);
 			nni_aio_set_msg(aio, NULL);
