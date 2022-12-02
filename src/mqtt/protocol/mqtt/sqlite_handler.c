@@ -27,10 +27,13 @@ sqlite_get_cache_msg(nni_mqtt_sqlite_option *sqlite)
 inline void
 sqlite_flush_lmq(nni_mqtt_sqlite_option *sqlite, nni_lmq *lmq)
 {
-	nni_mqtt_qos_db_set_client_offline_msg_batch(
-	    sqlite->db, lmq, sqlite->db_name, MQTT_PROTOCOL_VERSION_v311);
-	nni_mqtt_qos_db_remove_oldest_client_offline_msg(
-	    sqlite->db, sqlite->disk_cache_size, sqlite->db_name);
+	if (sqlite_is_enabled(sqlite)) {
+		nni_mqtt_qos_db_set_client_offline_msg_batch(sqlite->db, lmq,
+		    sqlite->db_name, MQTT_PROTOCOL_VERSION_v311);
+		nni_mqtt_qos_db_remove_oldest_client_offline_msg(sqlite->db,
+		    sqlite->disk_cache_size,
+		    sqlite->db_name);
+	}
 }
 
 inline void
