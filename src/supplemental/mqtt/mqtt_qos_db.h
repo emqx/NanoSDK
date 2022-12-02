@@ -37,10 +37,11 @@
 **/
 
 struct nng_mqtt_sqlite_option {
-	bool   enable;
-	size_t disk_cache_size;   // specify the max rows of sqlite table
-	char * mounted_file_path; // specify the db file path
-	char * db_name;
+	bool    enable;
+	uint8_t mqtt_version;      // mqtt version
+	size_t  disk_cache_size;   // specify the max rows of sqlite table
+	char *  mounted_file_path; // specify the db file path
+	char *  db_name;
 	size_t
 	    flush_mem_threshold; // flush to sqlite table when count of message
 	                         // is equal or greater than this value
