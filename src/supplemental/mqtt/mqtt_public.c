@@ -855,6 +855,7 @@ nng_mqtt_alloc_sqlite_opt(nng_mqtt_sqlite_option **sqlite)
 	opt->disk_cache_size     = 102400;
 	opt->mounted_file_path   = NULL;
 	opt->flush_mem_threshold = 100;
+	opt->mqtt_version        = MQTT_PROTOCOL_VERSION_v311;
 
 	*sqlite                  = opt;
 	return (rv);
