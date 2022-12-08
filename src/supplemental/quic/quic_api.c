@@ -327,6 +327,7 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 			pipe_ops->pipe_init(
 			    qstrm->pipe, (nni_pipe *) qstrm, Context);
 		}
+		qstrm->closed = false;
 		pipe_ops->pipe_start(qstrm->pipe);
 		break;
 	case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
