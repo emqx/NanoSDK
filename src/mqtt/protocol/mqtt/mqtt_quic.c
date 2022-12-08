@@ -841,7 +841,7 @@ quic_mqtt_stream_stop(void *arg)
 	mqtt_pipe_t *p = arg;
 	mqtt_sock_t *s = p->mqtt_sock;
 
-	quic_pipe_close(p->qpipe, &p->reason_code);
+	quic_pipe_close(&p->reason_code);
 	nni_aio_abort(&p->send_aio, NNG_ECANCELED);
 	// nni_aio_finish_error(&p->send_aio, NNG_ECANCELED);
 	nni_aio_stop(&p->send_aio);
@@ -875,10 +875,6 @@ quic_mqtt_stream_close(void *arg)
 
 	nni_id_map_foreach(&p->sent_unack, mqtt_close_unack_msg_cb);
 	nni_id_map_foreach(&p->recv_unack, mqtt_close_unack_msg_cb);
-<<<<<<< HEAD
-=======
-	p->qpipe = NULL;
->>>>>>> 555a2ee0 ( * FIX [mqtt_quic] close trans_pipe of quic_api first then stop aio.)
 	nni_mtx_unlock(&s->mtx);
 
 	nni_atomic_set_bool(&p->closed, true);
