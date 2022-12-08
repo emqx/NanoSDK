@@ -847,7 +847,7 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 		return;
 	}
 
-	if (p == NULL || nni_atomic_get_bool(&p->closed)) {
+	if (p == NULL) {
 		// connection is lost or not established yet
 #if defined(NNG_SUPP_SQLITE)
 		nni_mqtt_sqlite_option *sqlite =
