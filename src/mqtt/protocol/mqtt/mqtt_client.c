@@ -258,7 +258,7 @@ mqtt_pipe_init(void *arg, nni_pipe *pipe, void *s)
 	mqtt_pipe_t *p = arg;
 
 	nni_atomic_init_bool(&p->closed);
-	nni_atomic_set_bool(&p->closed, false);
+	nni_atomic_set_bool(&p->closed, true);
 	nni_atomic_set(&p->next_packet_id, 1);
 	p->pipe      = pipe;
 	p->mqtt_sock = s;
@@ -314,12 +314,9 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 	nni_msg *    msg;
 	nni_msg *    tmsg;
 
-	if (p == NULL) {
+	if (p == NULL || nni_atomic_get_bool(&p->closed)) {
 		// pipe closed, should never gets here
-		goto out;
-	}
-	if (nni_atomic_get_bool(&p->closed)) {
-		// sending msg on a closed pipe
+		nni_println("Sendong msg on a closed pipe!");
 		goto out;
 	}
 	if (NULL == aio || NULL == (msg = nni_aio_get_msg(aio))) {
@@ -416,6 +413,7 @@ mqtt_pipe_start(void *arg)
 	mqtt_ctx_t * c   = NULL;
 
 	nni_mtx_lock(&s->mtx);
+	nni_atomic_set_bool(&p->closed, false);
 	s->mqtt_pipe       = p;
 	s->disconnect_code = 0;
 	s->dis_prop        = NULL;
@@ -472,7 +470,7 @@ mqtt_pipe_close(void *arg)
 	mqtt_sock_t *s = p->mqtt_sock;
 
 	nni_mtx_lock(&s->mtx);
-	s->mqtt_pipe = NULL;
+	nni_atomic_set_bool(&p->closed, true);
 	nni_aio_close(&p->send_aio);
 	nni_aio_close(&p->recv_aio);
 	nni_aio_close(&p->time_aio);
@@ -490,8 +488,6 @@ mqtt_pipe_close(void *arg)
 	nni_id_map_foreach(&p->sent_unack, mqtt_close_unack_msg_cb);
 	nni_id_map_foreach(&p->recv_unack, mqtt_close_unack_msg_cb);
 	nni_mtx_unlock(&s->mtx);
-
-	nni_atomic_set_bool(&p->closed, true);
 }
 
 static inline void
@@ -840,7 +836,7 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 {
 	mqtt_ctx_t * ctx = arg;
 	mqtt_sock_t *s   = ctx->mqtt_sock;
-	mqtt_pipe_t *p   = s->mqtt_pipe;
+	mqtt_pipe_t *p;
 	nni_msg *    msg;
 
 	if (nni_aio_begin(aio) != 0) {
@@ -848,7 +844,7 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 	}
 
 	nni_mtx_lock(&s->mtx);
-
+	p = s->mqtt_pipe;
 	if (nni_atomic_get_bool(&s->closed)) {
 		nni_mtx_unlock(&s->mtx);
 		nni_aio_finish_error(aio, NNG_ECLOSED);
@@ -862,7 +858,8 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 		nni_aio_finish_error(aio, NNG_EPROTO);
 		return;
 	}
-	if (p == NULL) {
+
+	if (p == NULL || nni_atomic_get_bool(&p->closed)) {
 		// connection is lost or not established yet
 #if defined(NNG_SUPP_SQLITE)
 		nni_mqtt_sqlite_option *sqlite =
