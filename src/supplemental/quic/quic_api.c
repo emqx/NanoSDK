@@ -668,6 +668,7 @@ Error:
 	if (QUIC_FAILED(Status) && Connection != NULL) {
 		MsQuic->ConnectionClose(Connection);
 	}
+	log_error("reconnect failed");
 	return 0;
 }
 
