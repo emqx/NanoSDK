@@ -132,7 +132,7 @@ mqtts_pipe_timer_cb(void *arg)
 		return;
 	}
 	nni_mtx_lock(&p->mtx);
-	if (!p->busy) {
+	if (!p->busy && !nni_aio_busy(p->qsaio)) {
 		// send pingreq
 		buf[0] = 0xC0;
 		buf[1] = 0x00;
