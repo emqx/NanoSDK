@@ -366,6 +366,7 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 		// Close and finite nng pipe ONCE disconnect
 		if (qstrm->pipe) {
 			qinfo("Quic reconnect failed so disconnected!");
+			nni_mtx_lock(&qstrm->mtx);
 			pipe_ops->pipe_stop(qstrm->pipe);
 			pipe_ops->pipe_close(qstrm->pipe);
 			pipe_ops->pipe_fini(qstrm->pipe);
