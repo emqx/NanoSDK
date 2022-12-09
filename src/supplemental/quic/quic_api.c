@@ -371,6 +371,7 @@ QuicConnectionCallback(_In_ HQUIC Connection, _In_opt_ void *Context,
 			pipe_ops->pipe_fini(qstrm->pipe);
 			nng_free(qstrm->pipe, 0);
 			qstrm->pipe = NULL;
+			nni_mtx_unlock(&qstrm->mtx);
 		}
 
 		GConnection = NULL;
@@ -1087,7 +1088,7 @@ quic_strm_close(void *arg)
 int
 quic_pipe_close(uint8_t *code)
 {
-	quic_strm_t        *qstrm    = GStream;
+	quic_strm_t *qstrm = GStream;
 	nni_aio     *aio;
 
 	if (qstrm->closed != true) {
@@ -1098,14 +1099,15 @@ quic_pipe_close(uint8_t *code)
 	// take care of aios
 	while ((aio = nni_list_first(&qstrm->sendq)) != NULL) {
 		nni_list_remove(&qstrm->sendq, aio);
-		nni_aio_abort(aio, NNG_ECANCELED);
+		// nni_aio_abort(aio, NNG_ECANCELED);
 		nni_aio_finish_error(aio, code);
 	}
 	while ((aio = nni_list_first(&qstrm->recvq)) != NULL) {
 		nni_list_remove(&qstrm->recvq, aio);
-		nni_aio_abort(aio, NNG_ECLOSED);
+		// nni_aio_abort(aio, NNG_ECLOSED);
 		nni_aio_finish_error(aio, code);
 	}
+	// we never free qstrm in single stream mode
 	// quic_strm_fini(qstrm);
 	return 0;
 }
