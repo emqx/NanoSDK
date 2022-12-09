@@ -534,7 +534,6 @@ mqtt_timer_cb(void *arg)
 
 	s->counter += s->retry;
 	if (nni_aio_busy(&p->rep_aio)) {
-		log_error("rep_aio busy! stream is in serious congestion");
 		nni_aio_abort(&p->rep_aio, NNG_ECANCELED);
 	}
 	if (s->counter >= s->keepalive) {
@@ -841,7 +840,7 @@ quic_mqtt_stream_stop(void *arg)
 	mqtt_pipe_t *p = arg;
 	mqtt_sock_t *s = p->mqtt_sock;
 
-	quic_pipe_close(&p->reason_code);
+	quic_pipe_close(SERVER_SHUTTING_DOWN);
 	nni_aio_abort(&p->send_aio, NNG_ECANCELED);
 	// nni_aio_finish_error(&p->send_aio, NNG_ECANCELED);
 	nni_aio_stop(&p->send_aio);
