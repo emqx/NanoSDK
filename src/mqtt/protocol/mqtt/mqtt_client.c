@@ -314,13 +314,10 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 	nni_msg *    msg;
 	nni_msg *    tmsg;
 
-	if (p == NULL) {
-		// pipe closed, should never gets here
-		nni_println("Sendong msg on a NULL pipe!");
-		goto out;
-	}
-	if (nni_atomic_get_bool(&p->closed)) {
+	if (p == NULL || nni_atomic_get_bool(&p->closed)) {
+		//pipe closed, should never gets here
 		// sending msg on a closed pipe
+		nni_println("Sendong msg on a NULL pipe!");
 		goto out;
 	}
 	if (NULL == aio || NULL == (msg = nni_aio_get_msg(aio))) {
@@ -341,6 +338,7 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 
 	ptype = nni_mqtt_msg_get_packet_type(msg);
 	switch (ptype) {
+	case NNG_MQTT_DISCONNECT:
 	case NNG_MQTT_CONNECT:
 	case NNG_MQTT_PINGREQ:
 		break;
