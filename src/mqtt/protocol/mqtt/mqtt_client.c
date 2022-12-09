@@ -314,6 +314,14 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 	nni_msg *    msg;
 	nni_msg *    tmsg;
 
+	if (p == NULL) {
+		// pipe closed, should never gets here
+		goto out;
+	}
+	if (nni_atomic_get_bool(&p->closed)) {
+		// sending msg on a closed pipe
+		goto out;
+	}
 	if (NULL == aio || NULL == (msg = nni_aio_get_msg(aio))) {
 #if defined(NNG_SUPP_SQLITE)
 		nni_mqtt_sqlite_option *sqlite =
