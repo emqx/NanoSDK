@@ -19,4 +19,6 @@ extern int quic_strm_recv(void *arg, nni_aio *raio);
 extern int quic_strm_send(void *arg, nni_aio *saio);
 extern int quic_strm_close(void *arg);
 
+extern int quic_pipe_close(uint8_t *code);
+
 #endif
