@@ -533,6 +533,9 @@ mqtt_timer_cb(void *arg)
 	}
 
 	s->counter += s->retry;
+	if (nni_aio_busy(&p->rep_aio)) {
+		nni_aio_abort(&p->rep_aio, NNG_ECANCELED);
+	}
 	if (s->counter >= s->keepalive) {
 		// send PINGREQ
 		if (s->pingcnt > 1) {
@@ -541,8 +544,7 @@ mqtt_timer_cb(void *arg)
 			quic_disconnect();
 			nni_mtx_unlock(&s->mtx);
 			return;
-		} else {
-			nng_aio_wait(&p->rep_aio);
+		} else if (!nni_aio_busy(&p->rep_aio)){
 			nni_aio_set_msg(&p->rep_aio, s->ping_msg);
 			nni_msg_clone(s->ping_msg);
 			quic_strm_send(p->qstream, &p->rep_aio);
@@ -838,8 +840,11 @@ quic_mqtt_stream_stop(void *arg)
 	mqtt_pipe_t *p = arg;
 	mqtt_sock_t *s = p->mqtt_sock;
 
+	quic_pipe_close(KEEP_ALIVE_TIMEOUT);
 	nni_aio_stop(&p->send_aio);
 	nni_aio_stop(&p->recv_aio);
+	nni_aio_abort(&p->rep_aio, NNG_ECANCELED);
+	nni_aio_finish_error(&p->rep_aio, NNG_ECANCELED);
 	nni_aio_stop(&p->rep_aio);
 	// nni_aio_stop(&s->time_aio);
 }

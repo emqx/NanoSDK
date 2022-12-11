@@ -859,7 +859,7 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 {
 	mqtt_ctx_t * ctx = arg;
 	mqtt_sock_t *s   = ctx->mqtt_sock;
-	mqtt_pipe_t *p   = s->mqtt_pipe;
+	mqtt_pipe_t *p;
 	nni_msg *    msg;
 
 	if (nni_aio_begin(aio) != 0) {
@@ -867,7 +867,7 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 	}
 
 	nni_mtx_lock(&s->mtx);
-
+	p = s->mqtt_pipe;
 	if (nni_atomic_get_bool(&s->closed)) {
 		nni_mtx_unlock(&s->mtx);
 		nni_aio_finish_error(aio, NNG_ECLOSED);

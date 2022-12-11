@@ -167,6 +167,7 @@ mqtt_pipe_timer_cb(void *arg)
 		iov.iov_len = 2;
 		iov.iov_buf = &buf;
 		// send it down...
+		p->busy = true;
 		nni_aio_set_iov(p->qsaio, 1, &iov);
 		nng_stream_send(p->conn, p->qsaio);
 		p->pingcnt ++;
@@ -511,13 +512,15 @@ mqtt_tcptran_pipe_qos_send_cb(void *arg)
 	if (nni_aio_result(qsaio) != 0) {
 		nni_msg_free(nni_aio_get_msg(qsaio));
 		nni_aio_set_msg(qsaio, NULL);
+		// TODO: set error code
 		mqtt_tcptran_pipe_close(p);
 		return;
 	}
 	nni_mtx_lock(&p->mtx);
 
 	msg = nni_aio_get_msg(p->qsaio);
-	nni_msg_free(msg);
+	if (msg != NULL)
+		nni_msg_free(msg);
 	if (nni_lmq_get(&p->rslmq, &msg) == 0) {
 		nni_iov iov;
 		// TODO QOS V5
