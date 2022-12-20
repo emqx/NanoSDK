@@ -21,14 +21,38 @@
 
 #define QUIC_API_C_DEBUG 0
 
-
 #if QUIC_API_C_DEBUG
 #define qdebug(fmt, ...)                                                 \
 	do {                                                            \
 		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
 	} while (0)
+
+#define log_debug(fmt, ...)                                                 \
+	do {                                                            \
+		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
+	} while (0)
+
+#define log_info(fmt, ...)                                                 \
+	do {                                                            \
+		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
+	} while (0)
+
+#define log_warn(fmt, ...)                                                 \
+	do {                                                            \
+		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
+	} while (0)
+
+#define log_error(fmt, ...)                                                 \
+	do {                                                            \
+		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
+	} while (0)
+
 #else
 #define qdebug(fmt, ...) do {} while(0)
+#define log_debug(fmt, ...) do {} while(0)
+#define log_info(fmt, ...) do {} while(0)
+#define log_warn(fmt, ...) do {} while(0)
+#define log_error(fmt, ...) do {} while(0)
 #endif
 
 typedef struct quic_sock_s quic_sock_t;
@@ -439,11 +463,6 @@ quic_connection_cb(_In_ HQUIC Connection, _In_opt_ void *Context,
 			pipe_ops->pipe_close(qsock->pipe);
 			pipe_ops->pipe_fini(qsock->pipe);
 			qsock->pipe = NULL;
-			// No bridge_node if NOT bridge mode
-			if (bridge_node && bridge_node->hybrid) {
-				nni_mtx_unlock(&qsock->mtx);
-				break;
-			}
 		}
 
 		nni_mtx_unlock(&qsock->mtx);
@@ -606,7 +625,7 @@ static int
 quic_sock_reconnect(quic_sock_t *qsock)
 {
 	// Load the client configuration.
-	if (!quic_load_config(TRUE, bridge_node)) {
+	if (!quic_load_sdk_config(TRUE, keepalive, 10)) {
 		log_error("Failed in load quic configuration");
 		return (-1);
 	}
@@ -1160,5 +1179,4 @@ quic_proto_close()
 void
 quic_proto_set_bridge_conf(void *node)
 {
-	bridge_node = node;
 }
