@@ -7,6 +7,9 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
+#include <stdio.h>
+#include <string.h>
+
 #include "nng/mqtt/mqtt_quic.h"
 #include "sqlite_handler.h"
 #include "core/nng_impl.h"
@@ -51,6 +54,54 @@ static int mqtt_sub_stream(mqtt_pipe_t *p, nni_msg *msg, uint16_t packet_id, nni
 #if defined(NNG_SUPP_SQLITE)
 static void *mqtt_quic_sock_get_sqlite_option(mqtt_sock_t *s);
 #endif
+
+#define log_info(fmt, ...)                                                 \
+	do {                                                            \
+		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
+	} while (0)
+
+#define log_warn(fmt, ...)                                                 \
+	do {                                                            \
+		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
+	} while (0)
+
+#define log_debug(fmt, ...)                                                 \
+	do {                                                            \
+		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
+	} while (0)
+
+#define log_error(fmt, ...)                                                 \
+	do {                                                            \
+		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
+	} while (0)
+
+// XXX We define a conf_bridge_node struct locally due to no nanolib in nanosdk
+// And we will init a instance with default configuration when connecting
+typedef struct conf_bridge_node conf_bridge_node;
+struct conf_bridge_node {
+	size_t       max_recv_queue_len;
+	size_t       max_send_queue_len;
+	bool         multi_stream;
+};
+
+static conf_bridge_node config_node = {
+	.multi_stream = false,
+	.max_send_queue_len = 32,
+	.max_recv_queue_len = 32,
+};
+
+uint32_t
+DJBHashn(char *str, uint16_t len)
+{
+	unsigned int hash = 5381;
+	uint16_t     i    = 0;
+	while (i < len) {
+		hash = ((hash << 5) + hash) + (*str++); /* times 33 */
+		i++;
+	}
+	hash &= ~(1U << 31); /* strip the highest bit */
+	return hash;
+}
 
 struct mqtt_client_cb {
 	int (*connect_cb)(void *, void *);
@@ -116,7 +167,6 @@ struct mqtt_pipe_s {
 	nni_aio         rep_aio;       // aio for resending qos msg and PINGREQ
 	nni_lmq 		send_inflight; // only used in multi-stream mode
 	nni_lmq         recv_messages; // recv messages queue
-	conn_param     *cparam;
 	uint16_t        rid;           // index of resending packet id
 	uint8_t         reason_code;   // MQTTV5 reason code
 };
@@ -186,11 +236,8 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 		// Free old connect msg if user set a new one
 		if (s->connmsg != msg && s->connmsg != NULL) {
 			nni_msg_free(s->connmsg);
-			// free connmsg also free the cparam
-			p->cparam = NULL;
 		}
 		// Only send CONNECT once for each pipe otherwise memleak
-		p->cparam  = nni_get_conn_param_from_msg(msg);
 		s->connmsg = msg;
 		nni_msg_clone(s->connmsg);
 		s->keepalive = nni_mqtt_msg_get_connect_keep_alive(msg);
@@ -531,9 +578,6 @@ mqtt_quic_data_strm_recv_cb(void *arg)
 	quic_pipe_recv(p->qpipe, &p->recv_aio);
     s->counter = 0;
 
-	// set conn_param for upper layer
-	if (p->cparam)
-		nng_msg_set_conn_param(msg, p->cparam);
 	// Restore pingcnt
 	s->pingcnt = 0;
 	switch (packet_type) {
@@ -601,7 +645,6 @@ mqtt_quic_data_strm_recv_cb(void *arg)
 	case NNG_MQTT_PUBLISH:
 		// we have received a PUBLISH
 		qos = nni_mqtt_msg_get_publish_qos(msg);
-		nng_msg_set_cmd_type(msg, CMD_PUBLISH);
 		if (2 > qos) {
 			if (qos == 1) {
 				// QoS 1 return PUBACK
@@ -744,15 +787,10 @@ mqtt_quic_recv_cb(void *arg)
 	quic_pipe_recv(p->qpipe, &p->recv_aio);
 	s->counter = 0;
 
-	// set conn_param for upper layer
-	if (p->cparam)
-		nng_msg_set_conn_param(msg, p->cparam);
 	// Restore pingcnt
 	s->pingcnt = 0;
 	switch (packet_type) {
 	case NNG_MQTT_CONNACK:
-		nng_msg_set_cmd_type(msg, CMD_CONNACK);
-		conn_param_clone(p->cparam);
 		// Clone CONNACK for connect_cb & aio_cb
 		nni_msg_clone(msg);
 		if ((aio = nni_list_first(&s->recv_queue)) == NULL) {
@@ -823,7 +861,6 @@ mqtt_quic_recv_cb(void *arg)
 	case NNG_MQTT_PUBLISH:
 		// we have received a PUBLISH
 		qos = nni_mqtt_msg_get_publish_qos(msg);
-		nng_msg_set_cmd_type(msg, CMD_PUBLISH);
 		if (2 > qos) {
 			if (qos == 1) {
 				// QoS 1 return PUBACK
@@ -1156,7 +1193,6 @@ quic_mqtt_stream_init(void *arg, nni_pipe *qsock, void *sock)
 	mqtt_pipe_t *p     = arg;
 	p->qsock           = qsock;
 	p->mqtt_sock       = sock;
-	p->cparam          = NULL;
 
 	if (p->mqtt_sock->pipe == NULL) {
 		p->mqtt_sock->pipe = p;
@@ -1238,23 +1274,14 @@ quic_mqtt_stream_fini(void *arg)
 
 	uint16_t count = 0;
 	// connect failed also triggered stream finit, ignore it
-	if (p->cparam == NULL) {
-		return;
-	}
 	p->reason_code == 0 ? p->reason_code = SERVER_SHUTTING_DOWN
 	                    : p->reason_code;
-	nni_msg *tmsg =
-	    nano_msg_notify_disconnect(p->cparam, p->reason_code);
-	nni_msg_set_cmd_type(tmsg, CMD_DISCONNECT_EV);
 	// clone once for DISCONNECT_EV state
-	conn_param_clone(p->cparam);
-	nni_msg_set_conn_param(tmsg, p->cparam);
 	// emulate disconnect notify msg as a normal publish
 	while ((aio = nni_list_first(&s->recv_queue)) != NULL) {
 		// Pipe was closed.  just push an error back to the
 		// entire socket, because we only have one pipe
 		nni_list_remove(&s->recv_queue, aio);
-		nni_aio_set_msg(aio, tmsg);
 		// only return pipe closed error once for notification
 		// sync action to avoid NULL conn param
 		count == 0 ? nni_aio_finish_sync(aio, NNG_ECONNSHUT, 0)
@@ -1271,7 +1298,6 @@ quic_mqtt_stream_fini(void *arg)
 		nni_aio_finish_error(aio, NNG_ECLOSED);
 	}
 
-	conn_param_free(p->cparam);
 	// Free the mqtt_pipe
 	// FIX: potential unsafe free
 	nng_free(p, sizeof(p));
@@ -1633,9 +1659,11 @@ nng_mqtt_quic_open_keepalive(nng_socket *sock, const char *url, uint64_t interva
 	if ((rv = nni_proto_open(sock, &mqtt_msquic_proto)) == 0) {
 		nni_sock_find(&nsock, sock->id);
 		if (nsock) {
+			// set bridge conf
+			nng_mqtt_quic_set_config(sock, (void *)&config_node);
+			quic_proto_set_keepalive(interval);
 			quic_open();
 			quic_proto_open(&mqtt_msquic_proto);
-			quic_proto_set_keepalive(interval);
 			quic_connect_ipv4(url, nsock, NULL);
 		} else {
 			rv = -1;

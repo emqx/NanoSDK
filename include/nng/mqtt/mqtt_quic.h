@@ -28,6 +28,8 @@ NNG_DECL int nng_mqtt_quic_set_msg_recv_cb(
     nng_socket *, int (*cb)(void *, void *), void *arg);
 NNG_DECL int nng_mqtt_quic_set_msg_send_cb(
     nng_socket *, int (*cb)(void *, void *), void *arg);
+NNG_DECL int nng_mqtt_quic_set_config(
+    nng_socket *sock, void *node);
 
 #ifdef __cplusplus
 }
