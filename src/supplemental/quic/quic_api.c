@@ -8,6 +8,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <msquic_posix.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -137,16 +138,23 @@ quic_load_sdk_config(BOOLEAN Unsecure, uint64_t interval, uint64_t timeout)
 {
 	QUIC_SETTINGS Settings = { 0 };
 	QUIC_CREDENTIAL_CONFIG CredConfig;
-	// Configures the client's idle timeout. 120s
-	Settings.IsSet.IdleTimeoutMs = TRUE;
-	Settings.IdleTimeoutMs       = 120 * 1000;
+
+	if (keepalive == 0)
+		keepalive = interval;
+
 	if(interval == 0) {
 		Settings.IsSet.KeepAliveIntervalMs = FALSE;
-		Settings.KeepAliveIntervalMs       = 60 * 1000;
 	} else {
 		keepalive = interval;
 		Settings.IsSet.KeepAliveIntervalMs = TRUE;
 		Settings.KeepAliveIntervalMs       = keepalive * 1000;
+	}
+
+	if(timeout == 0) {
+		Settings.IsSet.IdleTimeoutMs = FALSE;
+	} else {
+		Settings.IsSet.IdleTimeoutMs = TRUE;
+		Settings.IdleTimeoutMs       = timeout * 1000;
 	}
 
 	// Configures a default client configuration, optionally disabling
@@ -463,8 +471,8 @@ quic_connection_cb(_In_ HQUIC Connection, _In_opt_ void *Context,
 			pipe_ops->pipe_close(qsock->pipe);
 			pipe_ops->pipe_fini(qsock->pipe);
 			qsock->pipe = NULL;
-			nni_mtx_unlock(&qsock->mtx);
-			break;
+			// nni_mtx_unlock(&qsock->mtx);
+			// break;
 		}
 
 		nni_mtx_unlock(&qsock->mtx);
@@ -535,7 +543,7 @@ int
 quic_connect_ipv4(const char *url, nni_sock *sock, uint32_t *index)
 {
 	// Load the client configuration
-	if (!quic_load_sdk_config(TRUE, keepalive, 30)) {
+	if (!quic_load_sdk_config(TRUE, 30, 120)) {
 		log_error("Failed in load quic configuration");
 		return (-1);
 	}
@@ -630,7 +638,7 @@ static int
 quic_sock_reconnect(quic_sock_t *qsock)
 {
 	// Load the client configuration.
-	if (!quic_load_sdk_config(TRUE, keepalive, 30)) {
+	if (!quic_load_sdk_config(TRUE, 30, 120)) {
 		log_error("Failed in load quic configuration");
 		return (-1);
 	}
