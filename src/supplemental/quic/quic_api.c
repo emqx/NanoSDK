@@ -19,7 +19,7 @@
 #define NNI_QUIC_TIMER 1
 #define NNI_QUIC_MAX_RETRY 2
 
-#define QUIC_API_C_DEBUG 0
+#define QUIC_API_C_DEBUG 1
 
 #if QUIC_API_C_DEBUG
 #define qdebug(fmt, ...)                                                 \
@@ -29,22 +29,22 @@
 
 #define log_debug(fmt, ...)                                                 \
 	do {                                                            \
-		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
+		printf("[%s]: " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
 	} while (0)
 
 #define log_info(fmt, ...)                                                 \
 	do {                                                            \
-		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
+		printf("[%s]: " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
 	} while (0)
 
 #define log_warn(fmt, ...)                                                 \
 	do {                                                            \
-		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
+		printf("[%s]: " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
 	} while (0)
 
 #define log_error(fmt, ...)                                                 \
 	do {                                                            \
-		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
+		printf("[%s]: " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
 	} while (0)
 
 #else
@@ -136,21 +136,21 @@ static BOOLEAN
 quic_load_sdk_config(BOOLEAN Unsecure, uint64_t interval, uint64_t timeout)
 {
 	QUIC_SETTINGS Settings = { 0 };
-	// Configures the client's idle timeout.
+	QUIC_CREDENTIAL_CONFIG CredConfig;
+	// Configures the client's idle timeout. 120s
+	Settings.IsSet.IdleTimeoutMs = TRUE;
+	Settings.IdleTimeoutMs       = 120 * 1000;
 	if(interval == 0) {
-		Settings.IsSet.IdleTimeoutMs = FALSE;
+		Settings.IsSet.KeepAliveIntervalMs = FALSE;
+		Settings.KeepAliveIntervalMs       = 60 * 1000;
 	} else {
 		keepalive = interval;
-		Settings.IsSet.IdleTimeoutMs    = TRUE;
-		Settings.IdleTimeoutMs          = interval * 1000;
-		Settings.DisconnectTimeoutMs    = interval * 1000;
-		Settings.KeepAliveIntervalMs    = interval * 1000;
-		Settings.HandshakeIdleTimeoutMs = timeout  * 1000;
+		Settings.IsSet.KeepAliveIntervalMs = TRUE;
+		Settings.KeepAliveIntervalMs       = keepalive * 1000;
 	}
 
 	// Configures a default client configuration, optionally disabling
 	// server certificate validation.
-	QUIC_CREDENTIAL_CONFIG CredConfig;
 	memset(&CredConfig, 0, sizeof(CredConfig));
 	CredConfig.Type  = QUIC_CREDENTIAL_TYPE_NONE;
 	CredConfig.Flags = QUIC_CREDENTIAL_FLAG_CLIENT;
@@ -463,6 +463,8 @@ quic_connection_cb(_In_ HQUIC Connection, _In_opt_ void *Context,
 			pipe_ops->pipe_close(qsock->pipe);
 			pipe_ops->pipe_fini(qsock->pipe);
 			qsock->pipe = NULL;
+			nni_mtx_unlock(&qsock->mtx);
+			break;
 		}
 
 		nni_mtx_unlock(&qsock->mtx);
@@ -533,7 +535,7 @@ int
 quic_connect_ipv4(const char *url, nni_sock *sock, uint32_t *index)
 {
 	// Load the client configuration
-	if (!quic_load_sdk_config(TRUE, keepalive, 10)) {
+	if (!quic_load_sdk_config(TRUE, keepalive, 30)) {
 		log_error("Failed in load quic configuration");
 		return (-1);
 	}
@@ -578,7 +580,10 @@ quic_connect_ipv4(const char *url, nni_sock *sock, uint32_t *index)
 			goto error;
 		}
 
-	nng_url_parse(&url_s, url);
+	if (0 != nng_url_parse(&url_s, url)) {
+		log_error("Error in url parse.");
+		goto error;
+	}
 	// TODO maybe something wrong happened
 	for (size_t i = 0; i < strlen(url_s->u_host); ++i)
 		if (url_s->u_host[i] == ':') {
@@ -589,11 +594,11 @@ quic_connect_ipv4(const char *url, nni_sock *sock, uint32_t *index)
 	qsock->url_s = url_s;
 	qsock->sock  = sock;
 
-	log_info("Quic connecting... %s:%s", url_s->u_host, url_s->u_port);
+	log_info("Quic connecting... %s:%d", url_s->u_hostname, atoi(url_s->u_port));
 
 	// Start the connection to the server.
 	if (QUIC_FAILED(rv = MsQuic->ConnectionStart(conn, configuration,
-	        QUIC_ADDRESS_FAMILY_UNSPEC, url_s->u_host, atoi(url_s->u_port)))) {
+	        QUIC_ADDRESS_FAMILY_UNSPEC, url_s->u_hostname, atoi(url_s->u_port)))) {
 		log_error("Failed in ConnectionStart, 0x%x!", rv);
 		goto error;
 	}
@@ -625,7 +630,7 @@ static int
 quic_sock_reconnect(quic_sock_t *qsock)
 {
 	// Load the client configuration.
-	if (!quic_load_sdk_config(TRUE, keepalive, 10)) {
+	if (!quic_load_sdk_config(TRUE, keepalive, 30)) {
 		log_error("Failed in load quic configuration");
 		return (-1);
 	}
@@ -650,11 +655,11 @@ quic_sock_reconnect(quic_sock_t *qsock)
 	}
 
 	nng_url *url_s = qsock->url_s;
-	log_info("Quic reconnecting... %s:%s", url_s->u_host, url_s->u_port);
+	log_info("Quic reconnecting... %s:%s", url_s->u_hostname, url_s->u_port);
 
 	// Start the connection to the server.
 	if (QUIC_FAILED(rv = MsQuic->ConnectionStart(conn, configuration,
-	        QUIC_ADDRESS_FAMILY_UNSPEC, url_s->u_host, atoi(url_s->u_port)))) {
+	        QUIC_ADDRESS_FAMILY_UNSPEC, url_s->u_hostname, atoi(url_s->u_port)))) {
 		log_error("Failed in ConnectionStart, 0x%x!", rv);
 		goto error;
 	}
