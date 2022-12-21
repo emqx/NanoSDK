@@ -1643,8 +1643,8 @@ nng_mqtt_quic_client_open(nng_socket *sock, const char *url)
 		} else {
 			rv = -1;
 		}
+		nni_sock_rele(nsock);
 	}
-	nni_sock_rele(nsock);
 	return rv;
 }
 /**
@@ -1661,9 +1661,9 @@ nng_mqtt_quic_open_keepalive(nng_socket *sock, const char *url, uint64_t interva
 		if (nsock) {
 			// set bridge conf
 			nng_mqtt_quic_set_config(sock, (void *)&config_node);
-			quic_proto_set_keepalive(interval);
 			quic_open();
 			quic_proto_open(&mqtt_msquic_proto);
+			quic_proto_set_keepalive(interval);
 			quic_connect_ipv4(url, nsock, NULL);
 		} else {
 			rv = -1;
