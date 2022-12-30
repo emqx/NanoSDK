@@ -39,6 +39,7 @@ extern int quic_pipe_open(void *qsock, void **qpipe);
 extern int quic_pipe_recv(void *qpipe, nni_aio *raio);
 // Send msg to a qpipe
 extern int quic_pipe_send(void *qpipe, nni_aio *saio);
+extern int quic_aio_send(void *qpipe, nni_aio *aio);
 // Close a qpipe and free it
 extern int quic_pipe_close(void *qpipe, uint8_t *code);
 
