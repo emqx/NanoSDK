@@ -63,7 +63,7 @@ mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 	if (type == 1) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
 
-		nng_mqtt_msg_set_connect_keep_alive(msg, 10);
+		nng_mqtt_msg_set_connect_keep_alive(msg, 30);
 		nng_mqtt_msg_set_connect_clean_session(msg, false);
 	} else if (type == 2) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_SUBSCRIBE);
@@ -183,7 +183,9 @@ client(int type, const char *url, const char *qos, const char *topic, const char
 		printf("error in quic client open.\n");
 	}
 
+#if defined(NNG_SUPP_SQLITE)
 	sqlite_config(&sock, MQTT_PROTOCOL_VERSION_v311);
+#endif
 
 	if (0 != nng_mqtt_quic_set_connect_cb(&sock, connect_cb, (void *)arg) ||
 	    0 != nng_mqtt_quic_set_disconnect_cb(&sock, disconnect_cb, (void *)arg) ||
