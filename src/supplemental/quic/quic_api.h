@@ -34,7 +34,7 @@ extern int quic_connect_ipv4(const char *url, nni_sock *sock, uint32_t *index);
 extern int quic_disconnect(void *qsock, void *qpipe);
 
 // Create a qpipe and open it
-extern int quic_pipe_open(void *qsock, void **qpipe);
+extern int quic_pipe_open(void *qsock, void **qpipe, void *mqtt_pipe);
 // Receive msg from a qpipe
 extern int quic_pipe_recv(void *qpipe, nni_aio *raio);
 // Send msg to a qpipe
