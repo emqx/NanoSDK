@@ -1,3 +1,11 @@
+//
+// Copyright 2022 NanoMQ Team, Inc. <jaylin@emqx.io>
+//
+// This software is supplied under the terms of the MIT License, a
+// copy of which should be located in the distribution where this
+// file was obtained (LICENSE.txt).  A copy of the license may also be
+// found online at https://opensource.org/licenses/MIT.
+//
 #include "quic_api.h"
 #include "core/nng_impl.h"
 #include "msquic.h"
@@ -5,6 +13,9 @@
 #include "nng/supplemental/util/platform.h"
 #include "nng/mqtt/mqtt_client.h"
 #include "supplemental/mqtt/mqtt_msg.h"
+
+#include "openssl/pem.h"
+#include "openssl/x509.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -20,7 +31,7 @@
 #define NNI_QUIC_TIMER 1
 #define NNI_QUIC_MAX_RETRY 2
 
-#define QUIC_API_C_DEBUG 1
+#define QUIC_API_C_DEBUG 0
 
 #if QUIC_API_C_DEBUG
 #define qdebug(fmt, ...)                                                 \
@@ -57,6 +68,34 @@
 #endif
 
 typedef struct quic_sock_s quic_sock_t;
+typedef struct conf_bridge_quic_api_node conf_node;
+typedef struct conf_tls                  conf_tls;
+struct conf_tls {
+	bool  enable;
+	char *url; // "tls+nmq-tcp://addr:port"
+	char *cafile;
+	char *certfile;
+	char *keyfile;
+	char *ca;
+	char *cert;
+	char *key;
+	char *key_password;
+	bool  verify_peer;
+	bool  set_fail; // fail_if_no_peer_cert
+};
+struct conf_bridge_quic_api_node {
+	conf_tls     tls;
+	// config params for QUIC only
+	bool         multi_stream;
+	bool         stream_auto_genid; // generate stream id automatically for each stream
+	bool         qos_first; // send QoS msg in high priority
+	bool         hybrid;  // hybrid bridging affects auto-reconnect of QUIC transport
+	uint64_t     qkeepalive;		//keepalive timeout interval of QUIC transport
+	uint64_t     qconnect_timeout;	// HandshakeIdleTimeoutMs of QUIC
+	uint32_t     qdiscon_timeout;	// DisconnectTimeoutMs
+	uint32_t     qidle_timeout;	    // Disconnect after idle
+	uint8_t      qcongestion_control; // congestion control algorithm 1: bbr 0: cubic
+};
 
 struct quic_sock_s {
 	HQUIC     qconn; // QUIC connection
@@ -66,9 +105,11 @@ struct quic_sock_s {
 	nni_mtx  mtx; // for reconnect
 	nni_aio  close_aio;
 
-	uint8_t  rticket[2048];
+	uint8_t  rticket[4096];
 	uint16_t rticket_sz;
 	nng_url *url_s;
+
+	char    *cacert;
 };
 
 typedef struct quic_strm_s quic_strm_t;
@@ -114,9 +155,14 @@ HQUIC registration;
 HQUIC configuration;
 
 static uint64_t keepalive = 0;
+static conf_node;
 nni_proto *g_quic_proto;
 
-static BOOLEAN quic_load_sdk_config(BOOLEAN Unsecure, uint64_t interval, uint64_t timeout);
+// static BOOLEAN quic_load_sdk_config(BOOLEAN Unsecure, uint64_t qconnect_timeout,
+//     uint32_t qdiscon_timeout, uint32_t qidle_timeout,
+//     uint8_t qcongestion_control, bool tls_enable,
+// 	char *certifile, char *keyfile,
+//     char *key_password, char *cafile, bool verify_peer);
 
 static void    quic_pipe_send_cancel(nni_aio *aio, void *arg, int rv);
 static void    quic_pipe_recv_cancel(nni_aio *aio, void *arg, int rv);
@@ -132,39 +178,183 @@ static void    quic_sock_fini(quic_sock_t *qsock);
 static void    quic_strm_init(quic_strm_t *qstrm, quic_sock_t *qsock);
 static void    quic_strm_fini(quic_strm_t *qstrm);
 
+static QUIC_STATUS verify_peer_cert_tls(
+    QUIC_CERTIFICATE *cert, QUIC_CERTIFICATE *chain, char *cacert);
+
+static QUIC_STATUS
+verify_peer_cert_tls(QUIC_CERTIFICATE* cert, QUIC_CERTIFICATE* chain, char *cacert)
+{
+	// local ca
+	X509_LOOKUP *lookup = NULL;
+	X509_STORE *trusted = NULL;
+	trusted = X509_STORE_new();
+	if (trusted == NULL) {
+		return QUIC_STATUS_ABORTED;
+	}
+	lookup = X509_STORE_add_lookup(trusted, X509_LOOKUP_file());
+	if (lookup == NULL) {
+		X509_STORE_free(trusted);
+		trusted = NULL;
+		return QUIC_STATUS_ABORTED;
+	}
+
+	// if (!X509_LOOKUP_load_file(lookup, cacertfile, X509_FILETYPE_PEM)) {
+	if (!X509_LOOKUP_load_file(lookup, cacert, X509_FILETYPE_PEM)) {
+		log_warn("No load cacertfile be found");
+		X509_STORE_free(trusted);
+		trusted = NULL;
+	}
+	if (trusted == NULL) {
+		return QUIC_STATUS_ABORTED;
+	}
+
+	// @TODO peer_certificate_received
+	// Only with QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED
+	// assert(QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED == Event->Type);
+
+	// Validate against CA certificates using OpenSSL API
+	X509 *crt = (X509 *) cert;
+	X509_STORE_CTX *x509_ctx = (X509_STORE_CTX *) chain;
+	STACK_OF(X509) *untrusted = X509_STORE_CTX_get0_untrusted(x509_ctx);
+
+	if (crt == NULL) {
+		log_error("NULL Cert!");
+		return QUIC_STATUS_BAD_CERTIFICATE;
+	}
+	X509_STORE_CTX *ctx = X509_STORE_CTX_new();
+	X509_STORE_CTX_init(ctx, trusted, crt, untrusted);
+	int res = X509_verify_cert(ctx);
+	X509_STORE_CTX_free(ctx);
+
+	if (res <= 0) {
+		log_error("X509 verify error: %d: %s", res, X509_verify_cert_error_string(ctx));
+		return QUIC_STATUS_BAD_CERTIFICATE;
+	} else
+		return QUIC_STATUS_SUCCESS;
+
+	/* @TODO validate SNI */
+}
+
 // Helper function to load a client configuration.
 static BOOLEAN
-quic_load_sdk_config(BOOLEAN Unsecure, uint64_t interval, uint64_t timeout)
+quic_load_sdk_config(BOOLEAN Unsecure, uint64_t qconnect_timeout,
+    uint32_t qdiscon_timeout, uint32_t qidle_timeout,
+    uint8_t qcongestion_control, bool tls_enable,
+	char *certifile, char *keyfile,
+    char *key_password, char *cafile, bool verify_peer
+	)
 {
 	QUIC_SETTINGS Settings = { 0 };
 	QUIC_CREDENTIAL_CONFIG CredConfig;
 
-	if (keepalive == 0)
-		keepalive = interval;
+	conf_node *node;
+	conf_tls  tls;
 
-	if(interval == 0) {
-		Settings.IsSet.KeepAliveIntervalMs = FALSE;
-	} else {
-		keepalive = interval;
+	tls.enable                = tls_enable;
+	tls.certfile              = certifile;
+	tls.keyfile               = keyfile;
+	tls.key_password          = key_password;
+	tls.verify_peer           = verify_peer;
+	tls.cafile                = cafile;
+	node->tls                 = tls;
+	node->qidle_timeout       = qidle_timeout;
+	node->qconnect_timeout    = qconnect_timeout;
+	node->qdiscon_timeout     = qdiscon_timeout;
+	node->qcongestion_control = qcongestion_control;
+
+	if (!node) {
+		Settings.IsSet.IdleTimeoutMs       = TRUE;
+		Settings.IdleTimeoutMs             = 90 * 1000;
 		Settings.IsSet.KeepAliveIntervalMs = TRUE;
-		Settings.KeepAliveIntervalMs       = keepalive * 1000;
+		Settings.KeepAliveIntervalMs       = 60 * 1000;
+		goto there;
 	}
-
-	if(timeout == 0) {
+	// Configures the client's idle timeout.
+	if (node->qidle_timeout == 0) {
 		Settings.IsSet.IdleTimeoutMs = FALSE;
 	} else {
 		Settings.IsSet.IdleTimeoutMs = TRUE;
-		Settings.IdleTimeoutMs       = timeout * 1000;
+		Settings.IdleTimeoutMs       = node->qidle_timeout * 1000;
 	}
+	if (node->qconnect_timeout != 0) {
+		Settings.IsSet.HandshakeIdleTimeoutMs = TRUE;
+		Settings.HandshakeIdleTimeoutMs =
+		    node->qconnect_timeout * 1000;
+	}
+	if (node->qdiscon_timeout != 0) {
+		Settings.IsSet.DisconnectTimeoutMs = TRUE;
+		Settings.DisconnectTimeoutMs       = node->qdiscon_timeout * 1000;
+	}
+
+	Settings.IsSet.KeepAliveIntervalMs = TRUE;
+	Settings.KeepAliveIntervalMs       = node->qkeepalive * 1000;
+	switch (node->qcongestion_control)
+	{
+	case QUIC_CONGESTION_CONTROL_ALGORITHM_CUBIC:
+		Settings.IsSet.CongestionControlAlgorithm = TRUE;
+		Settings.CongestionControlAlgorithm       = QUIC_CONGESTION_CONTROL_ALGORITHM_CUBIC;
+		break;
+#ifdef QUIC_API_ENABLE_PREVIEW_FEATURES
+	case QUIC_CONGESTION_CONTROL_ALGORITHM_BBR:
+		Settings.IsSet.CongestionControlAlgorithm = TRUE;
+		Settings.CongestionControlAlgorithm       = QUIC_CONGESTION_CONTROL_ALGORITHM_BBR;
+		break;
+#endif
+
+	default:
+		log_warn("unsupport congestion control algorithm, use default cubic!");
+		break;
+	}
+
+there:
 
 	// Configures a default client configuration, optionally disabling
 	// server certificate validation.
 	memset(&CredConfig, 0, sizeof(CredConfig));
+	// Unsecure by default
 	CredConfig.Type  = QUIC_CREDENTIAL_TYPE_NONE;
+	// CredConfig.Flags = QUIC_CREDENTIAL_FLAG_CLIENT | QUIC_CREDENTIAL_FLAG_USE_PORTABLE_CERTIFICATES;
 	CredConfig.Flags = QUIC_CREDENTIAL_FLAG_CLIENT;
-	if (Unsecure) {
-		CredConfig.Flags |=
-		    QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
+	
+	if (node->tls.enable) {
+		char *cert_path = node->tls.certfile;
+		char *key_path  = node->tls.keyfile;
+		char *password  = node->tls.key_password;
+
+		if (password) {
+			QUIC_CERTIFICATE_FILE_PROTECTED *CertFile =
+			    (QUIC_CERTIFICATE_FILE_PROTECTED *) malloc(sizeof(QUIC_CERTIFICATE_FILE_PROTECTED));
+			CertFile->CertificateFile           = cert_path;
+			CertFile->PrivateKeyFile            = key_path;
+			CertFile->PrivateKeyPassword        = password;
+			CredConfig.CertificateFileProtected = CertFile;
+			CredConfig.Type =
+			    QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE_PROTECTED;
+		} else {
+			QUIC_CERTIFICATE_FILE *CertFile =
+			    (QUIC_CERTIFICATE_FILE_PROTECTED *) malloc(sizeof(QUIC_CERTIFICATE_FILE_PROTECTED));
+			CertFile->CertificateFile  = cert_path;
+			CertFile->PrivateKeyFile   = key_path;
+			CredConfig.CertificateFile = CertFile;
+			CredConfig.Type =
+			    QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE;
+		}
+
+		BOOLEAN verify = (node->tls.verify_peer == true ? 1 : 0);
+		BOOLEAN has_ca_cert = (node->tls.cafile != NULL ? 1 : 0);
+		if (!verify) {
+			CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
+		} else if (has_ca_cert) {
+			// Do own validation instead against provided ca certs in cacertfile
+			CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED;
+			CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
+		}
+
+		CredConfig.Type = QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE;
+		CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED;
+	} else {
+		CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
+		log_warn("No quic TLS/SSL credentials was specified.");
 	}
 
 	// Allocate/initialize the configuration object, with the configured
@@ -172,7 +362,7 @@ quic_load_sdk_config(BOOLEAN Unsecure, uint64_t interval, uint64_t timeout)
 	QUIC_STATUS rv = QUIC_STATUS_SUCCESS;
 	if (QUIC_FAILED(rv = MsQuic->ConfigurationOpen(registration,
 	    &quic_alpn, 1, &Settings, sizeof(Settings), NULL, &configuration))) {
-		qdebug("ConfigurationOpen failed, 0x%x!\n", rv);
+		log_error("ConfigurationOpen failed, 0x%x!\n", rv);
 		return FALSE;
 	}
 
@@ -200,6 +390,8 @@ quic_sock_init(quic_sock_t *qsock)
 
 	qsock->url_s = NULL;
 	qsock->rticket_sz = 0;
+
+	qsock->cacert = NULL;
 }
 
 static void
@@ -424,6 +616,7 @@ quic_connection_cb(_In_ HQUIC Connection, _In_opt_ void *Context,
 	quic_sock_t *qsock = Context;
 	void        *mqtt_sock;
 	HQUIC        qconn = Connection;
+	QUIC_STATUS  rv;
 
 	log_debug("quic_connection_cb triggered! %d", Event->Type);
 	switch (Event->Type) {
@@ -435,7 +628,7 @@ quic_connection_cb(_In_ HQUIC Connection, _In_opt_ void *Context,
 
 		// only create main stream/pipe it there is none.
 		if (qsock->pipe == NULL) {
-			// not first time to establish QUIC pipe
+			// First time to establish QUIC pipe
 			if ((qsock->pipe = nng_alloc(pipe_ops->pipe_size)) == NULL) {
 				log_error("Failed in allocating pipe.");
 				break;
@@ -509,6 +702,22 @@ quic_connection_cb(_In_ HQUIC Connection, _In_opt_ void *Context,
 		memcpy(qsock->rticket, Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicket,
 		        Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength);
 		break;
+		case QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED:
+		log_info("QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED");
+
+		// TODO Using mbedtls APIs to verify
+		/*
+		 * TODO
+		 * Does MsQuic ensure the connected event will happen after
+		 * peer_certificate_received event.?
+		 */
+		if (QUIC_FAILED(rv = verify_peer_cert_tls(
+				Event->PEER_CERTIFICATE_RECEIVED.Certificate,
+				Event->PEER_CERTIFICATE_RECEIVED.Chain, qsock->cacert))) {
+			log_error("[conn][%p] Invalid certificate file received from the peer");
+			return rv;
+		}
+		break;
 	case QUIC_CONNECTION_EVENT_DATAGRAM_STATE_CHANGED:
 		log_info("QUIC_CONNECTION_EVENT_DATAGRAM_STATE_CHANGED");
 		break;
@@ -559,7 +768,7 @@ int
 quic_connect_ipv4(const char *url, nni_sock *sock, uint32_t *index)
 {
 	// Load the client configuration
-	if (!quic_load_sdk_config(TRUE, 30, 120)) {
+	if (!quic_load_sdk_config(TRUE, 60, 20, 120, 0, FALSE, NULL, NULL, NULL, NULL,FALSE)) {
 		log_error("Failed in load quic configuration");
 		return (-1);
 	}
@@ -582,6 +791,7 @@ quic_connect_ipv4(const char *url, nni_sock *sock, uint32_t *index)
 		goto error;
 	}
 
+	// TODO: Windows compatible
 	QUIC_ADDR Address = { 0 };
 	// Address.Ip.sa_family = QUIC_ADDRESS_FAMILY_UNSPEC;
 	Address.Ip.sa_family = QUIC_ADDRESS_FAMILY_INET;
@@ -624,6 +834,7 @@ quic_connect_ipv4(const char *url, nni_sock *sock, uint32_t *index)
 		goto error;
 	}
 	// Successfully creating quic connection then assign to qsock
+	// Here mutex should be unnecessary.
 	qsock->qconn = conn;
 
 	return 0;
@@ -640,7 +851,7 @@ static int
 quic_sock_reconnect(quic_sock_t *qsock)
 {
 	// Load the client configuration.
-	if (!quic_load_sdk_config(TRUE, 30, 120)) {
+	if (!quic_load_sdk_config(TRUE, 60, 20, 120, 0, FALSE, NULL, NULL, NULL, NULL,FALSE)) {
 		log_error("Failed in load quic configuration");
 		return (-1);
 	}
