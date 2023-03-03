@@ -85,10 +85,10 @@ struct conf_bridge_node {
 };
 
 static conf_bridge_node config_node = {
-	.multi_stream = false,
+	.multi_stream = true,
 	.max_send_queue_len = 32,
 	.max_recv_queue_len = 32,
-	.qos_first = false,
+	.qos_first = true,
 };
 
 uint32_t
@@ -1397,7 +1397,7 @@ quic_mqtt_stream_init(void *arg, nni_pipe *qsock, void *sock)
 	nni_id_map_init(&p->recv_unack, 0x0000u, 0xffffu, true);
 	nni_lmq_init(&p->recv_messages, NNG_MAX_RECV_LMQ);
 	if(config_node.multi_stream){
-		nni_lmq_init(&p->send_inflight, NNG_MAX_SEND_LMQ);
+		nni_lmq_init(&p->send_inflight, NNG_MAX_RECV_LMQ);
 	}
 	nni_mtx_init(&p->lk);
 
@@ -1433,8 +1433,9 @@ quic_mqtt_stream_fini(void *arg)
 	*/
 	nni_id_map_fini(&p->recv_unack);
 	nni_id_map_fini(&p->sent_unack);
-	if(config_node.multi_stream)
-	nni_lmq_fini(&p->send_inflight);
+	if(config_node.multi_stream){
+		nni_lmq_fini(&p->send_inflight);
+	}
 	nni_lmq_fini(&p->recv_messages);
 	nni_mtx_fini(&p->lk);
 
