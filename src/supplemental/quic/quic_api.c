@@ -244,19 +244,17 @@ quic_load_sdk_config(BOOLEAN Unsecure, uint64_t qconnect_timeout,
     char *key_password, char *cafile, bool verify_peer
 	)
 {
-	QUIC_SETTINGS Settings = { 0 };
+	QUIC_SETTINGS          Settings = { 0 };
 	QUIC_CREDENTIAL_CONFIG CredConfig;
 
-	conf_node *node;
-	conf_tls  tls;
+	conf_node *node = NNI_ALLOC_STRUCT(node);
 
-	tls.enable                = tls_enable;
-	tls.certfile              = certifile;
-	tls.keyfile               = keyfile;
-	tls.key_password          = key_password;
-	tls.verify_peer           = verify_peer;
-	tls.cafile                = cafile;
-	node->tls                 = tls;
+	node->tls.enable          = tls_enable;
+	node->tls.certfile        = certifile;
+	node->tls.keyfile         = keyfile;
+	node->tls.key_password    = key_password;
+	node->tls.verify_peer     = verify_peer;
+	node->tls.cafile          = cafile;
 	node->qidle_timeout       = qidle_timeout;
 	node->qconnect_timeout    = qconnect_timeout;
 	node->qdiscon_timeout     = qdiscon_timeout;
