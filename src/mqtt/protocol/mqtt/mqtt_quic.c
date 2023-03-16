@@ -1236,7 +1236,8 @@ static void mqtt_quic_sock_init(void *arg, nni_sock *sock)
 	mqtt_quic_ctx_init(&s->master, s);
 	nni_atomic_set(&s->next_packet_id, 1);
 
-	s->streams = NULL;
+	s->streams = nng_alloc(sizeof(nni_id_map));
+	nni_id_map_init(s->streams, 0x0000u, 0xffffu, true);
 
 	/*
 #if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
