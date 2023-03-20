@@ -1482,7 +1482,6 @@ void
 quic_proto_set_sdk_config(void *config)
 {
 	memcpy(&conf_node, config, sizeof(conf_quic_sdk));
-	log_info("-------------------------------------tls %d", conf_node.tls.enable);
 }
 
 void

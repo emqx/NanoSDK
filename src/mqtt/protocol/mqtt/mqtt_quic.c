@@ -112,7 +112,7 @@ struct conf_bridge_node {
 static conf_bridge_node config_node = {
 	.tls = {
 		.enable = false,
-		.url    = "",
+		.url    = "", // Depracated
 		.cafile = "",
 		.certfile = "",
 		.keyfile  = "",
@@ -120,18 +120,18 @@ static conf_bridge_node config_node = {
 		.cert     = "",
 		.key      = "",
 		.key_password = "",
-		.verify_peer = false,
-		.set_fail = false,
+		.verify_peer = true,
+		.set_fail = true,
 	},
-	.multi_stream = true,
-	.stream_auto_genid = true,
-	.qos_first = true,
-	.hybrid = false,
+	.multi_stream = false,
+	.stream_auto_genid = false,
+	.qos_first = false,
+	.hybrid = false, // Depracated
 	.qkeepalive = 30,
 	.qconnect_timeout = 60,
 	.qdiscon_timeout = 30,
 	.qidle_timeout = 30,
-	.qcongestion_control = 1, // bbr
+	.qcongestion_control = 0, // cubic
 	.max_send_queue_len = 32,
 	.max_recv_queue_len = 32,
 };
