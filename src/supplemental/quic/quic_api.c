@@ -19,7 +19,6 @@
 
 #include <assert.h>
 #include <errno.h>
-#include <msquic_posix.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,6 +31,7 @@
 #define NNI_QUIC_MAX_RETRY 2
 
 #define QUIC_API_C_DEBUG 0
+
 
 #if QUIC_API_C_DEBUG
 #define qdebug(fmt, ...)                                                 \
@@ -68,8 +68,8 @@
 #endif
 
 typedef struct quic_sock_s quic_sock_t;
-typedef struct conf_bridge_quic_api_node conf_node;
-typedef struct conf_tls                  conf_tls;
+typedef struct conf_quic_sdk conf_quic_sdk;
+typedef struct conf_tls           conf_tls;
 struct conf_tls {
 	bool  enable;
 	char *url; // "tls+nmq-tcp://addr:port"
@@ -83,7 +83,7 @@ struct conf_tls {
 	bool  verify_peer;
 	bool  set_fail; // fail_if_no_peer_cert
 };
-struct conf_bridge_quic_api_node {
+struct conf_quic_sdk {
 	conf_tls     tls;
 	// config params for QUIC only
 	bool         multi_stream;
@@ -95,6 +95,8 @@ struct conf_bridge_quic_api_node {
 	uint32_t     qdiscon_timeout;	// DisconnectTimeoutMs
 	uint32_t     qidle_timeout;	    // Disconnect after idle
 	uint8_t      qcongestion_control; // congestion control algorithm 1: bbr 0: cubic
+	size_t       max_recv_queue_len;
+	size_t       max_send_queue_len;
 };
 
 struct quic_sock_s {
@@ -154,15 +156,14 @@ const QUIC_BUFFER quic_alpn = {
 HQUIC registration;
 HQUIC configuration;
 
-static uint64_t keepalive = 0;
-static conf_node;
+static conf_quic_sdk conf_node;
 nni_proto *g_quic_proto;
 
-// static BOOLEAN quic_load_sdk_config(BOOLEAN Unsecure, uint64_t qconnect_timeout,
-//     uint32_t qdiscon_timeout, uint32_t qidle_timeout,
-//     uint8_t qcongestion_control, bool tls_enable,
-// 	char *certifile, char *keyfile,
-//     char *key_password, char *cafile, bool verify_peer);
+static BOOLEAN quic_load_sdk_config(BOOLEAN Unsecure, uint64_t qconnect_timeout,
+    uint32_t qdiscon_timeout, uint32_t qidle_timeout,
+    uint8_t qcongestion_control, bool tls_enable,
+    char *certifile, char *keyfile,
+    char *key_password, char *cafile, bool verify_peer);
 
 static void    quic_pipe_send_cancel(nni_aio *aio, void *arg, int rv);
 static void    quic_pipe_recv_cancel(nni_aio *aio, void *arg, int rv);
@@ -170,13 +171,13 @@ static void    quic_pipe_recv_cb(void *arg);
 static void    quic_pipe_send_start(quic_strm_t *qstrm);
 static void    quic_pipe_recv_start(void *arg);
 
-static int     quic_sock_reconnect(quic_sock_t *qsock);
-static void    quic_sock_close_cb(void *arg);
-static void    quic_sock_init(quic_sock_t *qsock);
-static void    quic_sock_fini(quic_sock_t *qsock);
+static int  quic_sock_reconnect(quic_sock_t *qsock);
+static void quic_sock_close_cb(void *arg);
+static void quic_sock_init(quic_sock_t *qsock);
+static void quic_sock_fini(quic_sock_t *qsock);
 
-static void    quic_strm_init(quic_strm_t *qstrm, quic_sock_t *qsock);
-static void    quic_strm_fini(quic_strm_t *qstrm);
+static void quic_strm_init(quic_strm_t *qstrm, quic_sock_t *qsock);
+static void quic_strm_fini(quic_strm_t *qstrm);
 
 static QUIC_STATUS verify_peer_cert_tls(
     QUIC_CERTIFICATE *cert, QUIC_CERTIFICATE *chain, char *cacert);
@@ -247,7 +248,7 @@ quic_load_sdk_config(BOOLEAN Unsecure, uint64_t qconnect_timeout,
 	QUIC_SETTINGS          Settings = { 0 };
 	QUIC_CREDENTIAL_CONFIG CredConfig;
 
-	conf_node *node = NNI_ALLOC_STRUCT(node);
+	conf_quic_sdk *node = &conf_node;
 
 	node->tls.enable          = tls_enable;
 	node->tls.certfile        = certifile;
@@ -313,7 +314,7 @@ there:
 	CredConfig.Type  = QUIC_CREDENTIAL_TYPE_NONE;
 	// CredConfig.Flags = QUIC_CREDENTIAL_FLAG_CLIENT | QUIC_CREDENTIAL_FLAG_USE_PORTABLE_CERTIFICATES;
 	CredConfig.Flags = QUIC_CREDENTIAL_FLAG_CLIENT;
-	
+
 	if (node->tls.enable) {
 		char *cert_path = node->tls.certfile;
 		char *key_path  = node->tls.keyfile;
@@ -452,9 +453,9 @@ quic_strm_fini(quic_strm_t *qstrm)
 // The clients's callback for stream events from MsQuic.
 // New recv cb of quic transport
 _IRQL_requires_max_(DISPATCH_LEVEL)
-    _Function_class_(QUIC_STREAM_CALLBACK) QUIC_STATUS QUIC_API
+_Function_class_(QUIC_STREAM_CALLBACK) QUIC_STATUS QUIC_API
 quic_strm_cb(_In_ HQUIC stream, _In_opt_ void *Context,
-        _Inout_ QUIC_STREAM_EVENT *Event)
+	_Inout_ QUIC_STREAM_EVENT *Event)
 {
 	quic_strm_t *qstrm = Context;
 	uint32_t rlen;
@@ -605,9 +606,9 @@ quic_strm_cb(_In_ HQUIC stream, _In_opt_ void *Context,
 }
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
-    _Function_class_(QUIC_CONNECTION_CALLBACK) QUIC_STATUS QUIC_API
+_Function_class_(QUIC_CONNECTION_CALLBACK) QUIC_STATUS QUIC_API
 quic_connection_cb(_In_ HQUIC Connection, _In_opt_ void *Context,
-        _Inout_ QUIC_CONNECTION_EVENT *Event)
+	_Inout_ QUIC_CONNECTION_EVENT *Event)
 {
 	const nni_proto_pipe_ops *pipe_ops = g_quic_proto->proto_pipe_ops;
 
@@ -689,6 +690,14 @@ quic_connection_cb(_In_ HQUIC Connection, _In_opt_ void *Context,
 
 		nni_mtx_unlock(&qsock->mtx);
 		nni_aio_finish(&qsock->close_aio, 0, 0);
+		/*
+		if (qstrm->rtt0_enable) {
+			// No rticket
+			log_warn("reconnect failed due to no resumption ticket.\n");
+			quic_strm_fini(qstrm);
+			nng_free(qstrm, sizeof(quic_strm_t));
+		}
+		*/
 
 		break;
 	case QUIC_CONNECTION_EVENT_RESUMPTION_TICKET_RECEIVED:
@@ -700,7 +709,7 @@ quic_connection_cb(_In_ HQUIC Connection, _In_opt_ void *Context,
 		memcpy(qsock->rticket, Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicket,
 		        Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength);
 		break;
-		case QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED:
+	case QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED:
 		log_info("QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED");
 
 		// TODO Using mbedtls APIs to verify
@@ -757,9 +766,9 @@ quic_disconnect(void *qsock, void *qpipe)
 }
 
 void
-quic_proto_set_keepalive(uint64_t interval)
+quic_proto_set_sdk_config(void *config)
 {
-	keepalive = interval;
+	memcpy(&conf_node, config, sizeof(conf_quic_sdk));
 }
 
 int
@@ -781,6 +790,9 @@ quic_connect_ipv4(const char *url, nni_sock *sock, uint32_t *index)
 	}
 	// never free the sock in bridging mode
 	quic_sock_init(qsock);
+	// CACert
+	if (conf_node.tls.enable)
+		qsock->cacert = conf_node.tls.cafile;
 
 	// Allocate a new connection object.
 	if (QUIC_FAILED(rv = MsQuic->ConnectionOpen(registration,
@@ -793,7 +805,6 @@ quic_connect_ipv4(const char *url, nni_sock *sock, uint32_t *index)
 	QUIC_ADDR Address = { 0 };
 	// Address.Ip.sa_family = QUIC_ADDRESS_FAMILY_UNSPEC;
 	Address.Ip.sa_family = QUIC_ADDRESS_FAMILY_INET;
-	// Address.Ipv4 = 
 	Address.Ipv4.sin_port = htons(0);
 	// QuicAddrSetFamily(&Address, QUIC_ADDRESS_FAMILY_UNSPEC);
 	// QuicAddrSetPort(&Address, 0);
@@ -834,6 +845,19 @@ quic_connect_ipv4(const char *url, nni_sock *sock, uint32_t *index)
 	// Successfully creating quic connection then assign to qsock
 	// Here mutex should be unnecessary.
 	qsock->qconn = conn;
+
+	// // Start/ReStart the nng pipe
+	// const nni_proto_pipe_ops *pipe_ops = g_quic_proto->proto_pipe_ops;
+	// if ((qsock->pipe = nng_alloc(pipe_ops->pipe_size)) == NULL) {
+	// 	log_error("error in alloc pipe.\n");
+	// 	goto error;
+	// }
+
+	// void *sock_data = nni_sock_proto_data(sock);
+	// if (pipe_ops->pipe_init(qsock->pipe, (nni_pipe *) qsock, sock_data) ==
+	//     -1) {
+	// 	goto error;
+	// }
 
 	return 0;
 
@@ -907,6 +931,7 @@ quic_sock_close_cb(void *arg)
 	nng_msleep(NNI_QUIC_TIMER * 1000);
 	quic_sock_reconnect(qsock);
 }
+
 
 // only for qos 1/2
 int
@@ -1022,6 +1047,7 @@ quic_pipe_send_start(quic_strm_t *qstrm)
 	log_debug("body len: %d header len: %d", buf[1].Length, buf[0].Length);
 	nni_aio_set_input(aio, 0, buf);
 	// send QoS 0 msg with NULL context
+
 	if (QUIC_FAILED(rv = MsQuic->StreamSend(qstrm->stream, buf, bl > 0 ? 2:1,
 	                    QUIC_SEND_FLAG_NONE, NULL))) {
 		log_debug("Failed in StreamSend, 0x%x!", rv);
@@ -1063,6 +1089,8 @@ quic_pipe_recv_cb(void *arg)
 	nni_aio *aio = NULL;
 
 	qdebug("before rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+	// qdebug("rrpos %d rrlen %d rrbuf %x %x.\n", qstrm->rrpos, qstrm->rrlen,
+	// qstrm->rrbuf[qstrm->rrpos], qstrm->rrbuf[qstrm->rrpos + 1]);
 	uint8_t  usedbytes;
 	uint8_t *rbuf = qstrm->rrbuf + qstrm->rrpos;
 	uint32_t rlen = qstrm->rrlen, n, remain_len;
@@ -1479,4 +1507,5 @@ quic_proto_close()
 void
 quic_proto_set_bridge_conf(void *node)
 {
+	(void) node;
 }

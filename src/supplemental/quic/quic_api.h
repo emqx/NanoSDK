@@ -44,6 +44,6 @@ extern int quic_aio_send(void *qpipe, nni_aio *aio);
 extern int quic_pipe_close(void *qpipe, uint8_t *code);
 
 // APIs for NanoSDK
-extern void quic_proto_set_keepalive(uint64_t interval);
+extern void quic_proto_set_sdk_config(void *sdk_config);
 
 #endif
