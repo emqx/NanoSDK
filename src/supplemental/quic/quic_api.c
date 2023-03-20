@@ -159,11 +159,7 @@ HQUIC configuration;
 static conf_quic_sdk conf_node;
 nni_proto *g_quic_proto;
 
-static BOOLEAN quic_load_sdk_config(BOOLEAN Unsecure, uint64_t qconnect_timeout,
-    uint32_t qdiscon_timeout, uint32_t qidle_timeout,
-    uint8_t qcongestion_control, bool tls_enable,
-    char *certifile, char *keyfile,
-    char *key_password, char *cafile, bool verify_peer);
+static BOOLEAN quic_load_sdk_config(BOOLEAN Unsecure);
 
 static void    quic_pipe_send_cancel(nni_aio *aio, void *arg, int rv);
 static void    quic_pipe_recv_cancel(nni_aio *aio, void *arg, int rv);
@@ -238,28 +234,12 @@ verify_peer_cert_tls(QUIC_CERTIFICATE* cert, QUIC_CERTIFICATE* chain, char *cace
 
 // Helper function to load a client configuration.
 static BOOLEAN
-quic_load_sdk_config(BOOLEAN Unsecure, uint64_t qconnect_timeout,
-    uint32_t qdiscon_timeout, uint32_t qidle_timeout,
-    uint8_t qcongestion_control, bool tls_enable,
-	char *certifile, char *keyfile,
-    char *key_password, char *cafile, bool verify_peer
-	)
+quic_load_sdk_config(BOOLEAN Unsecure)
 {
 	QUIC_SETTINGS          Settings = { 0 };
 	QUIC_CREDENTIAL_CONFIG CredConfig;
 
 	conf_quic_sdk *node = &conf_node;
-
-	node->tls.enable          = tls_enable;
-	node->tls.certfile        = certifile;
-	node->tls.keyfile         = keyfile;
-	node->tls.key_password    = key_password;
-	node->tls.verify_peer     = verify_peer;
-	node->tls.cafile          = cafile;
-	node->qidle_timeout       = qidle_timeout;
-	node->qconnect_timeout    = qconnect_timeout;
-	node->qdiscon_timeout     = qdiscon_timeout;
-	node->qcongestion_control = qcongestion_control;
 
 	if (!node) {
 		Settings.IsSet.IdleTimeoutMs       = TRUE;
@@ -765,17 +745,11 @@ quic_disconnect(void *qsock, void *qpipe)
 	return 0;
 }
 
-void
-quic_proto_set_sdk_config(void *config)
-{
-	memcpy(&conf_node, config, sizeof(conf_quic_sdk));
-}
-
 int
 quic_connect_ipv4(const char *url, nni_sock *sock, uint32_t *index)
 {
 	// Load the client configuration
-	if (!quic_load_sdk_config(TRUE, 60, 20, 120, 0, FALSE, NULL, NULL, NULL, NULL,FALSE)) {
+	if (!quic_load_sdk_config(TRUE)) {
 		log_error("Failed in load quic configuration");
 		return (-1);
 	}
@@ -873,7 +847,7 @@ static int
 quic_sock_reconnect(quic_sock_t *qsock)
 {
 	// Load the client configuration.
-	if (!quic_load_sdk_config(TRUE, 60, 20, 120, 0, FALSE, NULL, NULL, NULL, NULL,FALSE)) {
+	if (!quic_load_sdk_config(TRUE)) {
 		log_error("Failed in load quic configuration");
 		return (-1);
 	}
@@ -1502,6 +1476,13 @@ void
 quic_proto_close()
 {
 	g_quic_proto = NULL;
+}
+
+void
+quic_proto_set_sdk_config(void *config)
+{
+	memcpy(&conf_node, config, sizeof(conf_quic_sdk));
+	log_info("-------------------------------------tls %d", conf_node.tls.enable);
 }
 
 void
