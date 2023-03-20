@@ -1927,7 +1927,7 @@ nng_mqtt_quic_client_open(nng_socket *sock, const char *url)
  * open mqtt quic transport with self-defined conf params
 */
 int
-nng_mqtt_quic_open_sdk(nng_socket *sock, const char *url)
+nng_mqtt_quic_client_open2(nng_socket *sock, const char *url)
 {
 	nni_sock *nsock = NULL;
 	int       rv = 0;
