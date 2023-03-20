@@ -22,6 +22,7 @@
 #define NNG_MQTT_PEER 0
 #define NNG_MQTT_PEER_NAME "mqtt-server"
 #define MQTT_QUIC_RETRTY 5  // 5 seconds as default minimum timer 
+#define MQTT_QUIC_KEEPALIVE 5  // 5 seconds as default
 
 typedef struct mqtt_sock_s   mqtt_sock_t;
 typedef struct mqtt_pipe_s   mqtt_pipe_t;
@@ -74,21 +75,65 @@ static void *mqtt_quic_sock_get_sqlite_option(mqtt_sock_t *s);
 		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
 	} while (0)
 
+typedef struct conf_tls           conf_tls;
+struct conf_tls {
+	bool  enable;
+	char *url; // "tls+nmq-tcp://addr:port"
+	char *cafile;
+	char *certfile;
+	char *keyfile;
+	char *ca;
+	char *cert;
+	char *key;
+	char *key_password;
+	bool  verify_peer;
+	bool  set_fail; // fail_if_no_peer_cert
+};
+
 // XXX We define a conf_bridge_node struct locally due to no nanolib in nanosdk
 // And we will init a instance with default configuration when connecting
 typedef struct conf_bridge_node conf_bridge_node;
 struct conf_bridge_node {
+	conf_tls     tls;
+	// config params for QUIC only
+	bool         multi_stream;
+	bool         stream_auto_genid; // generate stream id automatically for each stream
+	bool         qos_first; // send QoS msg in high priority
+	bool         hybrid;  // hybrid bridging affects auto-reconnect of QUIC transport
+	uint64_t     qkeepalive;		//keepalive timeout interval of QUIC transport
+	uint64_t     qconnect_timeout;	// HandshakeIdleTimeoutMs of QUIC
+	uint32_t     qdiscon_timeout;	// DisconnectTimeoutMs
+	uint32_t     qidle_timeout;	    // Disconnect after idle
+	uint8_t      qcongestion_control; // congestion control algorithm 1: bbr 0: cubic
 	size_t       max_recv_queue_len;
 	size_t       max_send_queue_len;
-	bool         multi_stream;
-	bool         qos_first;
 };
 
 static conf_bridge_node config_node = {
+	.tls = {
+		.enable = false,
+		.url    = "",
+		.cafile = "",
+		.certfile = "",
+		.keyfile  = "",
+		.ca       = "",
+		.cert     = "",
+		.key      = "",
+		.key_password = "",
+		.verify_peer = false,
+		.set_fail = false,
+	},
 	.multi_stream = true,
+	.stream_auto_genid = true,
+	.qos_first = true,
+	.hybrid = false,
+	.qkeepalive = 30,
+	.qconnect_timeout = 60,
+	.qdiscon_timeout = 30,
+	.qidle_timeout = 30,
+	.qcongestion_control = 1, // bbr
 	.max_send_queue_len = 32,
 	.max_recv_queue_len = 32,
-	.qos_first = true,
 };
 
 uint32_t
@@ -135,8 +180,8 @@ struct mqtt_sock_s {
 	nni_lmq *ack_lmq;
 	nni_id_map  *streams;  // pipes, only effective in multi-stream mode
 	mqtt_pipe_t *pipe;     // the major pipe (control stream)
-	                   // main quic pipe, others needs a map to store the
-	                   // relationship between MQTT topics and quic pipes
+	                     // main quic pipe, others needs a map to store the
+	                     // relationship between MQTT topics and quic pipes
 	nni_aio   time_aio;  // timer aio to resend unack msg
 	nni_aio  *ack_aio;   // set by user, expose puback/pubcomp
 	uint16_t  counter;   // counter for elapsed time
@@ -351,6 +396,8 @@ mqtt_pipe_get_next_packet_id(mqtt_sock_t *s)
 	    !nni_atomic_cas(&s->next_packet_id, packet_id, packet_id + 1));
 	return packet_id & 0xFFFF;
 }
+
+
 
 // Should be called with mutex lock hold after pipe is secured
 // return rv>0 when aio should be finished (error or successed)
@@ -1023,8 +1070,8 @@ mqtt_quic_recv_cb(void *arg)
 			nni_id_remove(&p->sent_unack, packet_id);
 			user_aio = nni_mqtt_msg_get_aio(cached_msg);
 			// should we support sub/unsub cb here?
-				nni_msg_clone(msg);
-				nni_aio_set_msg(user_aio, msg);
+			nni_msg_clone(msg);
+			nni_aio_set_msg(user_aio, msg);
 			nni_msg_free(cached_msg);
 		}
 		nni_msg_free(msg);
@@ -1397,9 +1444,8 @@ quic_mqtt_stream_init(void *arg, nni_pipe *qsock, void *sock)
 	nni_id_map_init(&p->sent_unack, 0x0000u, 0xffffu, true);
 	nni_id_map_init(&p->recv_unack, 0x0000u, 0xffffu, true);
 	nni_lmq_init(&p->recv_messages, NNG_MAX_RECV_LMQ);
-	if(config_node.multi_stream){
+	if(config_node.multi_stream)
 		nni_lmq_init(&p->send_inflight, NNG_MAX_RECV_LMQ);
-	}
 	nni_mtx_init(&p->lk);
 
 	return (0);
@@ -1434,9 +1480,8 @@ quic_mqtt_stream_fini(void *arg)
 	*/
 	nni_id_map_fini(&p->recv_unack);
 	nni_id_map_fini(&p->sent_unack);
-	if(config_node.multi_stream){
+	if(config_node.multi_stream)
 		nni_lmq_fini(&p->send_inflight);
-	}
 	nni_lmq_fini(&p->recv_messages);
 	nni_mtx_fini(&p->lk);
 
@@ -1530,7 +1575,7 @@ quic_mqtt_stream_stop(void *arg)
 			nni_aio_stop(&p->rep_aio);
 			// nni_aio_stop(&s->time_aio);
 		}
-		if (p != s->pipe) {
+	if (p != s->pipe) {
 		// close & finit data stream
 		log_warn("close data stream of topic");
 		nni_atomic_set_bool(&p->closed, true);
@@ -1566,9 +1611,8 @@ quic_mqtt_stream_stop(void *arg)
 		*/
 		nni_id_map_fini(&p->recv_unack);
 		nni_id_map_fini(&p->sent_unack);
-		if (config_node.multi_stream){
+		if (config_node.multi_stream)
 			nni_lmq_fini(&p->send_inflight);
-		}
 		nni_lmq_fini(&p->recv_messages);
 		nni_mtx_fini(&p->lk);
 
@@ -1600,9 +1644,8 @@ quic_mqtt_stream_close(void *arg)
 	}
 #endif
 	nni_lmq_flush(&p->recv_messages);
-	if(config_node.multi_stream){
+	if(config_node.multi_stream)
 		nni_lmq_flush(&p->send_inflight);
-	}
 	nni_id_map_foreach(&p->sent_unack, mqtt_close_unack_msg_cb);
 	nni_id_map_foreach(&p->recv_unack, mqtt_close_unack_msg_cb);
 	p->qpipe = NULL;
@@ -1647,6 +1690,7 @@ mqtt_quic_ctx_send(void *arg, nni_aio *aio)
 	}
 
 	nni_mtx_lock(&s->mtx);
+
 	msg = nni_aio_get_msg(aio);
 	if (msg == NULL) {
 		nni_mtx_unlock(&s->mtx);
@@ -1659,7 +1703,6 @@ mqtt_quic_ctx_send(void *arg, nni_aio *aio)
 		nni_aio_finish_error(aio, NNG_ECLOSED);
 		return;
 	}
-
 	nni_mqtt_packet_type ptype = nni_mqtt_msg_get_packet_type(msg);
 	switch (ptype)
 	{
@@ -1734,7 +1777,7 @@ mqtt_quic_ctx_send(void *arg, nni_aio *aio)
 	}
 
 	if (config_node.multi_stream &&
-		nni_mqtt_msg_get_packet_type(msg) == NNG_MQTT_SUBSCRIBE) {
+	    nni_mqtt_msg_get_packet_type(msg) == NNG_MQTT_SUBSCRIBE) {
 		mqtt_sub_stream(p, msg, packet_id, aio);
 	} else if ((rv = mqtt_send_msg(aio, msg, s)) >= 0) {
 		nni_mtx_unlock(&s->mtx);
@@ -1884,7 +1927,7 @@ nng_mqtt_quic_client_open(nng_socket *sock, const char *url)
  * open mqtt quic transport with self-defined conf params
 */
 int
-nng_mqtt_quic_open_keepalive(nng_socket *sock, const char *url, uint64_t interval)
+nng_mqtt_quic_open_sdk(nng_socket *sock, const char *url)
 {
 	nni_sock *nsock = NULL;
 	int       rv = 0;
@@ -1896,7 +1939,7 @@ nng_mqtt_quic_open_keepalive(nng_socket *sock, const char *url, uint64_t interva
 			// nng_mqtt_quic_set_config(sock, (void *)&config_node);
 			quic_open();
 			quic_proto_open(&mqtt_msquic_proto);
-			quic_proto_set_keepalive(interval);
+			quic_proto_set_sdk_config((void *)&config_node);
 			quic_connect_ipv4(url, nsock, NULL);
 		} else {
 			rv = -1;
@@ -1987,8 +2030,6 @@ nng_mqtt_quic_set_msg_recv_cb(nng_socket *sock, int (*cb)(void *, void *), void 
 	nni_sock_rele(nsock);
 	return 0;
 }
-
-
 
 int
 nng_mqtt_quic_set_msg_send_cb(nng_socket *sock, int (*cb)(void *, void *), void *arg)
