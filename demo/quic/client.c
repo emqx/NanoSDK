@@ -180,7 +180,7 @@ client(int type, const char *url, const char *qos, const char *topic, const char
 	nng_msg *   msg;
 	const char *arg = "CLIENT FOR QUIC";
 
-	if ((rv = nng_mqtt_quic_client_open2(&sock, url)) != 0) {
+	if ((rv = nng_mqtt_quic_client_open(&sock, url)) != 0) {
 		printf("error in quic client open.\n");
 	}
 
