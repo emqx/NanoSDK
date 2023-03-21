@@ -77,7 +77,7 @@ static void *mqtt_quic_sock_get_sqlite_option(mqtt_sock_t *s);
 
 
 //default QUIC config for define QUIC transport
-static conf_quic config_node = {
+static conf_quic config_default = {
 	.tls = {
 		.enable = false,
 		.url    = "", // Depracated
@@ -1817,21 +1817,7 @@ static nni_proto mqtt_msquic_proto = {
 int
 nng_mqtt_quic_client_open(nng_socket *sock, const char *url)
 {
-	nni_sock *nsock = NULL;
-	int       rv = 0;
-	// Quic settings
-	if ((rv = nni_proto_open(sock, &mqtt_msquic_proto)) == 0) {
-		nni_sock_find(&nsock, sock->id);
-		if (nsock) {
-			quic_open();
-			quic_proto_open(&mqtt_msquic_proto);
-			rv = quic_connect_ipv4(url, nsock, NULL);
-		} else {
-			rv = -1;
-		}
-	}
-	nni_sock_rele(nsock);
-	return rv;
+	nng_mqtt_quic_client_open_conf(sock, url, &config_default);
 }
 /**
  * open mqtt quic transport with self-defined conf params

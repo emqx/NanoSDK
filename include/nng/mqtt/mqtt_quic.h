@@ -45,7 +45,8 @@ struct conf_quic {
 };
 
 NNG_DECL int nng_mqtt_quic_client_open(nng_socket *, const char *url);
-NNG_DECL int nng_mqtt_quic_client_open2(nng_socket *sock, const char *url);
+NNG_DECL int nng_mqtt_quic_client_open_conf(
+    nng_socket *sock, const char *url, conf_quic *conf);
 NNG_DECL int nng_mqtt_quic_set_connect_cb(
     nng_socket *, int (*cb)(void *, void *), void *arg);
 NNG_DECL int nng_mqtt_quic_set_disconnect_cb(
