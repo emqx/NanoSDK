@@ -17,6 +17,33 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef struct conf_tls conf_tls;
+typedef struct conf_quic conf_quic;
+struct conf_tls {
+	bool  enable;
+	char *url; // "tls+nmq-tcp://addr:port"
+	char *cafile;
+	char *certfile;
+	char *keyfile;
+	char *ca;
+	char *cert;
+	char *key;
+	char *key_password;
+	bool  verify_peer;
+	bool  set_fail; // fail_if_no_peer_cert
+};
+
+struct conf_quic {
+	conf_tls     tls;
+	bool         qos_first; // send QoS msg in high priority
+	uint64_t     qkeepalive;		//keepalive timeout interval of QUIC transport
+	uint64_t     qconnect_timeout;	// HandshakeIdleTimeoutMs of QUIC
+	uint32_t     qdiscon_timeout;	// DisconnectTimeoutMs
+	uint32_t     qidle_timeout;	    // Disconnect after idle
+	uint8_t      qcongestion_control; // congestion control algorithm 1: bbr 0: cubic
+};
+
 NNG_DECL int nng_mqtt_quic_client_open(nng_socket *, const char *url);
 NNG_DECL int nng_mqtt_quic_client_open2(nng_socket *sock, const char *url);
 NNG_DECL int nng_mqtt_quic_set_connect_cb(
