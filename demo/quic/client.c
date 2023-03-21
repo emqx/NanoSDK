@@ -65,6 +65,7 @@ mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 
 		nng_mqtt_msg_set_connect_keep_alive(msg, 30);
 		nng_mqtt_msg_set_connect_clean_session(msg, false);
+		nng_mqtt_msg_set_connect_client_id(msg, "nanosdk-quic-client");
 	} else if (type == 2) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_SUBSCRIBE);
 
