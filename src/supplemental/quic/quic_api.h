@@ -23,8 +23,6 @@ extern void quic_close();
 extern void quic_proto_open(nni_proto *proto);
 // Disable quic protocol for nng
 extern void quic_proto_close();
-// Set global configuration for quic protocol
-extern void quic_proto_set_bridge_conf(void *arg);
 
 // Establish a quic connection to target url. Return 0 if success.
 // And the handle of connection(qsock) would pass to callback .pipe_init(,qsock,)

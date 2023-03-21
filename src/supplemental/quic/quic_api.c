@@ -11,6 +11,7 @@
 #include "msquic.h"
 
 #include "nng/supplemental/util/platform.h"
+#include "nng/mqtt/mqtt_quic.h"
 #include "nng/mqtt/mqtt_client.h"
 #include "supplemental/mqtt/mqtt_msg.h"
 
@@ -67,37 +68,7 @@
 #define log_error(fmt, ...) do {} while(0)
 #endif
 
-typedef struct quic_sock_s quic_sock_t;
-typedef struct conf_quic_sdk conf_quic_sdk;
-typedef struct conf_tls           conf_tls;
-struct conf_tls {
-	bool  enable;
-	char *url; // "tls+nmq-tcp://addr:port"
-	char *cafile;
-	char *certfile;
-	char *keyfile;
-	char *ca;
-	char *cert;
-	char *key;
-	char *key_password;
-	bool  verify_peer;
-	bool  set_fail; // fail_if_no_peer_cert
-};
-struct conf_quic_sdk {
-	conf_tls     tls;
-	// config params for QUIC only
-	bool         multi_stream;
-	bool         stream_auto_genid; // generate stream id automatically for each stream
-	bool         qos_first; // send QoS msg in high priority
-	bool         hybrid;  // hybrid bridging affects auto-reconnect of QUIC transport
-	uint64_t     qkeepalive;		//keepalive timeout interval of QUIC transport
-	uint64_t     qconnect_timeout;	// HandshakeIdleTimeoutMs of QUIC
-	uint32_t     qdiscon_timeout;	// DisconnectTimeoutMs
-	uint32_t     qidle_timeout;	    // Disconnect after idle
-	uint8_t      qcongestion_control; // congestion control algorithm 1: bbr 0: cubic
-	size_t       max_recv_queue_len;
-	size_t       max_send_queue_len;
-};
+typedef struct quic_sock_s   quic_sock_t;
 
 struct quic_sock_s {
 	HQUIC     qconn; // QUIC connection
@@ -156,7 +127,7 @@ const QUIC_BUFFER quic_alpn = {
 HQUIC registration;
 HQUIC configuration;
 
-static conf_quic_sdk conf_node;
+static conf_quic conf_node;
 nni_proto *g_quic_proto;
 
 static BOOLEAN quic_load_sdk_config(BOOLEAN Unsecure);
@@ -239,7 +210,7 @@ quic_load_sdk_config(BOOLEAN Unsecure)
 	QUIC_SETTINGS          Settings = { 0 };
 	QUIC_CREDENTIAL_CONFIG CredConfig;
 
-	conf_quic_sdk *node = &conf_node;
+	conf_quic *node = &conf_node;
 
 	if (!node) {
 		Settings.IsSet.IdleTimeoutMs       = TRUE;
@@ -820,19 +791,6 @@ quic_connect_ipv4(const char *url, nni_sock *sock, uint32_t *index)
 	// Here mutex should be unnecessary.
 	qsock->qconn = conn;
 
-	// // Start/ReStart the nng pipe
-	// const nni_proto_pipe_ops *pipe_ops = g_quic_proto->proto_pipe_ops;
-	// if ((qsock->pipe = nng_alloc(pipe_ops->pipe_size)) == NULL) {
-	// 	log_error("error in alloc pipe.\n");
-	// 	goto error;
-	// }
-
-	// void *sock_data = nni_sock_proto_data(sock);
-	// if (pipe_ops->pipe_init(qsock->pipe, (nni_pipe *) qsock, sock_data) ==
-	//     -1) {
-	// 	goto error;
-	// }
-
 	return 0;
 
 error:
@@ -1087,7 +1045,6 @@ quic_pipe_recv_cb(void *arg)
 	// Already get 2 Bytes
 	if (qstrm->rxlen == 0) {
 		n = 2; // new
-		qdebug("msg type !!: %x\n", *rbuf);
 		memcpy(qstrm->rxbuf, rbuf, n);
 		qstrm->rxlen = 0 + n;
 		qstrm->rrpos += n;
@@ -1481,11 +1438,5 @@ quic_proto_close()
 void
 quic_proto_set_sdk_config(void *config)
 {
-	memcpy(&conf_node, config, sizeof(conf_quic_sdk));
-}
-
-void
-quic_proto_set_bridge_conf(void *node)
-{
-	(void) node;
+	memcpy(&conf_node, config, sizeof(conf_quic));
 }
