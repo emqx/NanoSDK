@@ -12,6 +12,15 @@
 
 #ifdef NNG_PLATFORM_WINDOWS
 
+// return standard timestamp in milliseconds
+nni_time
+nni_timestamp(void)
+{
+	SYSTEMTIME t;
+	GetSystemTime(&t);
+	return (nni_time) (time(NULL) * 1000 + t.wMilliseconds);
+}
+
 nni_time
 nni_clock(void)
 {
