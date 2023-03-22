@@ -33,6 +33,7 @@ struct mqtts_tcptran_pipe {
 	uint16_t          proto;   // MQTT version
 	uint16_t          keepalive;
 	uint16_t          sndmax; // MQTT Receive Maximum (QoS 1/2 packet)
+	uint8_t           pingcnt; // pingreq counter
 	uint8_t           qosmax;
 	size_t            rcvmax;
 	bool              closed;
@@ -86,7 +87,7 @@ struct mqtts_tcptran_ep {
 	nng_stream_listener *listener;
 	nni_dialer *         ndialer;
 	void *               connmsg;
-	property *           property;  // property
+	void *               property;  // property
 
 #ifdef NNG_ENABLE_STATS
 	nni_stat_item st_rcv_max;
@@ -129,6 +130,10 @@ mqtts_pipe_timer_cb(void *arg)
 	uint8_t             buf[2];
 
 	if (nng_aio_result(&p->tmaio) != 0) {
+		return;
+	}
+	if (p->pingcnt > 1) {
+		mqtts_tcptran_pipe_close(p);
 		return;
 	}
 	nni_mtx_lock(&p->mtx);
@@ -190,7 +195,8 @@ mqtts_tcptran_pipe_init(void *arg, nni_pipe *npipe)
 	nni_lmq_init(&p->rslmq, 16);
 	p->packmax = 0xFFFF;
 	p->qosmax  = 2;
-	p->busy = false;
+	p->busy    = false;
+	p->pingcnt = 0;
 	nni_sleep_aio(p->keepalive, &p->tmaio);
 	return (0);
 }
@@ -337,14 +343,13 @@ mqtts_tcptran_pipe_nego_cb(void *arg)
 		nni_mtx_unlock(&ep->mtx);
 		return;
 	}
-
+	// only accept CONNACK msg
+	if ((p->rxlen[0] & CMD_CONNACK) != CMD_CONNACK) {
+		rv = PROTOCOL_ERROR;
+		goto error;
+	}
 	// finish recevied fixed header
 	if (p->rxmsg == NULL) {
-		if ((p->rxlen[0] & 0x20) != 0x20) {
-			rv = PROTOCOL_ERROR;
-			goto error;
-		}
-
 		pos = 0;
 		if ((rv = mqtt_get_remaining_length(p->rxlen, p->gotrxhead,
 		         (uint32_t *) &var_int, &pos)) != 0) {
@@ -388,7 +393,7 @@ mqtts_tcptran_pipe_nego_cb(void *arg)
 			property *prop =
 			    (void *) nni_mqtt_msg_get_connack_property(
 			        p->rxmsg);
-			property_dup(&ep->property, prop);
+			property_dup((property **) &ep->property, prop);
 			property_data *data;
 			data =
 			    property_get_value(ep->property, RECEIVE_MAXIMUM);

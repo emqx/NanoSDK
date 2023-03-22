@@ -64,7 +64,7 @@ struct mqtt_ctx_s {
 // A mqtt_pipe_s is our per-pipe protocol private structure.
 struct mqtt_pipe_s {
 	nni_atomic_bool closed;			// indicates mqtt connection status
-	nni_atomic_int  next_packet_id; // next packet id to use
+	nni_atomic_int  next_packet_id; // packet id to use; TODO: move to sock?
 	nni_pipe *      pipe;
 	mqtt_sock_t *   mqtt_sock;
 
@@ -262,7 +262,7 @@ mqtt_pipe_init(void *arg, nni_pipe *pipe, void *s)
 	nni_atomic_set(&p->next_packet_id, 1);
 	p->pipe      = pipe;
 	p->mqtt_sock = s;
-	p->rid       = 0;
+	p->rid       = 1;
 	nni_aio_init(&p->send_aio, mqtt_send_cb, p);
 	nni_aio_init(&p->recv_aio, mqtt_recv_cb, p);
 	nni_aio_init(&p->time_aio, mqtt_timer_cb, p);
@@ -493,23 +493,24 @@ mqtt_pipe_close(void *arg)
 	nni_mtx_unlock(&s->mtx);
 }
 
-static inline void
-mqtt_pipe_recv_msgq_putq(mqtt_pipe_t *p, nni_msg *msg)
-{
-	if (0 != nni_lmq_put(&p->recv_messages, msg)) {
-		// resize to ensure we do not lost messages or just lose it?
-		// add option to drop messages
-		// if (0 !=
-		//     nni_lmq_resize(&p->recv_messages,
-		//         nni_lmq_len(&p->recv_messages) * 2)) {
-		// 	// drop the message when no memory available
-		// 	nni_msg_free(msg);
-		// 	return;
-		// }
-		// nni_lmq_put(&p->recv_messages, msg);
-		nni_msg_free(msg);
-	}
-}
+// static inline void
+// mqtt_pipe_recv_msgq_putq(mqtt_pipe_t *p, nni_msg *msg)
+// {
+// 	nni_msg *tmsg;
+// 	// Dont resize lmq in sdk due to memory saving
+// 	// Just make space for new Message
+// 	if (nni_lmq_full(&p->recv_messages)) {
+// 		if (nni_lmq_get(&p->recv_messages, &tmsg) == 0) {
+// 			nni_println("Warning! msg lost due to busy socket");
+// 			nni_msg_free(tmsg);
+// 		}
+// 	}
+// 	if (0 != nni_lmq_put(&p->recv_messages, msg)) {
+// 		nni_println("Warning! msg enqueue failed");
+// 		return -1;
+// 	}
+// 	return 0;
+// }
 
 // Timer callback, we use it for retransmition.
 static void
@@ -724,10 +725,8 @@ mqtt_recv_cb(void *arg)
 		if ((ctx = nni_list_first(&s->recv_queue)) == NULL) {
 			// No one waiting to receive yet, putting msg
 			// into lmq
-			mqtt_pipe_recv_msgq_putq(p, cached_msg);
+			mqtt_pipe_recv_msgq_putq(&p->recv_messages, cached_msg);
 			nni_mtx_unlock(&s->mtx);
-			// nni_println("ERROR: no ctx found!! create more
-			// ctxs!");
 			return;
 		}
 		nni_list_remove(&s->recv_queue, ctx);
@@ -747,7 +746,7 @@ mqtt_recv_cb(void *arg)
 			if ((ctx = nni_list_first(&s->recv_queue)) == NULL) {
 				// No one waiting to receive yet, putting msg
 				// into lmq
-				mqtt_pipe_recv_msgq_putq(p, msg);
+				mqtt_pipe_recv_msgq_putq(&p->recv_messages, msg);
 				nni_mtx_unlock(&s->mtx);
 				// nni_println("ERROR: no ctx found!! create
 				// more ctxs!");
@@ -778,7 +777,12 @@ mqtt_recv_cb(void *arg)
 			nni_id_set(&p->recv_unack, packet_id, msg);
 		}
 		break;
-
+	case NNG_MQTT_DISCONNECT:
+		s->disconnect_code = NORMAL_DISCONNECTION;
+		nni_msg_free(msg);
+		nni_mtx_unlock(&s->mtx);
+		nni_pipe_close(p->pipe);
+		return;
 	default:
 		// unexpected packet type, server misbehaviour
 		nni_mtx_unlock(&s->mtx);
@@ -861,7 +865,7 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 		nni_aio_finish_error(aio, NNG_EPROTO);
 		return;
 	}
-
+	// TODO encode msg before really send it?
 	if (p == NULL) {
 		// connection is lost or not established yet
 #if defined(NNG_SUPP_SQLITE)
