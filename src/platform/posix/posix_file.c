@@ -308,6 +308,13 @@ nni_plat_file_unlock(nni_plat_flock *lk)
 	(void) close(fd);
 }
 
+bool
+nni_plat_file_exists(const char *path)
+{
+	struct stat sbuf;
+	return (stat(path, &sbuf) == 0);
+}
+
 char *
 nni_plat_temp_dir(void)
 {
@@ -337,5 +344,15 @@ nni_plat_getcwd(char *buf, size_t size)
 	return getcwd(buf, size);
 }
 
+int
+nni_plat_file_size(const char *path, size_t *size)
+{
+	struct stat sbuf;
+	if (stat(path, &sbuf) != 0) {
+		return (nni_plat_errno(errno));
+	}
+	*size = (size_t) sbuf.st_size;
+	return (0);
+}
 
 #endif // NNG_PLATFORM_POSIX

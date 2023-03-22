@@ -16,6 +16,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <direct.h>
 
 // File support.
 
@@ -353,10 +354,38 @@ nni_plat_file_unlock(nni_plat_flock *lk)
 	lk->h = INVALID_HANDLE_VALUE;
 }
 
+bool
+nni_plat_file_exists(const char *path)
+{
+	DWORD attrs;
+	if ((attrs = GetFileAttributes(path)) == INVALID_FILE_ATTRIBUTES) {
+		return (false);
+	}
+	return (true);
+}
+
 char *
 nni_plat_getcwd(char *buf, size_t size)
 {
 	return _getcwd(buf, size);
+}
+
+int
+nni_plat_file_size(const char *path, size_t *size)
+{
+	int   rv = 0;
+
+	WIN32_FILE_ATTRIBUTE_DATA fad;
+
+	if (!GetFileAttributesEx(path, GetFileExInfoStandard, &fad)) {
+		return (nni_win_error(GetLastError()));
+	}
+
+	LARGE_INTEGER file_sz;
+	file_sz.HighPart = fad.nFileSizeHigh;
+	file_sz.LowPart  = fad.nFileSizeLow;
+	*size            = file_sz.QuadPart;
+	return (rv);
 }
 
 #endif // NNG_PLATFORM_WINDOWS

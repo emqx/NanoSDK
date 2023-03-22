@@ -428,6 +428,12 @@ nni_plat_ncpu(void)
 }
 
 int
+nni_plat_getpid(void)
+{
+	return (int) _getpid();
+}
+
+int
 nni_plat_init(int (*helper)(void))
 {
 	int            rv   = 0;

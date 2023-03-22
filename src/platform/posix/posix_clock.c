@@ -19,6 +19,23 @@
 
 #if defined(NNG_HAVE_CLOCK_GETTIME) && !defined(NNG_USE_GETTIMEOFDAY)
 
+// return standard timestamp in milliseconds
+nni_time
+nni_timestamp(void)
+{
+	struct timespec ts;
+	nni_time        msec;
+
+	if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+		// This should never ever occur.
+		nni_panic("clock_gettime failed: %s", strerror(errno));
+	}
+	msec = ts.tv_sec;
+	msec *= 1000;
+	msec += (ts.tv_nsec / 1000000);
+	return msec;
+}
+
 // Use POSIX realtime stuff
 nni_time
 nni_clock(void)
@@ -67,6 +84,12 @@ nni_msleep(nni_duration ms)
 #include <poll.h>
 #include <pthread.h>
 #include <sys/time.h>
+
+nni_time
+nni_timestamp(void)
+{
+	return nni_clock();
+}
 
 nni_time
 nni_clock(void)
