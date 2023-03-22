@@ -124,6 +124,25 @@ mqtts_tcptran_fini(void)
 }
 
 static void
+mqtts_tcptran_pipe_close(void *arg)
+{
+	mqtts_tcptran_pipe *p = arg;
+
+	nni_mtx_lock(&p->mtx);
+	p->closed = true;
+	nni_lmq_flush(&p->rslmq);
+	nni_mtx_unlock(&p->mtx);
+
+	nni_aio_close(p->rxaio);
+	nni_aio_close(p->qsaio);
+	nni_aio_close(p->txaio);
+	nni_aio_close(&p->tmaio);
+	nni_aio_close(p->negoaio);
+	nni_aio_close(p->rpaio);
+	nng_stream_close(p->conn);
+}
+
+static void
 mqtts_pipe_timer_cb(void *arg)
 {
 	mqtts_tcptran_pipe *p = arg;
@@ -152,25 +171,6 @@ mqtts_pipe_timer_cb(void *arg)
 	}
 	nni_mtx_unlock(&p->mtx);
 	nni_sleep_aio(p->keepalive, &p->tmaio);
-}
-
-static void
-mqtts_tcptran_pipe_close(void *arg)
-{
-	mqtts_tcptran_pipe *p = arg;
-
-	nni_mtx_lock(&p->mtx);
-	p->closed = true;
-	nni_lmq_flush(&p->rslmq);
-	nni_mtx_unlock(&p->mtx);
-
-	nni_aio_close(p->rxaio);
-	nni_aio_close(p->qsaio);
-	nni_aio_close(p->txaio);
-	nni_aio_close(&p->tmaio);
-	nni_aio_close(p->negoaio);
-	nni_aio_close(p->rpaio);
-	nng_stream_close(p->conn);
 }
 
 static void

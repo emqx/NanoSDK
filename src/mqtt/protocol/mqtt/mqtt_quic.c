@@ -242,11 +242,11 @@ nng_mqtt_quic_open_topic_stream(mqtt_sock_t *mqtt_sock, const char *topic, uint3
  * create a unidirectional stream and pub msg to it.
  * mapping sub topics (if >1) with the new stream.
 */
-static int
-mqtt_pub_stream(mqtt_pipe_t *p, nni_msg *msg, uint16_t packet_id, nni_aio *aio)
-{
-	return 0;
-}
+// static int
+// mqtt_pub_stream(mqtt_pipe_t *p, nni_msg *msg, uint16_t packet_id, nni_aio *aio)
+// {
+// 	return 0;
+// }
 /***
  * create a unidirectional stream and send SUB/UNSUB packet
  * receving msg only from a unique topic
@@ -1132,7 +1132,7 @@ mqtt_timer_cb(void *arg)
 {
 	mqtt_sock_t *s = arg;
 	mqtt_pipe_t *p = s->pipe;
-	nni_aio *  aio;
+	// nni_aio *  aio;
 
 	if (nng_aio_result(&s->time_aio) != 0) {
 		return;
@@ -1590,7 +1590,7 @@ mqtt_quic_ctx_send(void *arg, nni_aio *aio)
 	mqtt_sock_t   *s   = ctx->mqtt_sock;
 	mqtt_pipe_t   *p   = s->pipe;
 	nni_msg       *msg;
-	uint16_t       packet_id;
+	uint16_t       packet_id = 0;
 	uint8_t        qos;
 	int            rv;
 
@@ -1819,7 +1819,7 @@ static nni_proto mqtt_msquic_proto = {
 int
 nng_mqtt_quic_client_open(nng_socket *sock, const char *url)
 {
-	nng_mqtt_quic_client_open_conf(sock, url, &config_default);
+	return nng_mqtt_quic_client_open_conf(sock, url, &config_default);
 }
 /**
  * open mqtt quic transport with self-defined conf params
