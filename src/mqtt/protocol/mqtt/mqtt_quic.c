@@ -184,24 +184,24 @@ struct mqtt_pipe_s {
 	uint8_t         reason_code;   // MQTTV5 reason code
 };
 
-static inline int
-mqtt_pipe_recv_msgq_putq(mqtt_pipe_t *p, nni_msg *msg)
-{
-	nni_msg *tmsg;
-	// Dont resize lmq in sdk due to memory saving
-	// Just make space for new Message
-	if (nni_lmq_full(&p->recv_messages)) {
-		if (nni_lmq_get(&p->recv_messages, &tmsg) == 0) {
-			nni_println("Warning! msg lost due to busy socket");
-			nni_msg_free(tmsg);
-		}
-	}
-	if (0 != nni_lmq_put(&p->recv_messages, msg)) {
-		nni_println("Warning! msg enqueue failed");
-		return -1;
-	}
-	return 0;
-}
+// static inline int
+// mqtt_pipe_recv_msgq_putq(mqtt_pipe_t *p, nni_msg *msg)
+// {
+// 	nni_msg *tmsg;
+// 	// Dont resize lmq in sdk due to memory saving
+// 	// Just make space for new Message
+// 	if (nni_lmq_full(&p->recv_messages)) {
+// 		if (nni_lmq_get(&p->recv_messages, &tmsg) == 0) {
+// 			nni_println("Warning! msg lost due to busy socket");
+// 			nni_msg_free(tmsg);
+// 		}
+// 	}
+// 	if (0 != nni_lmq_put(&p->recv_messages, msg)) {
+// 		nni_println("Warning! msg enqueue failed");
+// 		return -1;
+// 	}
+// 	return 0;
+// }
 
 // Multi-stream API
 /**
@@ -772,7 +772,7 @@ mqtt_quic_data_strm_recv_cb(void *arg)
 		if ((aio = nni_list_first(&s->recv_queue)) == NULL) {
 			// No one waiting to receive yet, putting msg
 			// into lmq
-			if (0 != mqtt_pipe_recv_msgq_putq(p, cached_msg)) {
+			if (0 != mqtt_pipe_recv_msgq_putq(&p->recv_messages, cached_msg)) {
 				nni_msg_free(cached_msg);
 				cached_msg = NULL;
 			}
@@ -804,7 +804,7 @@ mqtt_quic_data_strm_recv_cb(void *arg)
 			nni_mtx_lock(&s->mtx);
 			// TODO aio should be placed in p->recv_queue to achieve parallel
 			if ((aio = nni_list_first(&s->recv_queue)) == NULL) {
-				if (0 != mqtt_pipe_recv_msgq_putq(p, msg)) {
+				if (0 != mqtt_pipe_recv_msgq_putq(&p->recv_messages, msg)) {
 					nni_msg_free(msg);
 					msg = NULL;
 				}
@@ -939,7 +939,7 @@ mqtt_quic_recv_cb(void *arg)
 		if ((aio = nni_list_first(&s->recv_queue)) == NULL) {
 			// No one waiting to receive yet, putting msg
 			// into lmq
-			if (0 != mqtt_pipe_recv_msgq_putq(p, msg)) {
+			if (0 != mqtt_pipe_recv_msgq_putq(&p->recv_messages, msg)) {
 				nni_msg_free(msg);
 				msg = NULL;
 			}
@@ -1015,7 +1015,7 @@ mqtt_quic_recv_cb(void *arg)
 		if ((aio = nni_list_first(&s->recv_queue)) == NULL) {
 			// No one waiting to receive yet, putting msg
 			// into lmq
-			if (0 != mqtt_pipe_recv_msgq_putq(p, cached_msg)) {
+			if (0 != mqtt_pipe_recv_msgq_putq(&p->recv_messages, cached_msg)) {
 				nni_msg_free(cached_msg);
 				cached_msg = NULL;
 			}
@@ -1047,7 +1047,7 @@ mqtt_quic_recv_cb(void *arg)
 			if ((aio = nni_list_first(&s->recv_queue)) == NULL) {
 				// No one waiting to receive yet, putting msg
 				// into lmq
-				if (0 != mqtt_pipe_recv_msgq_putq(p, msg)) {
+				if (0 != mqtt_pipe_recv_msgq_putq(&p->recv_messages, msg)) {
 					nni_msg_free(msg);
 					msg = NULL;
 				}

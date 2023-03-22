@@ -484,24 +484,6 @@ mqtt_pipe_close(void *arg)
 	nni_atomic_set_bool(&p->closed, true);
 }
 
-static inline void
-mqtt_pipe_recv_msgq_putq(mqtt_pipe_t *p, nni_msg *msg)
-{
-	if (0 != nni_lmq_put(&p->recv_messages, msg)) {
-		// resize to ensure we do not lost messages or just lose it?
-		// add option to drop messages
-		// if (0 !=
-		//     nni_lmq_resize(&p->recv_messages,
-		//         nni_lmq_len(&p->recv_messages) * 2)) {
-		// 	// drop the message when no memory available
-		// 	nni_msg_free(msg);
-		// 	return;
-		// }
-		// nni_lmq_put(&p->recv_messages, msg);
-		nni_msg_free(msg);
-	}
-}
-
 // Timer callback, we use it for retransmition.
 static void
 mqtt_timer_cb(void *arg)
@@ -705,7 +687,7 @@ mqtt_recv_cb(void *arg)
 	case NNG_MQTT_UNSUBACK:
 		// we have received a UNSUBACK, successful unsubscription
 		packet_id  = nni_mqtt_msg_get_packet_id(msg);
-		p->rid     = packet_id;
+		p->rid     ++;
 		cached_msg = nni_id_get(&p->sent_unack, packet_id);
 		if (cached_msg != NULL) {
 			nni_id_remove(&p->sent_unack, packet_id);
@@ -744,7 +726,7 @@ mqtt_recv_cb(void *arg)
 		if ((ctx = nni_list_first(&s->recv_queue)) == NULL) {
 			// No one waiting to receive yet, putting msg
 			// into lmq
-			mqtt_pipe_recv_msgq_putq(p, cached_msg);
+			mqtt_pipe_recv_msgq_putq(&p->recv_messages, cached_msg);
 			nni_mtx_unlock(&s->mtx);
 			// nni_println("ERROR: no ctx found!! create more
 			// ctxs!");
@@ -767,7 +749,7 @@ mqtt_recv_cb(void *arg)
 			if ((ctx = nni_list_first(&s->recv_queue)) == NULL) {
 				// No one waiting to receive yet, putting msg
 				// into lmq
-				mqtt_pipe_recv_msgq_putq(p, msg);
+				mqtt_pipe_recv_msgq_putq(&p->recv_messages, msg);
 				nni_mtx_unlock(&s->mtx);
 				// nni_println("ERROR: no ctx found!! create
 				// more ctxs!");
@@ -798,7 +780,12 @@ mqtt_recv_cb(void *arg)
 			nni_id_set(&p->recv_unack, packet_id, msg);
 		}
 		break;
-
+	case NNG_MQTT_DISCONNECT:
+		s->disconnect_code = *(uint8_t *) nni_msg_body(msg);
+		nni_msg_free(msg);
+		nni_mtx_unlock(&s->mtx);
+		nni_pipe_close(p->pipe);
+		return;
 	default:
 		// unexpected packet type, server misbehaviour
 		nni_mtx_unlock(&s->mtx);

@@ -147,11 +147,11 @@ mqtt_pipe_timer_cb(void *arg)
 	uint8_t            buf[2];
 
 	if (nng_aio_result(&p->tmaio) != 0) {
-		// log_error("Timer error!");
 		return;
 	}
 
 	if (p->pingcnt > 1) {
+		p->ep->reason_code = KEEP_ALIVE_TIMEOUT;
 		mqtt_tcptran_pipe_close(p);
 		return;
 	}
@@ -346,13 +346,13 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 		nni_mtx_unlock(&ep->mtx);
 		return;
 	}
-
+	// only accept CONNACK msg
+	if ((p->rxlen[0] & CMD_CONNACK) != CMD_CONNACK) {
+		rv = PROTOCOL_ERROR;
+		goto error;
+	}
 	// finish recevied fixed header
 	if (p->rxmsg == NULL) {
-		if ((p->rxlen[0] & 0x20) != 0x20) {
-			rv = PROTOCOL_ERROR;
-			goto error;
-		}
 
 		pos = 0;
 		if ((rv = mqtt_get_remaining_length(p->rxlen, p->gotrxhead,
@@ -395,7 +395,7 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 				goto mqtt_error;
 			property_free(ep->property);
 			property *prop = (void *)nni_mqtt_msg_get_connack_property(p->rxmsg);
-			property_dup(&ep->property, prop);
+			property_dup((property **)&ep->property, prop);
 			property_data *data;
 			data = property_get_value(ep->property, RECEIVE_MAXIMUM);
 			if (data) {
@@ -731,6 +731,11 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 			p->sndmax++;
 		}
 		break;
+	case CMD_PINGRESP:
+		//free here?
+		break;
+	case CMD_DISCONNECT:
+		break;
 	default:
 		break;
 	}
@@ -859,7 +864,7 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 	// This runs to send the message.
 	msg = nni_aio_get_msg(aio);
 
-	if (p->proto == MQTT_PROTOCOL_VERSION_v5) {
+	if (msg != NULL && p->proto == MQTT_PROTOCOL_VERSION_v5) {
 		uint8_t *header = nni_msg_header(msg);
 		if ((*header & 0XF0) == CMD_PUBLISH) {
 			// check max qos
