@@ -43,8 +43,8 @@ if ("${isSystemDir}" STREQUAL "-1")
     set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
 endif ("${isSystemDir}" STREQUAL "-1")
 
-set(NNG_DESCRIPTION "High-Performance Scalability Protocols NextGen")
-set(ISSUE_REPORT_MSG "Please consider opening an issue at https://github.com/nanomsg/nng")
+set(NNG_DESCRIPTION "High-Performance Scalability Protocols NextGen - NanoMQ version")
+set(ISSUE_REPORT_MSG "Please consider opening an issue at https://github.com/emqx/NanoSDK/issues")
 
 # Determine library versions.
 file(READ "include/nng/nng.h" nng_ver_h)
@@ -256,22 +256,23 @@ endif ()
 if(NNG_ENABLE_QUIC)
   set(NNG_PROTO_MQTT_QUIC_CLIENT ON)
   add_definitions(-DSUPP_QUIC)
-endif()
+endif ()
 
 add_subdirectory(src)
 
 if (NNG_TESTS)
-	#    add_subdirectory(tests)
+    add_subdirectory(tests)
 endif ()
 
 #  Build the tools
-#add_subdirectory(docs/man)
+
+add_subdirectory(docs/man)
 
 set(CPACK_PACKAGE_NAME ${PROJECT_NAME})
 set(CPACK_PACKAGE_VERSION ${NNG_PACKAGE_VERSION})
-set(CPACK_PACKAGE_CONTACT "nanomsg@freelists.org")
-set(CPACK_PACKAGE_VENDOR "nanomsg.org")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "nanomsg next generation library")
+set(CPACK_PACKAGE_CONTACT "jaylin@emqx.io")
+set(CPACK_PACKAGE_VENDOR "nanomq.io")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "nanosdk")
 set(CPACK_SOURCE_GENERATOR "TBZ2;TGZ;ZIP")
 set(CPACK_SOURCE_IGNORE_FILES "/build/;/.git/;~$;${CPACK_SOURCE_IGNORE_FILES}")
 set(CPACK_SOURCE_PACKAGE_FILE_NAME
