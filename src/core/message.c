@@ -411,9 +411,6 @@ int
 nni_msg_dup(nni_msg **dup, const nni_msg *src)
 {
 	nni_msg *            m;
-	struct nni_msg_opt * os;
-	struct nni_msg_opt * od;
-	struct nni_msg_opt **opp;
 	int                  rv;
 
 	if ((m = NNI_ALLOC_STRUCT(m)) == NULL) {
@@ -690,4 +687,16 @@ nni_msg_get_pub_qos(nni_msg *m)
 	}
 	qos = (m->m_header_buf[0] & 0x06) >> 1;
 	return qos;
+}
+
+uint16_t
+nni_msg_get_pub_pid(nni_msg *m)
+{
+	uint16_t pid;
+	uint8_t *pos, len;
+
+	pos = nni_msg_body(m);
+	NNI_GET16(pos, len);
+	NNI_GET16(pos + len + 2, pid);
+	return pid;
 }
