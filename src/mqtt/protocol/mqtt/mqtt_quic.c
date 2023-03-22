@@ -91,6 +91,8 @@ static conf_quic config_default = {
 		.verify_peer = true,
 		.set_fail = true,
 	},
+	.multi_stream = false,
+	.qos_first  = false,
 	.qkeepalive = 30,
 	.qconnect_timeout = 60,
 	.qdiscon_timeout = 30,
@@ -1827,11 +1829,17 @@ nng_mqtt_quic_client_open_conf(nng_socket *sock, const char *url, conf_quic *con
 {
 	nni_sock *nsock = NULL;
 	int       rv = 0;
+	if (conf == NULL) {
+		return -1;
+	}
 	// Quic settings
 	if ((rv = nni_proto_open(sock, &mqtt_msquic_proto)) == 0) {
 		nni_sock_find(&nsock, sock->id);
 		if (nsock) {
+			mqtt_sock_t *mqtt_sock = nni_sock_proto_data(nsock);
 			quic_open();
+			mqtt_sock->multi_stream = conf->multi_stream;
+			mqtt_sock->qos_first    = conf->qos_first;
 			quic_proto_open(&mqtt_msquic_proto);
 			quic_proto_set_sdk_config((void *)conf);
 			quic_connect_ipv4(url, nsock, NULL);
