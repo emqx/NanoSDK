@@ -37,6 +37,7 @@ struct conf_tls {
 struct conf_quic {
 	conf_tls     tls;
 	bool         qos_first; // send QoS msg in high priority
+	bool         multi_stream;     
 	uint64_t     qkeepalive;		//keepalive timeout interval of QUIC transport
 	uint64_t     qconnect_timeout;	// HandshakeIdleTimeoutMs of QUIC
 	uint32_t     qdiscon_timeout;	// DisconnectTimeoutMs
