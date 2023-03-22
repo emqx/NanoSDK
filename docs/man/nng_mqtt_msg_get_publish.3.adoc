@@ -24,6 +24,15 @@ bool 		 nng_mqtt_msg_get_publish_retain(nng_msg *msgp);
 bool 		 nng_mqtt_msg_get_publish_dup(nng_msg *msgp);
 const char * nng_mqtt_msg_get_publish_topic(nng_msg *msgp, uint32_t *topic_len);
 uint8_t * 	 nng_mqtt_msg_get_publish_payload(nng_msg *msgp, uint32_t *len);
+property    *nng_mqtt_msg_get_publish_property(nng_msg *msgp);
+uint16_t     nng_mqtt_msg_get_puback_packet_id(nng_msg *msgp);
+property     *nng_mqtt_msg_get_puback_property(nng_msg *msgp);
+uint16_t     nng_mqtt_msg_get_pubrec_packet_id(nng_msg *msgp);
+property     *nng_mqtt_msg_get_pubrec_property(nng_msg *msgp);
+uint16_t     nng_mqtt_msg_get_pubrel_packet_id(nng_msg *msgp);
+property     *nng_mqtt_msg_get_pubrel_property(nng_msg *msgp);
+uint16_t     nng_mqtt_msg_get_pubcomp_packet_id(nng_msg *msgp);
+property     *nng_mqtt_msg_get_pubcomp_property(nng_msg *msgp);
 
 ----
 
@@ -36,7 +45,7 @@ The `nng_mqtt_msg_get_publish_xxx()` function is used to get mqtt publish messag
 	dup
 	topic
 	payload
-	;
+	property
 
 
 == RETURN VALUES

@@ -25,6 +25,12 @@ void nng_mqtt_msg_set_publish_dup(nng_msg *msgp, bool dup);
 void nng_mqtt_msg_set_publish_topic(nng_msg *msgp, const char *topic); 
 void nng_mqtt_msg_set_publish_payload(nng_msg *msgp, uint8_t *payload, uint32_t len);
 
+void nng_mqtt_msg_set_publish_property(nng_msg *msgp, property *p);
+void nng_mqtt_msg_set_puback_property(nng_msg *msgp, property *p);
+void nng_mqtt_msg_set_pubrec_property(nng_msg *msgp, property *p);
+void nng_mqtt_msg_set_pubrel_property(nng_msg *msgp, property *p);
+void nng_mqtt_msg_set_pubcomp_property(nng_msg *msgp, property *p);
+void nng_mqtt_msg_set_publish_property(nng_msg *msgp, property *p);
 ----
 
 == DESCRIPTION
@@ -36,7 +42,7 @@ The `nng_mqtt_msg_set_publish_xxx()` function is used to set mqtt publish messag
 	dup
 	topic
 	payload
-	;
+	property
 
 
 == RETURN VALUES

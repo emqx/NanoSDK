@@ -257,7 +257,6 @@ typedef enum {
 } nng_pipe_ev;
 
 typedef void (*nng_pipe_cb)(nng_pipe, nng_pipe_ev, void *);
-// typedef void (*nng_pipe_cb)(nng_pipe, nng_pipe_ev, void *, int, void *);
 
 // nng_pipe_notify registers a callback to be executed when the
 // given event is triggered.  To watch for different events, register
@@ -475,18 +474,20 @@ NNG_DECL void *nng_alloc(size_t);
 // As the application is required to keep track of the size of memory, this
 // is probably less convenient for general uses than the C library malloc and
 // calloc.
+NNG_DECL void nng_free(void *, size_t);
+
+// NanoSDK: Add Zalloc
 NNG_DECL void *nng_zalloc(size_t sz);
-NNG_DECL void  nng_free(void *, size_t);
 
 // nng_strdup duplicates the source string, using nng_alloc. The result
 // should be freed with nng_strfree (or nng_free(strlen(s)+1)).
 NNG_DECL char *nng_strdup(const char *);
-
+// NanoSDK: length safe version of nng_strdup
 NNG_DECL char *nng_strndup(const char *, size_t);
-
 // nng_strfree is equivalent to nng_free(strlen(s)+1).
 NNG_DECL void nng_strfree(char *);
 
+// Add for NANOSDK
 NNG_DECL char *nng_strcasestr(const char *, const char *);
 NNG_DECL int   nng_strcasecmp(const char *, const char *);
 NNG_DECL int   nng_strncasecmp(const char *, const char *, size_t);
@@ -577,6 +578,9 @@ NNG_DECL int nng_aio_set_output(nng_aio *, unsigned, void *);
 
 // nng_aio_get_output retrieves the output result at the given index.
 NNG_DECL void *nng_aio_get_output(nng_aio *, unsigned);
+
+NNG_DECL void  nng_aio_set_prov_data(nng_aio *, void *);
+NNG_DECL void *nng_aio_get_prov_data(nng_aio *);
 
 // nng_aio_set_timeout sets a timeout on the AIO.  This should be called for
 // operations that should time out after a period.  The timeout should be
@@ -1233,6 +1237,7 @@ NNG_DECL int nng_stream_listener_set_ptr(
     nng_stream_listener *, const char *, void *);
 NNG_DECL int nng_stream_listener_set_addr(
     nng_stream_listener *, const char *, const nng_sockaddr *);
+
 
 #ifndef NNG_ELIDE_DEPRECATED
 // These are legacy APIs that have been deprecated.
