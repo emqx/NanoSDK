@@ -20,7 +20,7 @@ add_subdirectory(compat)
 add_subdirectory(mqtt)
 add_subdirectory(sp)
 add_subdirectory(supplemental)
-#add_subdirectory(tools)
+add_subdirectory(tools)
 add_subdirectory(testing)
 
 # When building shared libraries we prefer to suppress default symbol
