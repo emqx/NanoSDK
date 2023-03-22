@@ -1,4 +1,5 @@
 #include "mqtt_msg.h"
+#include "core/nng_impl.h"
 #include <string.h>
 #include "mqtt_qos_db.h"
 
@@ -42,6 +43,12 @@ int
 nng_mqttv5_msg_decode(nng_msg *msg)
 {
 	return nni_mqttv5_msg_decode(msg);
+}
+
+int
+nng_mqtt_msg_validate(nng_msg *msg, uint8_t proto_ver)
+{
+	return nni_mqtt_msg_validate(msg, proto_ver);
 }
 
 void
@@ -347,6 +354,54 @@ void
 nng_mqtt_msg_set_puback_packet_id(nng_msg *msg, uint16_t packet_id)
 {
 	nni_mqtt_msg_set_puback_packet_id(msg, packet_id);
+}
+
+property *
+nng_mqtt_msg_get_puback_property(nng_msg *msg)
+{
+	return nni_mqtt_msg_get_puback_property(msg);
+}
+
+void
+nng_mqtt_msg_set_puback_property(nng_msg *msg, property *prop)
+{
+	nni_mqtt_msg_set_puback_property(msg, prop);
+}
+
+property *
+nng_mqtt_msg_get_pubrec_property(nng_msg *msg)
+{
+	return nni_mqtt_msg_get_pubrec_property(msg);
+}
+
+void
+nng_mqtt_msg_set_pubrec_property(nng_msg *msg, property *prop)
+{
+	nni_mqtt_msg_set_pubrec_property(msg, prop);
+}
+
+property *
+nng_mqtt_msg_get_pubrel_property(nng_msg *msg)
+{
+	return nni_mqtt_msg_get_pubrel_property(msg);
+}
+
+void
+nng_mqtt_msg_set_pubrel_property(nng_msg *msg, property *prop)
+{
+	nni_mqtt_msg_set_pubrel_property(msg, prop);
+}
+
+property *
+nng_mqtt_msg_get_pubcomp_property(nng_msg *msg)
+{
+	return nni_mqtt_msg_get_pubcomp_property(msg);
+}
+
+void
+nng_mqtt_msg_set_pubcomp_property(nng_msg *msg, property *prop)
+{
+	nni_mqtt_msg_set_pubcomp_property(msg, prop);
 }
 
 uint16_t
@@ -682,25 +737,59 @@ mqtt_property_append(property *prop_list, property *last)
 	return property_append(prop_list, last);
 }
 
+
+static void
+mqtt_sub_aio_cancel(nni_aio *aio, void *arg, int rv)
+{
+	NNI_ARG_UNUSED(arg);
+	// nng_mqtt_client *client = arg;
+
+	if (!nni_aio_list_active(aio)) {
+		return;
+	}
+	// If receive in progress, then cancel the pending transfer.
+	// The callback on the rxaio will cause the user aio to
+	// be canceled too.
+	// if (nni_list_first(&p->recvq) == aio) {
+	// 	nni_aio_abort(p->rxaio, rv);
+	// 	nni_mtx_unlock(&p->mtx);
+	// 	return;
+	// }
+	nni_aio_list_remove(aio);
+	nni_aio_finish_error(aio, rv);
+}
+
+/**
+ * Alloc an nng_mqtt_client object
+ * Return NULL if failed
+ * */
 nng_mqtt_client *
-nng_mqtt_client_alloc(nng_socket *sock, nng_mqtt_cb_opt *opt, bool is_async)
+nng_mqtt_client_alloc(nng_socket sock, nng_mqtt_sub_cb cb, bool is_async)
 {
 	nng_mqtt_client *client = NNI_ALLOC_STRUCT(client);
 	client->sock            = sock;
 	if (is_async) {
-		nng_aio_alloc(&client->sub_aio, opt->sub_ack_cb, client);
-		nng_aio_alloc(&client->unsub_aio, opt->unsub_ack_cb, client);
+		nng_aio_alloc(&client->send_aio, cb, client);
+		if ((client->msgq = nng_alloc(sizeof(nni_lmq))) == NULL) {
+			return NULL;
+		}
+		nni_lmq_init(client->msgq, NNG_MAX_SEND_LMQ);
 	}
 	return client;
 }
 
-void
-nng_mqtt_client_free(nng_mqtt_client *client, bool is_async)
+/**
+ * @brief an AIO cannot kill itself in its own callback!!
+ * 
+ * @param client
+ * @param is_async
+ */
+void nng_mqtt_client_free(nng_mqtt_client *client, bool is_async)
 {
+	nni_aio_close(client->send_aio);
 	if (client) {
 		if (is_async) {
-			nng_aio_free(client->sub_aio);
-			nng_aio_free(client->unsub_aio);
+			nng_aio_free(client->send_aio);
 		}
 		NNI_FREE_STRUCT(client);
 	}
@@ -708,7 +797,7 @@ nng_mqtt_client_free(nng_mqtt_client *client, bool is_async)
 }
 
 int
-nng_mqtt_unsubscribe(nng_socket *sock, nng_mqtt_topic *sbs, size_t count, property *pl)
+nng_mqtt_unsubscribe(nng_socket sock, nng_mqtt_topic *sbs, size_t count, property *pl)
 {
 	int rv = 0;
 	// create a SUBSCRIBE message
@@ -721,7 +810,7 @@ nng_mqtt_unsubscribe(nng_socket *sock, nng_mqtt_topic *sbs, size_t count, proper
 		nng_mqtt_msg_set_unsubscribe_property(unsubmsg, pl);
 	}
 
-	if ((rv = nng_sendmsg(*sock, unsubmsg, NNG_FLAG_ALLOC)) != 0) {
+	if ((rv = nng_sendmsg(sock, unsubmsg, NNG_FLAG_ALLOC)) != 0) {
 		nng_msg_free(unsubmsg);
 	}
 
@@ -731,29 +820,29 @@ nng_mqtt_unsubscribe(nng_socket *sock, nng_mqtt_topic *sbs, size_t count, proper
 int 
 nng_mqtt_unsubscribe_async(nng_mqtt_client *client, nng_mqtt_topic *sbs, size_t count, property *pl)
 {
-	int rv = 0;
-	nng_aio *aio = client->unsub_aio;
-	// create a SUBSCRIBE message
 	nng_msg *unsubmsg;
 	nng_mqtt_msg_alloc(&unsubmsg, 0);
 	nng_mqtt_msg_set_packet_type(unsubmsg, NNG_MQTT_UNSUBSCRIBE);
 	nng_mqtt_msg_set_unsubscribe_topics(unsubmsg, sbs, count);
 
 	if (pl) {
-		nng_mqtt_msg_set_unsubscribe_property(unsubmsg, pl);
+		nng_mqtt_msg_set_subscribe_property(unsubmsg, pl);
 	}
+	if (nng_aio_busy(client->send_aio)) {
+		if (nni_lmq_put(client->msgq, unsubmsg) != 0) {
+			nni_plat_println("unsubscribe failed!");
+		}
+		return 1;
+	}
+	nng_aio_set_msg(client->send_aio, unsubmsg);
+	nng_send_aio(client->sock, client->send_aio);
 
-	nng_aio_set_msg(aio, unsubmsg);
-	nng_send_aio(*(client->sock), aio);
-
-	return rv;
+	return 0;
 
 }
 
-
-
 int
-nng_mqtt_subscribe(nng_socket *sock, nng_mqtt_topic_qos *sbs, size_t count, property *pl)
+nng_mqtt_subscribe(nng_socket sock, nng_mqtt_topic_qos *sbs, size_t count, property *pl)
 {
 	int rv = 0;
 	// create a SUBSCRIBE message
@@ -766,7 +855,7 @@ nng_mqtt_subscribe(nng_socket *sock, nng_mqtt_topic_qos *sbs, size_t count, prop
 		nng_mqtt_msg_set_subscribe_property(submsg, pl);
 	}
 
-	if ((rv = nng_sendmsg(*sock, submsg, NNG_FLAG_ALLOC)) != 0) {
+	if ((rv = nng_sendmsg(sock, submsg, NNG_FLAG_ALLOC)) != 0) {
 		nng_msg_free(submsg);
 	}
 
@@ -776,9 +865,6 @@ nng_mqtt_subscribe(nng_socket *sock, nng_mqtt_topic_qos *sbs, size_t count, prop
 int 
 nng_mqtt_subscribe_async(nng_mqtt_client *client, nng_mqtt_topic_qos *sbs, size_t count, property *pl)
 {
-	int rv = 0;
-
-	nng_aio *aio = client->sub_aio;
 	// create a SUBSCRIBE message
 	nng_msg *submsg;
 	nng_mqtt_msg_alloc(&submsg, 0);
@@ -788,11 +874,16 @@ nng_mqtt_subscribe_async(nng_mqtt_client *client, nng_mqtt_topic_qos *sbs, size_
 	if (pl) {
 		nng_mqtt_msg_set_subscribe_property(submsg, pl);
 	}
+	if (nng_aio_busy(client->send_aio)) {
+		if (nni_lmq_put(client->msgq, submsg) != 0) {
+			nni_plat_println("subscribe failed!");
+		}
+		return 1;
+	}
+	nng_aio_set_msg(client->send_aio, submsg);
+	nng_send_aio(client->sock, client->send_aio);
 
-	nng_aio_set_msg(aio, submsg);
-	nng_send_aio(*(client->sock), aio);
-
-	return rv;
+	return 0;
 }
 
 int
@@ -824,16 +915,15 @@ nng_mqtt_disconnect(nng_socket *sock, uint8_t reason_code, property *pl)
 #if defined(NNG_SUPP_SQLITE)
 
 void
-nng_mqtt_sqlite_db_init(
-    nng_mqtt_sqlite_option *sqlite, const char *db_name, uint8_t proto_version)
+nng_mqtt_sqlite_db_init(nng_mqtt_sqlite_option *opt, const char *db_name, uint8_t proto)
 {
-	nni_mqtt_sqlite_db_init(sqlite, db_name, proto_version);
+	nni_mqtt_sqlite_db_init(opt, db_name, proto);
 }
 
 void
-nng_mqtt_sqlite_db_fini(nng_mqtt_sqlite_option *sqlite)
+nng_mqtt_sqlite_db_fini(nng_mqtt_sqlite_option *opt)
 {
-	nni_mqtt_sqlite_db_fini(sqlite);
+	nni_mqtt_sqlite_db_fini(opt);
 }
 
 size_t
@@ -862,11 +952,11 @@ nng_mqtt_alloc_sqlite_opt(nng_mqtt_sqlite_option **sqlite)
 }
 
 int
-nng_mqtt_free_sqlite_opt(nng_mqtt_sqlite_option *sqlite)
+nng_mqtt_free_sqlite_opt(nng_mqtt_sqlite_option *opt)
 {
-	if (sqlite) {
-		nni_mqtt_sqlite_db_fini(sqlite);
-		nni_free(sqlite, sizeof(nng_mqtt_sqlite_option));
+	if (opt) {
+		nni_mqtt_sqlite_db_fini(opt);
+		nni_free(opt, sizeof(nng_mqtt_sqlite_option));
 	}
 	return 0;
 }
@@ -895,5 +985,4 @@ nng_mqtt_set_sqlite_flush_threshold(
 {
 	sqlite->flush_mem_threshold = msg_count;
 }
-
 #endif
