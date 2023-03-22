@@ -1,5 +1,5 @@
 //
-// Copyright 2022 NanoMQ Team, Inc. <jaylin@emqx.io>
+// Copyright 2023 NanoMQ Team, Inc. <jaylin@emqx.io>
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -143,7 +143,7 @@ extern "C" {
 // they are the length of nni_lmq, please be ware it affects the memory usage
 // significantly while having heavy throughput
 #define NNG_MAX_RECV_LMQ 256
-#define NNG_MAX_SEND_LMQ 32
+#define NNG_MAX_SEND_LMQ 256
 #define NNG_TRAN_MAX_LMQ_SIZE 128
 
 // NNG_TLS_xxx options can be set on the client as well.
@@ -307,7 +307,6 @@ struct mqtt_kv_t {
 	mqtt_buf key;
 	mqtt_buf value;
 };
-
 typedef struct mqtt_kv_t mqtt_kv;
 
 typedef struct mqtt_topic_qos_t {
@@ -317,6 +316,7 @@ typedef struct mqtt_topic_qos_t {
 
 typedef struct mqtt_topic_qos_t nng_mqtt_topic_qos;
 
+extern uint16_t nni_msg_get_pub_pid(nng_msg *m);
 struct mqtt_string {
 	char *   body;
 	uint32_t len;
@@ -384,6 +384,9 @@ NNG_DECL int  nng_mqtt_msg_proto_data_alloc(nng_msg *);
 NNG_DECL void nng_mqtt_msg_proto_data_free(nng_msg *);
 NNG_DECL int  nng_mqtt_msg_encode(nng_msg *);
 NNG_DECL int  nng_mqtt_msg_decode(nng_msg *);
+NNG_DECL int  nng_mqttv5_msg_encode(nng_msg *);
+NNG_DECL int  nng_mqttv5_msg_decode(nng_msg *);
+NNG_DECL int  nng_mqtt_msg_validate(nng_msg *, uint8_t);
 NNG_DECL void nng_mqtt_msg_set_packet_type(nng_msg *, nng_mqtt_packet_type);
 NNG_DECL nng_mqtt_packet_type nng_mqtt_msg_get_packet_type(nng_msg *);
 NNG_DECL void nng_mqtt_msg_set_connect_proto_version(nng_msg *, uint8_t);
@@ -430,6 +433,22 @@ NNG_DECL uint8_t    *nng_mqtt_msg_get_publish_payload(nng_msg *, uint32_t *);
 NNG_DECL property   *nng_mqtt_msg_get_publish_property(nng_msg *);
 NNG_DECL void        nng_mqtt_msg_set_publish_property(nng_msg *, property *);
 
+NNG_DECL uint16_t nng_mqtt_msg_get_puback_packet_id(nng_msg *);
+NNG_DECL property *nng_mqtt_msg_get_puback_property(nng_msg *);
+NNG_DECL void      nng_mqtt_msg_set_puback_property(nng_msg *, property *);
+
+NNG_DECL uint16_t nng_mqtt_msg_get_pubrec_packet_id(nng_msg *);
+NNG_DECL property *nng_mqtt_msg_get_pubrec_property(nng_msg *);
+NNG_DECL void      nng_mqtt_msg_set_pubrec_property(nng_msg *, property *);
+
+NNG_DECL uint16_t nng_mqtt_msg_get_pubrel_packet_id(nng_msg *);
+NNG_DECL property *nng_mqtt_msg_get_pubrel_property(nng_msg *);
+NNG_DECL void      nng_mqtt_msg_set_pubrel_property(nng_msg *, property *);
+
+NNG_DECL uint16_t nng_mqtt_msg_get_pubcomp_packet_id(nng_msg *);
+NNG_DECL property *nng_mqtt_msg_get_pubcomp_property(nng_msg *);
+NNG_DECL void      nng_mqtt_msg_set_pubcomp_property(nng_msg *, property *);
+
 NNG_DECL nng_mqtt_topic_qos *nng_mqtt_msg_get_subscribe_topics(
     nng_msg *, uint32_t *);
 NNG_DECL void nng_mqtt_msg_set_subscribe_topics(
@@ -464,6 +483,7 @@ NNG_DECL int  nng_mqtt_set_connect_cb(nng_socket, nng_pipe_cb, void *);
 NNG_DECL int  nng_mqtt_set_disconnect_cb(nng_socket, nng_pipe_cb, void *);
 NNG_DECL void nng_mqtt_msg_dump(nng_msg *, uint8_t *, uint32_t, bool);
 
+NNG_DECL void nng_msg_proto_set_property(nng_msg *msg, void *p);
 NNG_DECL void nng_mqtt_msg_set_disconnect_reason_code(nng_msg *msg, uint8_t reason_code);
 
 NNG_DECL uint32_t get_mqtt_properties_len(property *prop);
@@ -471,6 +491,7 @@ NNG_DECL int      mqtt_property_free(property *prop);
 NNG_DECL void      mqtt_property_foreach(property *prop, void (*cb)(property *));
 NNG_DECL int       mqtt_property_dup(property **dup, const property *src);
 NNG_DECL property *mqtt_property_pub_by_will(property *will_prop);
+NNG_DECL int mqtt_property_value_copy(property *dst, const property *src);
 
 NNG_DECL property *mqtt_property_alloc(void);
 NNG_DECL property *mqtt_property_set_value_u8(uint8_t prop_id, uint8_t value);
@@ -509,36 +530,28 @@ NNG_DECL int nng_mqttv5_client_open(nng_socket *);
 // TODO: shared subscriptions.  Subscription options (retain, QoS)
 
 typedef struct {
-	nng_socket *sock;
-	nng_aio    *sub_aio;
-	nng_aio    *unsub_aio;
+	nng_socket sock;
+	nng_aio   *send_aio;
+	nni_lmq   *msgq;
 } nng_mqtt_client;
 
 
-typedef void(nng_mqtt_cb)(void *);
+typedef void(nng_mqtt_sub_cb)(void *);
 
-typedef struct {
-	nng_mqtt_cb *sub_ack_cb;
-	nng_mqtt_cb *unsub_ack_cb;
-} nng_mqtt_cb_opt;
-
-NNG_DECL nng_mqtt_client *nng_mqtt_client_alloc(
-    nng_socket *, nng_mqtt_cb_opt *, bool);
-NNG_DECL void nng_mqtt_client_free(nng_mqtt_client *, bool);
-NNG_DECL int  nng_mqtt_subscribe(
-     nng_socket *, nng_mqtt_topic_qos *, size_t, property *);
-NNG_DECL int nng_mqtt_subscribe_async(
-    nng_mqtt_client *, nng_mqtt_topic_qos *, size_t, property *);
-NNG_DECL int nng_mqtt_unsubscribe(
-    nng_socket *, nng_mqtt_topic *, size_t, property *);
+NNG_DECL nng_mqtt_client *nng_mqtt_client_alloc(nng_socket, nng_mqtt_sub_cb, bool);
+NNG_DECL void nng_mqtt_client_free(nng_mqtt_client*, bool);
+NNG_DECL int nng_mqtt_subscribe(nng_socket, nng_mqtt_topic_qos *, size_t, property *);
+NNG_DECL int nng_mqtt_subscribe_async(nng_mqtt_client *, nng_mqtt_topic_qos *, size_t, property *);
+NNG_DECL int nng_mqtt_unsubscribe(nng_socket, nng_mqtt_topic *, size_t, property *);
 NNG_DECL int nng_mqtt_unsubscribe_async(
     nng_mqtt_client *, nng_mqtt_topic *sbs, size_t count, property *pl);
 NNG_DECL int nng_mqtt_disconnect(nng_socket *, uint8_t, property *);
+// as with other ctx based methods, we use the aio form exclusively
+NNG_DECL int nng_mqtt_ctx_subscribe(nng_ctx *, const char *, nng_aio *, ...);
 
 typedef struct nng_mqtt_sqlite_option nng_mqtt_sqlite_option;
 
 #if defined(NNG_SUPP_SQLITE)
-
 NNG_DECL int  nng_mqtt_alloc_sqlite_opt(nng_mqtt_sqlite_option **);
 NNG_DECL int  nng_mqtt_free_sqlite_opt(nng_mqtt_sqlite_option *);
 NNG_DECL void nng_mqtt_set_sqlite_enable(nng_mqtt_sqlite_option *, bool);
@@ -549,8 +562,8 @@ NNG_DECL void nng_mqtt_set_sqlite_flush_threshold(
     nng_mqtt_sqlite_option *, size_t);
 NNG_DECL void nng_mqtt_sqlite_db_init(
     nng_mqtt_sqlite_option *, const char *, uint8_t);
+NNG_DECL void   nng_mqtt_sqlite_db_fini(nng_mqtt_sqlite_option *);
 NNG_DECL size_t nng_mqtt_sqlite_db_get_cached_size(nng_mqtt_sqlite_option *);
-
 #endif
 
 #ifdef __cplusplus
