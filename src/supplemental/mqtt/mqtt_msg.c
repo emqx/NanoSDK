@@ -25,6 +25,7 @@ nni_mqtt_msg_proto_data_alloc(nni_msg *msg)
 	if ((proto_data = NNI_ALLOC_STRUCT(proto_data)) == NULL) {
 		return NNG_ENOMEM;
 	}
+	nni_proto_data_init(proto_data);
 	proto_data->initialized = false;
 	nni_msg_set_proto_data(msg, &proto_msg_ops, proto_data);
 
