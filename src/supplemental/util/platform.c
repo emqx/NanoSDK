@@ -75,12 +75,6 @@ nng_thread_destroy(nng_thread *thr)
 	NNI_FREE_STRUCT(t);
 }
 
-int
-nng_getpid()
-{
-	return nni_plat_getpid();
-}
-
 struct nng_mtx {
 	nni_mtx m;
 };

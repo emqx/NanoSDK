@@ -454,10 +454,4 @@ nni_plat_ncpu(void)
 #endif
 }
 
-int
-nni_plat_getpid(void)
-{
-	return (int) getpid();
-}
-
 #endif // NNG_PLATFORM_POSIX
