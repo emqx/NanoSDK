@@ -61,9 +61,6 @@ NNG_DECL void nng_thread_set_name(nng_thread *, const char *);
 // returns all resources for the thread are cleaned up.
 NNG_DECL void nng_thread_destroy(nng_thread *);
 
-// Get current process Id.
-NNG_DECL int nng_getpid();
-
 // nng_mtx represents a mutex, which is a simple, non-reentrant, boolean lock.
 typedef struct nng_mtx nng_mtx;
 

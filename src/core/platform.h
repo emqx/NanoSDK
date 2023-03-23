@@ -549,6 +549,10 @@ extern const char *nni_plat_file_basename(const char *);
 
 // nni_plat_getcwd get current directory where program is running.
 extern char *nni_plat_getcwd(char *, size_t );
+
+// NanoSDK
+// Get standard/UNIX timestamp
+extern nni_time nni_timestamp(void);
 //
 // Actual platforms we support.  This is included up front so that we can
 // get the specific types that are supplied by the platform.
