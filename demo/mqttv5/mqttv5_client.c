@@ -204,31 +204,35 @@ void print_property(property *prop)
 }
 
 static void
-sub_callback(void *arg) {
+send_callback(void *arg) {
 	nng_mqtt_client *client = (nng_mqtt_client *) arg;
 	nng_aio *aio = client->send_aio;
 	nng_msg *msg = nng_aio_get_msg(aio);
 	uint32_t count;
 	reason_code *code;
-	code = (reason_code *)nng_mqtt_msg_get_suback_return_codes(msg, &count);
+	switch (nng_mqtt_msg_get_packet_type(msg)) {
+	case NNG_MQTT_SUBACK:
+		code = (reason_code *)nng_mqtt_msg_get_suback_return_codes(msg, &count);
+		printf("SUBACK reason codes are");
+		for (int i=0; i<count; ++i)
+			printf("%d ", code[i]);
+		printf("\n");
+		break;
+	case NNG_MQTT_UNSUBACK:
+		code = (reason_code *)nng_mqtt_msg_get_unsuback_return_codes(msg, &count);
+		printf("UNSUBACK reason codes are");
+		for (int i=0; i<count; ++i)
+			printf("%d ", code[i]);
+		printf("\n");
+		break;
+	default:
+		printf("Sending in async way is done.\n");
+		break;
+	}
 	printf("aio mqtt result %d \n", nng_aio_result(aio));
 	// printf("suback %d \n", *code);
 	nng_msg_free(msg);
 }
-
-static void
-unsub_callback(void *arg) {
-	nng_mqtt_client *client = (nng_mqtt_client *) arg;
-	nng_aio *aio = client->send_aio;
-	nng_msg *msg = nng_aio_get_msg(aio);
-	uint32_t count;
-	reason_code *code;
-	// code = (reason_code *)nng_mqtt_msg_get_suback_return_codes(msg, &count);
-	printf("aio mqtt result %d \n", nng_aio_result(aio));
-	// printf("suback %d \n", *code);
-	nng_msg_free(msg);
-}
-
 
 // Publish a message to the given topic and with the given QoS.
 int
@@ -451,7 +455,7 @@ main(const int argc, const char **argv)
 		// rv = nng_mqtt_subscribe(sock, subscriptions, 1, plist);
 
 		// Asynchronous subscription
-		nng_mqtt_client *client = nng_mqtt_client_alloc(sock, &sub_callback, true);
+		nng_mqtt_client *client = nng_mqtt_client_alloc(sock, &send_callback, true);
 		nng_mqtt_subscribe_async(client, subscriptions, 1, plist);
 
 		printf("Start receiving loop:\n");
