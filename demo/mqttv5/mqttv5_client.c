@@ -431,6 +431,9 @@ main(const int argc, const char **argv)
 					.buf    = (uint8_t *) topic,
 			        .length = strlen(topic), 
 				},
+				.nolocal         = 1,
+				.rap             = 1,
+				.retain_handling = 0,
 			},
 		};
 		nng_mqtt_topic unsubscriptions[] = {

@@ -312,6 +312,9 @@ typedef struct mqtt_kv_t mqtt_kv;
 typedef struct mqtt_topic_qos_t {
 	nng_mqtt_topic topic;
 	uint8_t        qos;
+	uint8_t        nolocal;
+	uint8_t        rap;
+	uint8_t        retain_handling;
 } mqtt_topic_qos;
 
 typedef struct mqtt_topic_qos_t nng_mqtt_topic_qos;
@@ -476,8 +479,8 @@ NNG_DECL nng_mqtt_topic *nng_mqtt_topic_array_create(size_t);
 NNG_DECL void nng_mqtt_topic_array_set(nng_mqtt_topic *, size_t, const char *);
 NNG_DECL void nng_mqtt_topic_array_free(nng_mqtt_topic *, size_t);
 NNG_DECL nng_mqtt_topic_qos *nng_mqtt_topic_qos_array_create(size_t);
-NNG_DECL void                nng_mqtt_topic_qos_array_set(
-                   nng_mqtt_topic_qos *, size_t, const char *, uint8_t);
+NNG_DECL void nng_mqtt_topic_qos_array_set(nng_mqtt_topic_qos *, size_t,
+           const char *, uint8_t, uint8_t, uint8_t, uint8_t);
 NNG_DECL void nng_mqtt_topic_qos_array_free(nng_mqtt_topic_qos *, size_t);
 NNG_DECL int  nng_mqtt_set_connect_cb(nng_socket, nng_pipe_cb, void *);
 NNG_DECL int  nng_mqtt_set_disconnect_cb(nng_socket, nng_pipe_cb, void *);

@@ -605,9 +605,9 @@ nng_mqtt_topic_qos_array_create(size_t n)
 
 void
 nng_mqtt_topic_qos_array_set(nng_mqtt_topic_qos *topic_qos, size_t index,
-    const char *topic_name, uint8_t qos)
+    const char *topic_name, uint8_t qos, uint8_t nolocal, uint8_t rap, uint8_t rh)
 {
-	nni_mqtt_topic_qos_array_set(topic_qos, index, topic_name, qos);
+	nni_mqtt_topic_qos_array_set(topic_qos, index, topic_name, qos, nolocal, rap, rh);
 }
 
 void

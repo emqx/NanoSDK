@@ -440,8 +440,8 @@ NNG_DECL void nni_mqtt_topic_array_free(nni_mqtt_topic *, size_t);
 
 // mqtt topic_qos create/free/set
 NNG_DECL nni_mqtt_topic_qos *nni_mqtt_topic_qos_array_create(size_t);
-NNG_DECL void                nni_mqtt_topic_qos_array_set(
-                   nni_mqtt_topic_qos *, size_t, const char *, uint8_t);
+NNG_DECL void nni_mqtt_topic_qos_array_set(nni_mqtt_topic_qos *,
+        size_t, const char *, uint8_t, uint8_t, uint8_t, uint8_t);
 NNG_DECL void nni_mqtt_topic_qos_array_free(nni_mqtt_topic_qos *, size_t);
 
 NNG_DECL void mqtt_close_unack_msg_cb(void *, void *);
