@@ -206,7 +206,7 @@ void print_property(property *prop)
 static void
 sub_callback(void *arg) {
 	nng_mqtt_client *client = (nng_mqtt_client *) arg;
-	nng_aio *aio = client->sub_aio;
+	nng_aio *aio = client->send_aio;
 	nng_msg *msg = nng_aio_get_msg(aio);
 	uint32_t count;
 	reason_code *code;
@@ -219,7 +219,7 @@ sub_callback(void *arg) {
 static void
 unsub_callback(void *arg) {
 	nng_mqtt_client *client = (nng_mqtt_client *) arg;
-	nng_aio *aio = client->unsub_aio;
+	nng_aio *aio = client->send_aio;
 	nng_msg *msg = nng_aio_get_msg(aio);
 	uint32_t count;
 	reason_code *code;
@@ -451,15 +451,10 @@ main(const int argc, const char **argv)
 		mqtt_property_dup(&unsub_plist, plist);
 
 		// Sync subscription
-		// rv = nng_mqtt_subscribe(&sock, subscriptions, 1, plist);
-
-		nng_mqtt_cb_opt cb_opt = { 
-			.sub_ack_cb = sub_callback,
-			.unsub_ack_cb = unsub_callback,
-		};
+		// rv = nng_mqtt_subscribe(sock, subscriptions, 1, plist);
 
 		// Asynchronous subscription
-		nng_mqtt_client *client = nng_mqtt_client_alloc(&sock, &cb_opt, true);
+		nng_mqtt_client *client = nng_mqtt_client_alloc(sock, &sub_callback, true);
 		nng_mqtt_subscribe_async(client, subscriptions, 1, plist);
 
 		printf("Start receiving loop:\n");
@@ -476,7 +471,7 @@ main(const int argc, const char **argv)
 		}
 
 		// Sync unsubscription
-		// rv = nng_mqtt_unsubscribe(&sock, subscriptions, 1, plist);
+		// rv = nng_mqtt_unsubscribe(sock, subscriptions, 1, plist);
 		// Asynchronous unsubscription
 		nng_mqtt_unsubscribe_async(
 		    client, unsubscriptions, 1, unsub_plist);
