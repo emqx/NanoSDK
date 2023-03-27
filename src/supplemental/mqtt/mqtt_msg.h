@@ -424,6 +424,9 @@ NNG_DECL void      nni_mqtt_msg_set_unsubscribe_property(nni_msg *, property *);
 // mqtt unsuback
 NNG_DECL void      nni_mqtt_msg_set_unsuback_packet_id(nni_msg *, uint16_t);
 NNG_DECL uint16_t  nni_mqtt_msg_get_unsuback_packet_id(nni_msg *);
+NNG_DECL void      nni_mqtt_msg_set_unsuback_return_codes(
+        nni_msg *, uint8_t *, uint32_t);
+NNG_DECL uint8_t  *nni_mqtt_msg_get_unsuback_return_codes(nni_msg *, uint32_t *);
 NNG_DECL property *nni_mqtt_msg_get_unsuback_property(nni_msg *);
 NNG_DECL void      nni_mqtt_msg_set_unsuback_property(nni_msg *, property *);
 

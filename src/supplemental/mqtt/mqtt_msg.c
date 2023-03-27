@@ -525,6 +525,25 @@ nni_mqtt_msg_get_unsuback_packet_id(nni_msg *msg)
 	return proto_data->var_header.unsuback.packet_id;
 }
 
+void
+nni_mqtt_msg_set_unsuback_return_codes(
+    nni_msg *msg, uint8_t *ret_codes, uint32_t ret_codes_count)
+{
+	nni_mqtt_proto_data *proto_data         = nni_msg_get_proto_data(msg);
+	proto_data->payload.unsuback.ret_code_arr = nni_alloc(ret_codes_count);
+	memcpy(proto_data->payload.unsuback.ret_code_arr, ret_codes,
+	    ret_codes_count);
+	proto_data->payload.unsuback.ret_code_count = ret_codes_count;
+}
+
+uint8_t *
+nni_mqtt_msg_get_unsuback_return_codes(nni_msg *msg, uint32_t *ret_codes_count)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	*ret_codes_count = proto_data->payload.unsuback.ret_code_count;
+	return proto_data->payload.unsuback.ret_code_arr;
+}
+
 property *
 nni_mqtt_msg_get_unsuback_property(nni_msg *msg)
 {

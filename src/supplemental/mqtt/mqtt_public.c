@@ -566,6 +566,22 @@ nng_mqtt_msg_get_unsuback_packet_id(nng_msg *msg)
 	return nni_mqtt_msg_get_unsuback_packet_id(msg);
 }
 
+void
+nng_mqtt_msg_set_unsuback_return_codes(
+    nng_msg *msg, uint8_t *return_codes, uint32_t return_codes_count)
+{
+	nni_mqtt_msg_set_unsuback_return_codes(
+	    msg, return_codes, return_codes_count);
+}
+
+uint8_t *
+nng_mqtt_msg_get_unsuback_return_codes(
+    nng_msg *msg, uint32_t *return_codes_counts)
+{
+	return nni_mqtt_msg_get_unsuback_return_codes(msg, return_codes_counts);
+}
+
+
 property *
 nng_mqtt_msg_get_unsuback_property(nng_msg *msg)
 {
