@@ -596,10 +596,12 @@ dup_subscribe(nni_mqtt_proto_data *dest, nni_mqtt_proto_data *src)
 
 	for (size_t i = 0; i < src->payload.subscribe.topic_count; i++) {
 		nni_mqtt_topic_qos_array_set(dest->payload.subscribe.topic_arr,
-		    i,
-		    (const char *) src->payload.subscribe.topic_arr[i]
-		        .topic.buf,
-		    src->payload.subscribe.topic_arr[i].qos);
+		    i, (const char *) src->payload.subscribe.topic_arr[i].topic.buf,
+		    src->payload.subscribe.topic_arr[i].qos,
+			src->payload.subscribe.topic_arr[i].nolocal,
+			src->payload.subscribe.topic_arr[i].rap,
+			src->payload.subscribe.topic_arr[i].retain_handling
+			);
 	}
 }
 
@@ -1120,7 +1122,11 @@ nni_mqttv5_msg_encode_subscribe(nni_msg *msg)
 	for (size_t i = 0; i < spld->topic_count; i++) {
 		mqtt_topic_qos *topic = &spld->topic_arr[i];
 		nni_mqtt_msg_append_byte_str(msg, &topic->topic);
-		nni_mqtt_msg_append_u8(msg, topic->qos);
+		uint8_t buf = topic->qos
+			| (topic->nolocal << 2)
+			| (topic->rap << 3)
+			| (topic->retain_handling << 4);
+		nni_mqtt_msg_append_u8(msg, buf);
 	}
 
 	/* Fixed header */
@@ -1987,6 +1993,8 @@ nni_mqttv5_msg_decode_subscribe(nni_msg *msg)
 	uint16_t temp_length       = 0;
 	uint32_t topic_count       = 0;
 
+	uint8_t to; // topic option
+
 	/* The loop to determine the number of topic_arr.
 	 * TODO: Some other way may be used such as std::vector to collect
 	 * topic_arr but there is a question that which is faster
@@ -2016,11 +2024,15 @@ nni_mqttv5_msg_decode_subscribe(nni_msg *msg)
 			goto err;
 		}
 		/* QoS */
-		ret = read_byte(&buf, &spld->topic_arr[spld->topic_count].qos);
+		ret = read_byte(&buf, &to);
 		if (ret != MQTT_SUCCESS) {
 			ret = MQTT_ERR_PROTOCOL;
 			goto err;
 		}
+		spld->topic_arr[spld->topic_count].qos             = to & 0x03;
+		spld->topic_arr[spld->topic_count].nolocal         = (to >> 2) & 0x01;
+		spld->topic_arr[spld->topic_count].rap             = (to >> 3) & 0x01;
+		spld->topic_arr[spld->topic_count].retain_handling = (to >> 4) & 0x03;
 		spld->topic_count++;
 	}
 	return MQTT_SUCCESS;
