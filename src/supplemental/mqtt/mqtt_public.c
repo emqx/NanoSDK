@@ -784,12 +784,13 @@ nng_mqtt_client_alloc(nng_socket sock, nng_mqtt_sub_cb cb, bool is_async)
 {
 	nng_mqtt_client *client = NNI_ALLOC_STRUCT(client);
 	client->sock            = sock;
+
 	if (is_async) {
 		nng_aio_alloc(&client->send_aio, cb, client);
 		if ((client->msgq = nng_alloc(sizeof(nni_lmq))) == NULL) {
 			return NULL;
 		}
-		nni_lmq_init(client->msgq, NNG_MAX_SEND_LMQ);
+		nni_lmq_init((nni_lmq *)client->msgq, NNG_MAX_SEND_LMQ);
 	}
 	return client;
 }
@@ -845,7 +846,7 @@ nng_mqtt_unsubscribe_async(nng_mqtt_client *client, nng_mqtt_topic *sbs, size_t 
 		nng_mqtt_msg_set_subscribe_property(unsubmsg, pl);
 	}
 	if (nng_aio_busy(client->send_aio)) {
-		if (nni_lmq_put(client->msgq, unsubmsg) != 0) {
+		if (nni_lmq_put((nni_lmq *)client->msgq, unsubmsg) != 0) {
 			nni_plat_println("unsubscribe failed!");
 		}
 		return 1;
@@ -891,7 +892,7 @@ nng_mqtt_subscribe_async(nng_mqtt_client *client, nng_mqtt_topic_qos *sbs, size_
 		nng_mqtt_msg_set_subscribe_property(submsg, pl);
 	}
 	if (nng_aio_busy(client->send_aio)) {
-		if (nni_lmq_put(client->msgq, submsg) != 0) {
+		if (nni_lmq_put((nni_lmq *)client->msgq, submsg) != 0) {
 			nni_plat_println("subscribe failed!");
 		}
 		return 1;
