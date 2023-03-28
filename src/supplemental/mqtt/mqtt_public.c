@@ -618,7 +618,17 @@ nng_mqtt_topic_qos_array_create(size_t n)
 {
 	return nni_mqtt_topic_qos_array_create(n);
 }
-
+/***
+ * set each fields of nng_mqtt_topic_qos of a Sub packet
+ * *topic_qos: array of topic/qos pair
+ * index: target topic/qos pair
+ * *topic_name: subscription topic
+ * qos : MQTT QoS
+ * nocal: Subscription Options  no local
+ * rap: Subscription Options    Retain as publish
+ * rh: Subscription Options     Retain Handling
+ * 
+*/
 void
 nng_mqtt_topic_qos_array_set(nng_mqtt_topic_qos *topic_qos, size_t index,
     const char *topic_name, uint8_t qos, uint8_t nolocal, uint8_t rap, uint8_t rh)
