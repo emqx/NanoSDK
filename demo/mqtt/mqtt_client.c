@@ -35,9 +35,9 @@
 #include <signal.h>
 #include <time.h>
 
-#include <nng/mqtt/mqtt_client.h>
-#include <nng/nng.h>
-#include <nng/supplemental/util/platform.h>
+#include "nng/mqtt/mqtt_client.h"
+#include "nng/nng.h"
+#include "nng/supplemental/util/platform.h"
 
 // Subcommands
 #define PUBLISH "pub"
@@ -233,16 +233,13 @@ sqlite_config(nng_socket *sock, uint8_t proto_ver)
 }
 
 static void
-send_callback(void *arg) {
-
-	nng_mqtt_client *client = (nng_mqtt_client *) arg;
+send_callback (nng_mqtt_client *client, nng_msg *msg, void *arg) {
 	nng_aio *        aio    = client->send_aio;
-	nng_msg *        msg    = nng_aio_get_msg(aio);
 	uint32_t         count;
 	uint8_t *        code;
 	uint8_t          type;
 
-	if (msg == NULL || nng_aio_result(aio) != 0)
+	if (msg == NULL)
 		return;
 	switch (nng_mqtt_msg_get_packet_type(msg)) {
 	case NNG_MQTT_SUBACK:
@@ -260,6 +257,9 @@ send_callback(void *arg) {
 		for (int i = 0; i < count; ++i)
 			printf("%d ", code[i]);
 		printf("\n");
+		break;
+	case NNG_MQTT_PUBACK:
+		printf("PUBACK");
 		break;
 	default:
 		printf("Sending in async way is done.\n");
