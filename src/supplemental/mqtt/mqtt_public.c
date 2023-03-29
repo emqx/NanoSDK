@@ -786,6 +786,7 @@ mqtt_sub_aio_cancel(nni_aio *aio, void *arg, int rv)
 }
 
 /**
+ * ATTENTION: This API is still in demo stage might be changed in the future
  * Alloc an nng_mqtt_client object
  * Return NULL if failed
  * */

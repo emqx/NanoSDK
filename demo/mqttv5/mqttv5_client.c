@@ -210,6 +210,9 @@ send_callback(void *arg) {
 	nng_msg *msg = nng_aio_get_msg(aio);
 	uint32_t count;
 	reason_code *code;
+
+	if (msg == NULL || nng_aio_result(aio) != 0)
+		return;
 	switch (nng_mqtt_msg_get_packet_type(msg)) {
 	case NNG_MQTT_SUBACK:
 		code = (reason_code *)nng_mqtt_msg_get_suback_return_codes(msg, &count);

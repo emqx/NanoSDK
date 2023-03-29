@@ -234,23 +234,30 @@ sqlite_config(nng_socket *sock, uint8_t proto_ver)
 
 static void
 send_callback(void *arg) {
+
 	nng_mqtt_client *client = (nng_mqtt_client *) arg;
-	nng_aio *aio = client->send_aio;
-	nng_msg *msg = nng_aio_get_msg(aio);
-	uint32_t count;
-	reason_code *code;
+	nng_aio *        aio    = client->send_aio;
+	nng_msg *        msg    = nng_aio_get_msg(aio);
+	uint32_t         count;
+	uint8_t *        code;
+	uint8_t          type;
+
+	if (msg == NULL || nng_aio_result(aio) != 0)
+		return;
 	switch (nng_mqtt_msg_get_packet_type(msg)) {
 	case NNG_MQTT_SUBACK:
-		code = (reason_code *)nng_mqtt_msg_get_suback_return_codes(msg, &count);
+		code = (reason_code *) nng_mqtt_msg_get_suback_return_codes(
+		    msg, &count);
 		printf("SUBACK reason codes are");
-		for (int i=0; i<count; ++i)
+		for (int i = 0; i < count; ++i)
 			printf("%d ", code[i]);
 		printf("\n");
 		break;
 	case NNG_MQTT_UNSUBACK:
-		code = (reason_code *)nng_mqtt_msg_get_unsuback_return_codes(msg, &count);
+		code = (reason_code *) nng_mqtt_msg_get_unsuback_return_codes(
+		    msg, &count);
 		printf("UNSUBACK reason codes are");
-		for (int i=0; i<count; ++i)
+		for (int i = 0; i < count; ++i)
 			printf("%d ", code[i]);
 		printf("\n");
 		break;
