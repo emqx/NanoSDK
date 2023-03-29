@@ -534,17 +534,21 @@ NNG_DECL int nng_mqttv5_client_open(nng_socket *);
 // caller.  Because there is a round-trip message involved, we use
 // a separate method instead of merely relying upon socket options.
 // TODO: shared subscriptions.  Subscription options (retain, QoS)
-
-typedef struct {
+typedef struct nng_mqtt_client nng_mqtt_client;
+typedef void(nng_mqtt_send_cb)(nng_mqtt_client *client, nng_msg *msg, void *);
+struct nng_mqtt_client{
 	nng_socket sock;
 	nng_aio   *send_aio;
-	void   *msgq;
-} nng_mqtt_client;
+	nng_aio   *recv_aio;
+	void      *msgq;
+	void      *obj; // user defined callback obj
+	bool       async;
+
+	nng_mqtt_send_cb *cb;
+};
 
 
-typedef void(nng_mqtt_sub_cb)(void *);
-
-NNG_DECL nng_mqtt_client *nng_mqtt_client_alloc(nng_socket, nng_mqtt_sub_cb, bool);
+NNG_DECL nng_mqtt_client *nng_mqtt_client_alloc(nng_socket, nng_mqtt_send_cb, bool);
 NNG_DECL void nng_mqtt_client_free(nng_mqtt_client*, bool);
 NNG_DECL int nng_mqtt_subscribe(nng_socket, nng_mqtt_topic_qos *, size_t, property *);
 NNG_DECL int nng_mqtt_subscribe_async(nng_mqtt_client *, nng_mqtt_topic_qos *, size_t, property *);

@@ -764,40 +764,76 @@ mqtt_property_append(property *prop_list, property *last)
 }
 
 
-static void
-mqtt_sub_aio_cancel(nni_aio *aio, void *arg, int rv)
-{
-	NNI_ARG_UNUSED(arg);
-	// nng_mqtt_client *client = arg;
+// static void
+// mqtt_sub_aio_cancel(nni_aio *aio, void *arg, int rv)
+// {
+// 	NNI_ARG_UNUSED(arg);
+// 	// nng_mqtt_client *client = arg;
 
-	if (!nni_aio_list_active(aio)) {
+// 	if (!nni_aio_list_active(aio)) {
+// 		return;
+// 	}
+// 	// If receive in progress, then cancel the pending transfer.
+// 	// The callback on the rxaio will cause the user aio to
+// 	// be canceled too.
+// 	// if (nni_list_first(&p->recvq) == aio) {
+// 	// 	nni_aio_abort(p->rxaio, rv);
+// 	// 	nni_mtx_unlock(&p->mtx);
+// 	// 	return;
+// 	// }
+// 	nni_aio_list_remove(aio);
+// 	nni_aio_finish_error(aio, rv);
+// }
+
+static void
+nng_mqtt_client_send_cb(void* arg)
+{
+	nng_mqtt_client *client = (nng_mqtt_client *) arg;
+	nng_aio *        aio    = client->send_aio;
+	nng_msg *        msg    = nng_aio_get_msg(aio);
+	nng_msg *        tmsg   = NULL;
+	uint32_t         count;
+	uint8_t *        code;
+	uint8_t          type;
+
+	nni_lmq * lmq = (nni_lmq *)client->msgq;
+
+	if (msg == NULL || nng_aio_result(aio) != 0) {
+		client->cb(client, msg, client->obj);
 		return;
 	}
-	// If receive in progress, then cancel the pending transfer.
-	// The callback on the rxaio will cause the user aio to
-	// be canceled too.
-	// if (nni_list_first(&p->recvq) == aio) {
-	// 	nni_aio_abort(p->rxaio, rv);
-	// 	nni_mtx_unlock(&p->mtx);
-	// 	return;
-	// }
-	nni_aio_list_remove(aio);
-	nni_aio_finish_error(aio, rv);
+
+	if (nni_lmq_get(lmq, &tmsg) == 0) {
+		nng_aio_set_msg(client->send_aio, tmsg);
+		nng_send_aio(client->sock, client->send_aio);
+	}
+	client->cb(client, msg, client->obj);
+	return;
 }
 
 /**
- * ATTENTION: This API is still in demo stage might be changed in the future
+ * ATTENTION: This API is still under development
+ *            it might be changed in the future
  * Alloc an nng_mqtt_client object
+ * set is_async as true if you wanna enable async APIs
  * Return NULL if failed
  * */
 nng_mqtt_client *
-nng_mqtt_client_alloc(nng_socket sock, nng_mqtt_sub_cb cb, bool is_async)
+nng_mqtt_client_alloc(nng_socket sock, nng_mqtt_send_cb cb, bool is_async)
 {
 	nng_mqtt_client *client = NNI_ALLOC_STRUCT(client);
 	client->sock            = sock;
+	client->async           = is_async;
+	client->cb              = NULL;
+	client->msgq            = NULL;
+	client->obj             = NULL;
 
+	if (cb != NULL) {
+		client->cb = cb;
+	}
 	if (is_async) {
-		nng_aio_alloc(&client->send_aio, cb, client);
+		// replace nng_mqtt_client_send_cb for lmq
+		nng_aio_alloc(&client->send_aio, nng_mqtt_client_send_cb, client);
 		if ((client->msgq = nng_alloc(sizeof(nni_lmq))) == NULL) {
 			return NULL;
 		}
