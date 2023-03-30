@@ -597,6 +597,7 @@ dup_subscribe(nni_mqtt_proto_data *dest, nni_mqtt_proto_data *src)
 	for (size_t i = 0; i < src->payload.subscribe.topic_count; i++) {
 		nni_mqtt_topic_qos_array_set(dest->payload.subscribe.topic_arr,
 		    i, (const char *) src->payload.subscribe.topic_arr[i].topic.buf,
+		    src->payload.subscribe.topic_arr[i].topic.length,
 		    src->payload.subscribe.topic_arr[i].qos,
 			src->payload.subscribe.topic_arr[i].nolocal,
 			src->payload.subscribe.topic_arr[i].rap,
