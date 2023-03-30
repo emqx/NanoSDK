@@ -385,7 +385,7 @@ nni_mqtt_msg_set_subscribe_topics(
 	for (size_t i = 0; i < topic_count; i++) {
 		nni_mqtt_topic_qos_array_set(
 		    proto_data->payload.subscribe.topic_arr, i,
-		    (const char *) topics[i].topic.buf, topics[i].qos,
+		    (const char *) topics[i].topic.buf, topics[i].topic.length, topics[i].qos,
 			topics[i].nolocal, topics[i].rap, topics[i].retain_handling);
 	}
 }
@@ -828,10 +828,12 @@ nni_mqtt_topic_qos_array_create(size_t n)
 
 void
 nni_mqtt_topic_qos_array_set(nni_mqtt_topic_qos *topic_qos, size_t index,
-    const char *topic_name, uint8_t qos, uint8_t nl, uint8_t rap, uint8_t rh)
+    const char *topic_name, uint32_t len, uint8_t qos, uint8_t nl, uint8_t rap, uint8_t rh)
 {
-	topic_qos[index].topic.buf       = (uint8_t *) nni_strdup(topic_name);
-	topic_qos[index].topic.length    = (uint32_t) strlen(topic_name);
+	topic_qos[index].topic.buf       = (uint8_t *) nni_alloc((len+1) * sizeof(uint8_t));
+	memcpy(topic_qos[index].topic.buf, topic_name, len);
+	topic_qos[index].topic.buf[len] = '\0';
+	topic_qos[index].topic.length    = len;
 	topic_qos[index].qos             = qos;
 	topic_qos[index].nolocal         = nl;
 	topic_qos[index].rap             = rap;
