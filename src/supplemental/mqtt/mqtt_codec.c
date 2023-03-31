@@ -2221,7 +2221,7 @@ nni_mqttv5_msg_decode_publish(nni_msg *msg)
 	   a PUBLISH Packet to contain a zero length payload.*/
 	mqtt->payload.publish.payload.length =
 	    mqtt->fixed_header.remaining_length -
-	    (2 /* Length bytes of Topic Name */ +
+	    (2 /* Length bytes of Topic Name */ + 1 + prop_len +
 	        mqtt->var_header.publish.topic_name.length + packid_length);
 	mqtt->payload.publish.payload.buf =
 	    (mqtt->payload.publish.payload.length > 0) ? buf.curpos : NULL;
