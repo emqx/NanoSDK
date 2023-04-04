@@ -100,7 +100,7 @@ static conf_quic config_default = {
 	.qcongestion_control = 0, // cubic
 };
 
-uint32_t
+static uint32_t
 DJBHashn(char *str, uint16_t len)
 {
 	unsigned int hash = 5381;
