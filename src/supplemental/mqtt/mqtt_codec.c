@@ -1335,8 +1335,24 @@ nni_mqtt_msg_encode_pubrec(nni_msg *msg)
 static int
 nni_mqttv5_msg_encode_pubrec(nni_msg *msg)
 {
-	NNI_ARG_UNUSED(msg);
-	return 0;
+	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	nni_msg_clear(msg);
+
+	int poslength                       = 2; /* for Packet Identifier */
+	mqtt->fixed_header.remaining_length = (uint32_t) poslength;
+	nni_mqtt_msg_encode_fixed_header(msg, mqtt);
+
+	mqtt_pubrec_vhdr *var_header = &mqtt->var_header.pubrec;
+
+	/* Packet Identifier */
+	nni_mqtt_msg_append_u16(msg, var_header->packet_id);
+	encode_properties(msg, mqtt->var_header.pubrec.properties, CMD_PUBREC);
+
+	mqtt->fixed_header.remaining_length = nng_msg_len(msg);
+	nni_mqtt_msg_encode_fixed_header(msg, mqtt);
+
+
+	return MQTT_SUCCESS;
 }
 
 static int
