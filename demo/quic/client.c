@@ -43,7 +43,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define CLIENT_SEND_Q_SZ 4
+#define CONN 1
+#define SUB 2
+#define PUB 3
 
 static nng_socket * g_sock;
 
@@ -60,9 +62,10 @@ mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 	nng_msg *msg;
 	nng_mqtt_msg_alloc(&msg, 0);
 
-	if (type == 1) {
+	if (type == CONN) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
 
+		nng_mqtt_msg_set_connect_proto_version(msg, 4);
 		nng_mqtt_msg_set_connect_keep_alive(msg, 30);
 		nng_mqtt_msg_set_connect_clean_session(msg, true);
 	} else if (type == SUB) {
@@ -81,7 +84,7 @@ mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 		};
 
 		nng_mqtt_msg_set_subscribe_topics(msg, subscriptions, count);
-	} else if (type == 3) {
+	} else if (type == PUB) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_PUBLISH);
 
 		nng_mqtt_msg_set_publish_dup(msg, 0);
@@ -196,7 +199,7 @@ client(int type, const char *url, const char *qos, const char *topic, const char
 	g_sock = &sock;
 
 	// MQTT Connect...
-	msg = mqtt_msg_compose(1, 0, NULL, NULL);
+	msg = mqtt_msg_compose(CONN, 0, NULL, NULL);
 	nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
 
 	if (qos) {
@@ -208,15 +211,15 @@ client(int type, const char *url, const char *qos, const char *topic, const char
 	}
 
 	switch (type) {
-	case 1:
+	case CONN:
 		break;
-	case 2:
-		msg = mqtt_msg_compose(2, q, (char *)topic, NULL);
+	case SUB:
+		msg = mqtt_msg_compose(SUB, q, (char *)topic, NULL);
 		nng_sendmsg(*g_sock, msg, NNG_FLAG_ALLOC);
 
 		break;
-	case 3:
-		msg = mqtt_msg_compose(3, q, (char *)topic, (char *)data);
+	case PUB:
+		msg = mqtt_msg_compose(PUB, q, (char *)topic, (char *)data);
 		nng_sendmsg(*g_sock, msg, NNG_FLAG_ALLOC);
 
 #if defined(NNG_SUPP_SQLITE)
@@ -256,13 +259,13 @@ main(int argc, char **argv)
 		goto error;
 	}
 	if (0 == strncmp(argv[1], "conn", 4) && argc == 3) {
-		client(1, argv[2], NULL, NULL, NULL);
+		client(CONN, argv[2], NULL, NULL, NULL);
 	}
 	else if (0 == strncmp(argv[1], "sub", 3)  && argc == 5) {
-		client(2, argv[2], argv[3], argv[4], NULL);
+		client(SUB, argv[2], argv[3], argv[4], NULL);
 	}
 	else if (0 == strncmp(argv[1], "pub", 3)  && argc == 6) {
-		client(3, argv[2], argv[3], argv[4], argv[5]);
+		client(PUB, argv[2], argv[3], argv[4], argv[5]);
 	}
 	else {
 		goto error;
