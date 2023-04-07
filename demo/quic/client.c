@@ -49,6 +49,24 @@
 
 static nng_socket * g_sock;
 
+conf_quic config_user = {
+	.tls = {
+		.enable = false,
+		.cafile = "",
+		.certfile = "",
+		.keyfile  = "",
+		.key_password = "",
+		.verify_peer = true,
+		.set_fail = true,
+	},
+	.multi_stream = false,
+	.qos_first  = false,
+	.qkeepalive = 30,
+	.qconnect_timeout = 60,
+	.qdiscon_timeout = 30,
+	.qidle_timeout = 30,
+};
+
 static void
 fatal(const char *msg, int rv)
 {
@@ -182,7 +200,14 @@ client(int type, const char *url, const char *qos, const char *topic, const char
 	nng_msg *   msg;
 	const char *arg = "CLIENT FOR QUIC";
 
+	/*
+	// Open a quic socket without configuration
 	if ((rv = nng_mqtt_quic_client_open(&sock, url)) != 0) {
+		printf("error in quic client open.\n");
+	}
+	*/
+
+	if ((rv = nng_mqtt_quic_client_open_conf(&sock, url, &config_user)) != 0) {
 		printf("error in quic client open.\n");
 	}
 
