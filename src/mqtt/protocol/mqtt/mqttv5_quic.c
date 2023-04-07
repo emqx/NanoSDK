@@ -664,7 +664,7 @@ mqtt_quic_data_strm_recv_cb(void *arg)
 		return;
 	}
 	nni_mqtt_msg_proto_data_alloc(msg);
-	nni_mqtt_msg_decode(msg);
+	nni_mqttv5_msg_decode(msg);
 
 	packet_type_t packet_type = nni_mqtt_msg_get_packet_type(msg);
 
@@ -895,7 +895,7 @@ mqtt_quic_recv_cb(void *arg)
 	}
 	// nni_msg_set_pipe(msg, nni_pipe_id(p->pipe));
 	nni_mqtt_msg_proto_data_alloc(msg);
-	nni_mqtt_msg_decode(msg);
+	nni_mqttv5_msg_decode(msg);
 
 	packet_type_t packet_type = nni_mqtt_msg_get_packet_type(msg);
 
