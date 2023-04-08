@@ -43,11 +43,13 @@ For MQTT broker introduction, please refer to EMQX (https://github.com/emqx/emqx
 
 ## Information About MQTT
 
+* [Learning MQTT](https://www.emqx.com/en/mqtt)
+* [Realworld MQTT Applications](https://www.emqx.com/en/customers)
 * [MQTT website](http://mqtt.org)
 * [The MQTT 3.1.1 standard](http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html)
 * [The MQTT 5.0 standard](https://docs.oasis-open.org/mqtt/mqtt/v5.0/mqtt-v5.0.html)
 * [OASIS Introduction to MQTT presentation](https://www.oasis-open.org/committees/download.php/49205/MQTT-OASIS-Webinar.pdf)
-
+* [MQTT Resources](https://www.emqx.com/en/resources)
 ## Libraries
 
 The NanoSDK C client comprises four variant libraries, shared or static:
@@ -61,7 +63,7 @@ The NanoSDK C client comprises four variant libraries, shared or static:
 
 The API documentation is provided in Asciidoc format in the
 `docs/man` subdirectory
-The <<docs/man/libnng.3.adoc#,libnng(3)>> page is a good starting point.
+The `docs/man/libnng.3.adoc#,libnng(3)` page is a good starting point.
 
 In addition, many users would like to add self-defined behavior in the callback of online and offline. Therefore, we modified the callback method of connection and disconnection to allow users to perform blocking and waiting operations in the callback without affecting the MQTT connection & pradigm itself, so as to improve the flexibility of NanoSDK.
 However, it should be noted that this will consume the number of threads inside the NanoSDK. If the taskq thread is exhausted, it will still affect the operation of the entire client. Please use it cautiously.
