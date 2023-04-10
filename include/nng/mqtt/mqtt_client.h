@@ -557,7 +557,6 @@ NNG_DECL int nng_mqtt_unsubscribe_async(
     nng_mqtt_client *, nng_mqtt_topic *sbs, size_t count, property *pl);
 NNG_DECL int nng_mqtt_disconnect(nng_socket *, uint8_t, property *);
 // as with other ctx based methods, we use the aio form exclusively
-NNG_DECL int nng_mqtt_ctx_subscribe(nng_ctx *, const char *, nng_aio *, ...);
 
 typedef struct nng_mqtt_sqlite_option nng_mqtt_sqlite_option;
 
