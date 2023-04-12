@@ -22,7 +22,7 @@ add_executable(quic_client  quic_client.c)
 
 if(OPENSSL_FOUND)
     include_directories(${OPENSSL_INCLUDE_DIRS})
-    target_link_libraries(quic_client OpenSSL::SSL OpenSSL::Crypto)
+    target_link_libraries(quic_client OpenSSL::Crypto OpenSSL::SSL)
 endif()
 
 target_link_libraries(quic_client nng msquic pthread)
