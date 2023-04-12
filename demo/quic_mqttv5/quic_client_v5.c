@@ -123,14 +123,9 @@ void print_property(property *prop)
 
 }
 
-static nng_msg *
-mqtt_msg_compose(int type, int qos, char *topic, char *payload)
+static void 
+compose_connect(nng_msg *msg)
 {
-	// Mqtt connect message
-	nng_msg *msg;
-	nng_mqtt_msg_alloc(&msg, 0);
-
-	if (type == CONN) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
 		// test property
 		property *p = mqtt_property_alloc();
@@ -154,6 +149,17 @@ mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 		nng_mqtt_msg_set_connect_proto_version(msg, MQTT_PROTOCOL_VERSION_v5);
 		nng_mqtt_msg_set_connect_keep_alive(msg, 30);
 		nng_mqtt_msg_set_connect_clean_session(msg, true);
+}
+
+static nng_msg *
+mqtt_msg_compose(int type, int qos, char *topic, char *payload)
+{
+	// Mqtt connect message
+	nng_msg *msg;
+	nng_mqtt_msg_alloc(&msg, 0);
+
+	if (type == CONN) {
+		compose_connect(msg);
 	} else if (type == SUB) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_SUBSCRIBE);
 
@@ -352,6 +358,10 @@ client(int type, const char *url, const char *qos, const char *topic,
 	case PUB:
 		msg = mqtt_msg_compose(PUB, q, (char *) topic, (char *) data);
 		nng_sendmsg(*g_sock, msg, NNG_FLAG_ALLOC);
+		pl = nng_mqtt_msg_get_publish_property(msg);
+		if (pl != NULL) {
+			mqtt_property_foreach(pl, print_property);
+		}
 
 #if defined(NNG_SUPP_SQLITE)
 		nng_thread *thr;
@@ -363,10 +373,6 @@ client(int type, const char *url, const char *qos, const char *topic,
 		printf("Unknown command.\n");
 	}
 
-	pl = nng_mqtt_msg_get_publish_property(msg);
-	if (pl != NULL) {
-		mqtt_property_foreach(pl, print_property);
-	}
 
 	for (;;)
 		nng_msleep(1000);
