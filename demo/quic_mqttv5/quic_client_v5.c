@@ -151,6 +151,27 @@ compose_connect(nng_msg *msg)
 		nng_mqtt_msg_set_connect_clean_session(msg, true);
 }
 
+static void
+compose_subscribe(nng_msg *msg, int qos, char *topic)
+{
+	nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_SUBSCRIBE);
+
+	int count = 1;
+
+	nng_mqtt_topic_qos subscriptions[] = {
+		{ .qos     = qos,
+		    .topic = { .buf = (uint8_t *) topic,
+		        .length     = strlen(topic) } },
+	};
+
+	nng_mqtt_msg_set_subscribe_topics(msg, subscriptions, count);
+	property *p = mqtt_property_alloc();
+	property *p1 = mqtt_property_set_value_varint(SUBSCRIPTION_IDENTIFIER, 120);
+	mqtt_property_append(p, p1);
+	nng_mqtt_msg_set_subscribe_property(msg, p);
+}
+
+
 static nng_msg *
 mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 {
@@ -161,21 +182,7 @@ mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 	if (type == CONN) {
 		compose_connect(msg);
 	} else if (type == SUB) {
-		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_SUBSCRIBE);
-
-		int count = 1;
-
-		nng_mqtt_topic_qos subscriptions[] = {
-			{ .qos     = qos,
-			    .topic = { .buf = (uint8_t *) topic,
-			        .length     = strlen(topic) } },
-		};
-
-		nng_mqtt_msg_set_subscribe_topics(msg, subscriptions, count);
-		property *p = mqtt_property_alloc();
-		property *p1 = mqtt_property_set_value_varint(SUBSCRIPTION_IDENTIFIER, 120);
-		mqtt_property_append(p, p1);
-		nng_mqtt_msg_set_subscribe_property(msg, p);
+		compose_subscribe(msg, qos, topic);
 	} else if (type == PUB) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_PUBLISH);
 		property *plist = mqtt_property_alloc();
