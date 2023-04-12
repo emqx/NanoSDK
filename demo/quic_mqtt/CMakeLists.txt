@@ -18,7 +18,7 @@ find_package(Threads)
 find_package(msquic)
 find_package(OpenSSL)
 
-add_executable(quic_client client.c)
+add_executable(quic_client  quic_client.c)
 
 if(OPENSSL_FOUND)
     include_directories(${OPENSSL_INCLUDE_DIRS})
