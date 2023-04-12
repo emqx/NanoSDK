@@ -1832,6 +1832,24 @@ nng_mqtt_quic_client_open_conf(nng_socket *sock, const char *url, conf_quic *con
 	return rv;
 }
 
+void conf_quic_tls_create(conf_quic **cqp, char *cafile, char *certfile,
+    char *keyfile, char *key_pwd) {
+	conf_quic *cq = nng_alloc(sizeof(conf_quic));
+	cq->tls.enable = true;
+	cq->tls.cafile = cafile;
+	cq->tls.certfile = certfile;
+	cq->tls.keyfile = keyfile;
+	cq->tls.key_password = key_pwd;
+	cq->tls.verify_peer = true;
+	cq->multi_stream = false;
+	cq->qos_first = false;
+	cq->qkeepalive = 30;
+	cq->qconnect_timeout = 60;
+	cq->qdiscon_timeout = 30;
+	cq->qidle_timeout = 30;
+
+	*cqp = cq;
+}
 /**
  * init an AIO for Acknoledgement message only, in order to make QoS/connect truly asychrounous
  * For QoS 0 message, we do not care the result of sending

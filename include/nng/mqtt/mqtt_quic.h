@@ -45,6 +45,9 @@ struct conf_quic {
 	uint8_t      qcongestion_control; // congestion control algorithm 1: bbr 0: cubic
 };
 
+void conf_quic_tls_create(conf_quic **cqp, char *cafile, char *certfile,
+    char *keyfile, char *key_pwd);
+
 NNG_DECL int nng_mqttv5_quic_client_open(nng_socket *, const char *url);
 NNG_DECL int nng_mqttv5_quic_client_open_conf(
     nng_socket *sock, const char *url, conf_quic *conf);
