@@ -73,7 +73,8 @@ fatal(const char *msg, int rv)
 	fprintf(stderr, "%s: %s\n", msg, nng_strerror(rv));
 }
 
-void print_property(property *prop)
+void
+print_property(property *prop)
 {
 	if (prop == NULL) {
 		return;
@@ -81,12 +82,12 @@ void print_property(property *prop)
 
 	// printf("%d \n", prop->id);
 
-	uint8_t type      = prop->data.p_type;
-	uint8_t prop_id   = prop->id;
+	uint8_t type    = prop->data.p_type;
+	uint8_t prop_id = prop->id;
 	switch (type) {
 	case U8:
-		printf(
-		    "id: %d, value: %d (U8)\n", prop_id, prop->data.p_value.u8);
+		printf("id: %d, value: %d (U8)\n", prop_id,
+		    prop->data.p_value.u8);
 		break;
 	case U16:
 		printf("id: %d, value: %d (U16)\n", prop_id,
@@ -120,40 +121,41 @@ void print_property(property *prop)
 	default:
 		break;
 	}
-
 }
 
-static void 
-compose_connect(nng_msg *msg)
+static nng_msg*
+compose_connect()
 {
-		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
-		// test property
-		property *p = mqtt_property_alloc();
-		property *p1 =
-		    mqtt_property_set_value_u32(MAXIMUM_PACKET_SIZE, 120);
-		property *p2 =
-		    mqtt_property_set_value_u32(SESSION_EXPIRY_INTERVAL, 120);
-		property *p3 =
-		    mqtt_property_set_value_u16(RECEIVE_MAXIMUM, 120);
-		property *p4 =
-		    mqtt_property_set_value_u32(MAXIMUM_PACKET_SIZE, 120);
-		property *p5 =
-		    mqtt_property_set_value_u16(TOPIC_ALIAS_MAXIMUM, 120);
-		mqtt_property_append(p, p1);
-		mqtt_property_append(p, p2);
-		mqtt_property_append(p, p3);
-		mqtt_property_append(p, p4);
-		mqtt_property_append(p, p5);
-		nng_mqtt_msg_set_connect_property(msg, p);
+	nng_msg *msg;
+	nng_mqtt_msg_alloc(&msg, 0);
+	nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
+	// test property
+	property *p  = mqtt_property_alloc();
+	property *p1 = mqtt_property_set_value_u32(MAXIMUM_PACKET_SIZE, 120);
+	property *p2 =
+	    mqtt_property_set_value_u32(SESSION_EXPIRY_INTERVAL, 120);
+	property *p3 = mqtt_property_set_value_u16(RECEIVE_MAXIMUM, 120);
+	property *p4 = mqtt_property_set_value_u32(MAXIMUM_PACKET_SIZE, 120);
+	property *p5 = mqtt_property_set_value_u16(TOPIC_ALIAS_MAXIMUM, 120);
+	mqtt_property_append(p, p1);
+	mqtt_property_append(p, p2);
+	mqtt_property_append(p, p3);
+	mqtt_property_append(p, p4);
+	mqtt_property_append(p, p5);
+	nng_mqtt_msg_set_connect_property(msg, p);
 
-		nng_mqtt_msg_set_connect_proto_version(msg, MQTT_PROTOCOL_VERSION_v5);
-		nng_mqtt_msg_set_connect_keep_alive(msg, 30);
-		nng_mqtt_msg_set_connect_clean_session(msg, true);
+	nng_mqtt_msg_set_connect_proto_version(msg, MQTT_PROTOCOL_VERSION_v5);
+	nng_mqtt_msg_set_connect_keep_alive(msg, 30);
+	nng_mqtt_msg_set_connect_clean_session(msg, true);
+
+	return msg;
 }
 
-static void
-compose_subscribe(nng_msg *msg, int qos, char *topic)
+static nng_msg *
+compose_subscribe(int qos, char *topic)
 {
+	nng_msg *msg;
+	nng_mqtt_msg_alloc(&msg, 0);
 	nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_SUBSCRIBE);
 
 	int count = 1;
@@ -166,52 +168,49 @@ compose_subscribe(nng_msg *msg, int qos, char *topic)
 
 	nng_mqtt_msg_set_subscribe_topics(msg, subscriptions, count);
 	property *p = mqtt_property_alloc();
-	property *p1 = mqtt_property_set_value_varint(SUBSCRIPTION_IDENTIFIER, 120);
+	property *p1 =
+	    mqtt_property_set_value_varint(SUBSCRIPTION_IDENTIFIER, 120);
 	mqtt_property_append(p, p1);
 	nng_mqtt_msg_set_subscribe_property(msg, p);
+	return msg;
 }
 
-
 static nng_msg *
-mqtt_msg_compose(int type, int qos, char *topic, char *payload)
+compose_publish(int qos, char *topic, char *payload)
 {
-	// Mqtt connect message
 	nng_msg *msg;
 	nng_mqtt_msg_alloc(&msg, 0);
+	nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_PUBLISH);
+	property *plist = mqtt_property_alloc();
+	property *p1 = mqtt_property_set_value_u8(PAYLOAD_FORMAT_INDICATOR, 1);
+	mqtt_property_append(plist, p1);
+	property *p2 = mqtt_property_set_value_u16(TOPIC_ALIAS, 10);
+	mqtt_property_append(plist, p2);
+	property *p3 =
+	    mqtt_property_set_value_u32(MESSAGE_EXPIRY_INTERVAL, 10);
+	mqtt_property_append(plist, p3);
+	property *p4 = mqtt_property_set_value_str(
+	    RESPONSE_TOPIC, "aaaaaa", strlen("aaaaaa"), true);
+	mqtt_property_append(plist, p4);
+	property *p5 = mqtt_property_set_value_binary(
+	    CORRELATION_DATA, (uint8_t *) "aaaaaa", strlen("aaaaaa"), true);
+	mqtt_property_append(plist, p5);
+	property *p6 = mqtt_property_set_value_strpair(USER_PROPERTY, "aaaaaa",
+	    strlen("aaaaaa"), "aaaaaa", strlen("aaaaaa"), true);
+	mqtt_property_append(plist, p6);
+	property *p7 = mqtt_property_set_value_str(
+	    CONTENT_TYPE, "aaaaaa", strlen("aaaaaa"), true);
+	mqtt_property_append(plist, p7);
 
-	if (type == CONN) {
-		compose_connect(msg);
-	} else if (type == SUB) {
-		compose_subscribe(msg, qos, topic);
-	} else if (type == PUB) {
-		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_PUBLISH);
-		property *plist = mqtt_property_alloc();
-		property *p1 = mqtt_property_set_value_u8(PAYLOAD_FORMAT_INDICATOR, 1);
-		mqtt_property_append(plist, p1);
-		property *p2 = mqtt_property_set_value_u16(TOPIC_ALIAS, 10);
-		mqtt_property_append(plist, p2);
-		property *p3 = mqtt_property_set_value_u32(MESSAGE_EXPIRY_INTERVAL, 10);
-		mqtt_property_append(plist, p3);
-		property *p4 = mqtt_property_set_value_str(RESPONSE_TOPIC, "aaaaaa", strlen("aaaaaa"), true);
-		mqtt_property_append(plist, p4);
-		property *p5 = mqtt_property_set_value_binary(
-		    CORRELATION_DATA, (uint8_t *) "aaaaaa", strlen("aaaaaa"), true);
-		mqtt_property_append(plist, p5);
-		property *p6 = mqtt_property_set_value_strpair(USER_PROPERTY, "aaaaaa", strlen("aaaaaa"), "aaaaaa", strlen("aaaaaa"), true);
-		mqtt_property_append(plist, p6);
-		property *p7 = mqtt_property_set_value_str(CONTENT_TYPE, "aaaaaa", strlen("aaaaaa"), true);
-		mqtt_property_append(plist, p7);
+	nng_mqtt_msg_set_publish_property(msg, plist);
 
-		nng_mqtt_msg_set_publish_property(msg, plist);
-
-		nng_mqtt_msg_set_publish_dup(msg, 0);
-		nng_mqtt_msg_set_publish_qos(msg, qos);
-		nng_mqtt_msg_set_publish_retain(msg, 0);
-		nng_mqtt_msg_set_publish_topic(msg, topic);
-		nng_mqtt_msg_set_publish_payload(
-		    msg, (uint8_t *) payload, strlen(payload));
-	}
-
+	nng_mqtt_msg_set_publish_dup(msg, 0);
+	nng_mqtt_msg_set_publish_qos(msg, qos);
+	nng_mqtt_msg_set_publish_retain(msg, 0);
+	nng_mqtt_msg_set_publish_topic(msg, topic);
+	nng_mqtt_msg_set_publish_payload(
+	    msg, (uint8_t *) payload, strlen(payload));
+	
 	return msg;
 }
 
@@ -250,7 +249,7 @@ msg_recv_cb(void *rmsg, void *arg)
 	printf("topic   => %.*s\n"
 	       "payload => %.*s\n",
 	    topicsz, topic, payloadsz, payload);
-	
+
 	property *pl = nng_mqtt_msg_get_publish_property(msg);
 	if (pl != NULL) {
 		mqtt_property_foreach(pl, print_property);
@@ -288,14 +287,13 @@ static void
 sendmsg_func(void *arg)
 {
 	nng_socket *sock = arg;
-	nng_msg    *msg  = mqtt_msg_compose(3, 1, "topic123", "hello quic");
+	nng_msg    *msg  = compose_publish(1, "topic123", "hello quic");
 
 	for (;;) {
 		nng_msleep(1000);
 		nng_msg *smsg;
 		nng_msg_dup(&smsg, msg);
 		nng_sendmsg(*sock, smsg, NNG_FLAG_NONBLOCK);
-
 	}
 }
 
@@ -334,7 +332,7 @@ client(int type, const char *url, const char *qos, const char *topic,
 	g_sock = &sock;
 
 	// MQTT Connect...
-	msg = mqtt_msg_compose(CONN, 0, NULL, NULL);
+	msg = compose_connect();
 	nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
 
 	uint8_t buff[1024] = { 0 };
@@ -358,17 +356,18 @@ client(int type, const char *url, const char *qos, const char *topic,
 	case CONN:
 		break;
 	case SUB:
-		msg = mqtt_msg_compose(SUB, q, (char *) topic, NULL);
+		msg = compose_subscribe(q, (char *) topic);
 		nng_sendmsg(*g_sock, msg, NNG_FLAG_ALLOC);
 
 		break;
 	case PUB:
-		msg = mqtt_msg_compose(PUB, q, (char *) topic, (char *) data);
+		msg = compose_publish(q, (char *) topic, (char *) data);
 		nng_sendmsg(*g_sock, msg, NNG_FLAG_ALLOC);
 		pl = nng_mqtt_msg_get_publish_property(msg);
 		if (pl != NULL) {
 			mqtt_property_foreach(pl, print_property);
 		}
+		goto done;
 
 #if defined(NNG_SUPP_SQLITE)
 		nng_thread *thr;
@@ -380,10 +379,10 @@ client(int type, const char *url, const char *qos, const char *topic,
 		printf("Unknown command.\n");
 	}
 
-
 	for (;;)
 		nng_msleep(1000);
 
+done:
 	nng_close(sock);
 	fprintf(stderr, "Done.\n");
 
