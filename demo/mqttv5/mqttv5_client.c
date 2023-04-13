@@ -133,8 +133,16 @@ client_connect(nng_socket *sock, const char *url, bool verbose)
 
 	property * p = mqtt_property_alloc();
 	property *p1 = mqtt_property_set_value_u32(MAXIMUM_PACKET_SIZE, 120);
+	property *p2 = mqtt_property_set_value_u16(TOPIC_ALIAS_MAXIMUM, 65535);
 	mqtt_property_append(p, p1);
+	mqtt_property_append(p, p2);
 	nng_mqtt_msg_set_connect_property(connmsg, p);
+
+	property *will_prop = mqtt_property_alloc();
+	property *will_up   = mqtt_property_set_value_strpair(USER_PROPERTY,
+            "user", strlen("user"), "pass", strlen("pass"), true);
+	mqtt_property_append(will_prop, will_up);
+	nng_mqtt_msg_set_connect_will_property(connmsg, will_prop);
 
 	nng_mqtt_set_connect_cb(*sock, connect_cb, sock);
 	nng_mqtt_set_disconnect_cb(*sock, disconnect_cb, connmsg);
@@ -207,7 +215,7 @@ static void
 send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
 	nng_aio *        aio    = client->send_aio;
 	uint32_t         count;
-	uint8_t *        code;
+	reason_code *    code;
 	uint8_t          type;
 
 	if (msg == NULL)
