@@ -327,9 +327,12 @@ NNG_DECL void nni_mqtt_msg_set_connect_user_name(nni_msg *, const char *);
 NNG_DECL void nni_mqtt_msg_set_connect_password(nni_msg *, const char *);
 NNG_DECL void nni_mqtt_msg_set_connect_will_retain(nni_msg *, bool);
 NNG_DECL void nni_mqtt_msg_set_connect_will_topic(nni_msg *, const char *);
-NNG_DECL void nni_mqtt_msg_set_connect_will_msg(nni_msg *, uint8_t *, uint32_t);
+NNG_DECL void nni_mqtt_msg_set_connect_will_msg(
+    nni_msg *, uint8_t *, uint32_t);
 NNG_DECL void nni_mqtt_msg_set_connect_will_qos(nni_msg *, uint8_t);
 NNG_DECL bool nni_mqtt_msg_get_connect_clean_session(nni_msg *);
+NNG_DECL void nni_mqtt_msg_set_connect_will_property(nni_msg *, property *);
+
 NNG_DECL uint8_t     nni_mqtt_msg_get_connect_proto_version(nni_msg *);
 NNG_DECL uint16_t    nni_mqtt_msg_get_connect_keep_alive(nni_msg *);
 NNG_DECL const char *nni_mqtt_msg_get_connect_user_name(nni_msg *);
@@ -337,8 +340,9 @@ NNG_DECL const char *nni_mqtt_msg_get_connect_password(nni_msg *);
 NNG_DECL const char *nni_mqtt_msg_get_connect_client_id(nni_msg *);
 NNG_DECL const char *nni_mqtt_msg_get_connect_will_topic(nni_msg *);
 NNG_DECL bool        nni_mqtt_msg_get_connect_will_retain(nni_msg *);
-NNG_DECL uint8_t *   nni_mqtt_msg_get_connect_will_msg(nni_msg *, uint32_t *);
-NNG_DECL uint8_t     nni_mqtt_msg_get_connect_will_qos(nni_msg *);
+NNG_DECL uint8_t *nni_mqtt_msg_get_connect_will_msg(nni_msg *, uint32_t *);
+NNG_DECL uint8_t  nni_mqtt_msg_get_connect_will_qos(nni_msg *);
+NNG_DECL void     nni_mqtt_msg_get_connect_will_property(nni_msg *);
 
 // mqtt disconnect
 NNG_DECL void nni_mqtt_msg_set_disconnect_reason_code(nng_msg *, uint8_t);

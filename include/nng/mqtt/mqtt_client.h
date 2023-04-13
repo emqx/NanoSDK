@@ -404,6 +404,8 @@ NNG_DECL void nng_mqtt_msg_set_connect_will_msg(
 NNG_DECL void        nng_mqtt_msg_set_connect_will_retain(nng_msg *, bool);
 NNG_DECL void        nng_mqtt_msg_set_connect_will_qos(nng_msg *, uint8_t);
 NNG_DECL void        nng_mqtt_msg_set_connect_property(nng_msg *, property *);
+NNG_DECL void        nng_mqtt_msg_get_connect_will_property(nng_msg *);
+NNG_DECL void nng_mqtt_msg_set_connect_will_property(nng_msg *, property *);
 NNG_DECL const char *nng_mqtt_msg_get_connect_user_name(nng_msg *);
 NNG_DECL const char *nng_mqtt_msg_get_connect_password(nng_msg *);
 NNG_DECL bool        nng_mqtt_msg_get_connect_clean_session(nng_msg *);

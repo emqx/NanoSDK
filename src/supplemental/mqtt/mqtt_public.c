@@ -81,6 +81,12 @@ nng_mqtt_msg_set_connect_will_qos(nng_msg *msg, uint8_t will_qos)
 	nni_mqtt_msg_set_connect_will_qos(msg, will_qos);
 }
 
+void
+nng_mqtt_msg_get_connect_will_property(nng_msg *msg)
+{
+	nni_mqtt_msg_get_connect_will_property(msg);
+}
+
 bool
 nng_mqtt_msg_get_connect_clean_session(nng_msg *msg)
 {
@@ -146,6 +152,12 @@ void
 nng_mqtt_msg_set_connect_property(nng_msg *msg, property *p)
 {
 	nni_mqtt_msg_set_connect_property(msg, p);
+}
+
+void
+nng_mqtt_msg_set_connect_will_property(nng_msg *msg, property *prop)
+{
+	nni_mqtt_msg_set_connect_will_property(msg, prop);
 }
 
 uint8_t
