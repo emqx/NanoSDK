@@ -255,7 +255,6 @@ endif ()
 
 if(NNG_ENABLE_QUIC)
   set(NNG_PROTO_MQTT_QUIC_CLIENT ON)
-  add_definitions(-DQUIC_API_ENABLE_PREVIEW_FEATURES)
   add_definitions(-DSUPP_QUIC)
 endif ()
 
