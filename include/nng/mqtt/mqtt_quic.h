@@ -45,6 +45,7 @@ struct conf_quic {
 	uint8_t      qcongestion_control; // congestion control algorithm 1: bbr 0: cubic
 };
 
+// It is an interface only for ffi.
 void conf_quic_tls_create(conf_quic **cqp, char *cafile, char *certfile,
     char *keyfile, char *key_pwd);
 

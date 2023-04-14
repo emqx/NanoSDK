@@ -1832,14 +1832,22 @@ nng_mqtt_quic_client_open_conf(nng_socket *sock, const char *url, conf_quic *con
 	return rv;
 }
 
+/*
+ * It is an interface only for ffi.
+ */
 void conf_quic_tls_create(conf_quic **cqp, char *cafile, char *certfile,
     char *keyfile, char *key_pwd) {
 	conf_quic *cq = nng_alloc(sizeof(conf_quic));
+
 	cq->tls.enable = true;
-	cq->tls.cafile = cafile;
-	cq->tls.certfile = certfile;
-	cq->tls.keyfile = keyfile;
-	cq->tls.key_password = key_pwd;
+
+	// Leak here. But on some ffi.
+	// The input arguments would be lost when exit current scope.
+	cq->tls.cafile = strdup(cafile);
+	cq->tls.certfile = strdup(certfile);
+	cq->tls.keyfile = strdup(keyfile);
+	cq->tls.key_password = strdup(key_pwd);
+
 	cq->tls.verify_peer = true;
 	cq->multi_stream = false;
 	cq->qos_first = false;
@@ -1850,6 +1858,7 @@ void conf_quic_tls_create(conf_quic **cqp, char *cafile, char *certfile,
 
 	*cqp = cq;
 }
+
 /**
  * init an AIO for Acknoledgement message only, in order to make QoS/connect truly asychrounous
  * For QoS 0 message, we do not care the result of sending
