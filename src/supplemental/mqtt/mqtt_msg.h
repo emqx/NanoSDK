@@ -342,7 +342,7 @@ NNG_DECL const char *nni_mqtt_msg_get_connect_will_topic(nni_msg *);
 NNG_DECL bool        nni_mqtt_msg_get_connect_will_retain(nni_msg *);
 NNG_DECL uint8_t *nni_mqtt_msg_get_connect_will_msg(nni_msg *, uint32_t *);
 NNG_DECL uint8_t  nni_mqtt_msg_get_connect_will_qos(nni_msg *);
-NNG_DECL void     nni_mqtt_msg_get_connect_will_property(nni_msg *);
+NNG_DECL property *nni_mqtt_msg_get_connect_will_property(nni_msg *);
 
 // mqtt disconnect
 NNG_DECL void nni_mqtt_msg_set_disconnect_reason_code(nng_msg *, uint8_t);
