@@ -81,10 +81,10 @@ nng_mqtt_msg_set_connect_will_qos(nng_msg *msg, uint8_t will_qos)
 	nni_mqtt_msg_set_connect_will_qos(msg, will_qos);
 }
 
-void
+property *
 nng_mqtt_msg_get_connect_will_property(nng_msg *msg)
 {
-	nni_mqtt_msg_get_connect_will_property(msg);
+	return nni_mqtt_msg_get_connect_will_property(msg);
 }
 
 bool
