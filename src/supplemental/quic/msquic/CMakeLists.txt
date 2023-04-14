@@ -37,4 +37,6 @@ if(NNG_QUIC_LIB STREQUAL "msquic")
         ${MSQUIC_LIBRARIES})
     mark_as_advanced(QUIC_LIBRARIES)
 
+    message(" ** Build msquic with nanosdk ** ")
+
 endif()
