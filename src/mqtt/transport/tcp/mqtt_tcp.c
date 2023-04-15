@@ -691,8 +691,14 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 				ack_cmd = CMD_PUBACK;
 			} else if (qos_pac == 2) {
 				ack_cmd = CMD_PUBREC;
+			} else {
+				rv = PROTOCOL_ERROR;
+				goto recv_error;
 			}
-			packet_id = nni_msg_get_pub_pid(msg);
+			if ((packet_id = nni_msg_get_pub_pid(msg)) == 0) {
+				rv = PROTOCOL_ERROR;
+				goto recv_error;
+			}
 			ack = true;
 		}
 		break;
