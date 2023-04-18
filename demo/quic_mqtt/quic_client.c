@@ -89,8 +89,6 @@ mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 	} else if (type == SUB) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_SUBSCRIBE);
 
-		int count = 1;
-
 		nng_mqtt_topic_qos subscriptions[] = {
 			{
 				.qos   = qos,
@@ -100,6 +98,7 @@ mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 				}
 			},
 		};
+		int count = sizeof(subscriptions) / sizeof(nng_mqtt_topic_qos);
 
 		nng_mqtt_msg_set_subscribe_topics(msg, subscriptions, count);
 	} else if (type == PUB) {
