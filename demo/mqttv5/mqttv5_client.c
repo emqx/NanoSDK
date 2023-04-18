@@ -215,7 +215,7 @@ static void
 send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
 	nng_aio *        aio    = client->send_aio;
 	uint32_t         count;
-	reason_code *    code;
+	uint8_t *        code;
 	uint8_t          type;
 
 	if (msg == NULL)
@@ -474,7 +474,8 @@ main(const int argc, const char **argv)
 
 		// Asynchronous subscription
 		nng_mqtt_client *client = nng_mqtt_client_alloc(sock, &send_callback, true);
-		nng_mqtt_subscribe_async(client, subscriptions, 1, plist);
+		nng_mqtt_subscribe_async(client, subscriptions,
+		    sizeof(subscriptions) / sizeof(nng_mqtt_topic_qos), plist);
 
 		printf("Start receiving loop:\n");
 		while (true) {
@@ -492,14 +493,16 @@ main(const int argc, const char **argv)
 		// Sync unsubscription
 		// rv = nng_mqtt_unsubscribe(sock, subscriptions, 1, plist);
 		// Asynchronous unsubscription
-		nng_mqtt_unsubscribe_async(
-		    client, unsubscriptions, 1, unsub_plist);
+		nng_mqtt_unsubscribe_async(client, unsubscriptions,
+		    sizeof(unsubscriptions) / sizeof(nng_mqtt_topic),
+		    unsub_plist);
 		nng_mqtt_client_free(client, true);
 	}
 
 	// disconnect 
 	property *plist = mqtt_property_alloc();
-	property *p = mqtt_property_set_value_strpair(USER_PROPERTY, "aaa", strlen("aaa"), "aaa", strlen("aaa"), true);
+	property *p     = mqtt_property_set_value_strpair(
+            USER_PROPERTY, "aaa", strlen("aaa"), "aaa", strlen("aaa"), true);
 	mqtt_property_append(plist, p);
 	nng_mqtt_disconnect(&sock, 5, plist);
 	return 0;

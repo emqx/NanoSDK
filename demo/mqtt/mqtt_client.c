@@ -353,8 +353,8 @@ main(const int argc, const char **argv)
 
 		// Asynchronous subscription
 		nng_mqtt_client *client = nng_mqtt_client_alloc(sock, &send_callback, true);
-		nng_mqtt_subscribe_async(client, subscriptions, 1, NULL);
-
+		nng_mqtt_subscribe_async(client, subscriptions,
+		    sizeof(subscriptions) / sizeof(nng_mqtt_topic_qos), NULL);
 
 		uint8_t buff[1024] = { 0 };
 		printf("Start receiving loop:\n");
@@ -384,7 +384,8 @@ main(const int argc, const char **argv)
 			// break;
 		}
 
-		nng_mqtt_unsubscribe_async(client, unsubscriptions, 1, NULL);
+		nng_mqtt_unsubscribe_async(client, unsubscriptions,
+		    sizeof(unsubscriptions) / sizeof(nng_mqtt_topic), NULL);
 	}
 
 	nng_msleep(1000);

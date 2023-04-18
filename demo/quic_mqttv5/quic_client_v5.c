@@ -158,13 +158,14 @@ compose_subscribe(int qos, char *topic)
 	nng_mqtt_msg_alloc(&msg, 0);
 	nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_SUBSCRIBE);
 
-	int count = 1;
 
 	nng_mqtt_topic_qos subscriptions[] = {
 		{ .qos     = qos,
 		    .topic = { .buf = (uint8_t *) topic,
 		        .length     = strlen(topic) } },
 	};
+
+	int count = sizeof(subscriptions) / sizeof(nng_mqtt_topic_qos);
 
 	nng_mqtt_msg_set_subscribe_topics(msg, subscriptions, count);
 	property *p = mqtt_property_alloc();
