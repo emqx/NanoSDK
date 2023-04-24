@@ -490,6 +490,7 @@ These functions are intended for use with MQTT client applications.
 |xref:nng_mqttv5_client_open.3.adoc[nng_mqttv5_client_open]|open mqtt V5 client socket
 |xref:nng_mqtt_set_cb.3.adoc[nng_mqtt_set_connect_cb]| set mqtt connect callback function
 |xref:nng_mqtt_set_cb.3.adoc[nng_mqtt_set_disconnect_cb]| set mqtt disconnect callback function
+|xref:nng_mqtt_set_sqlite.3.adoc[nng_mqtt_sqlite]|set SQLite options
 |===
 
 == SEE ALSO
