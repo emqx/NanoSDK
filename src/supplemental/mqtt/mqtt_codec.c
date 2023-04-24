@@ -4183,10 +4183,11 @@ int
 nni_mqtt_msgack_encode(nng_msg *msg, uint16_t packet_id, uint8_t reason_code,
     property *prop, uint8_t proto_ver)
 {
-	uint8_t rbuf[2] = { 0 };
+	uint8_t *rbuf = nni_zalloc(2);
 	NNI_PUT16(rbuf, packet_id);
 	nni_msg_clear(msg);
 	nni_msg_append(msg, rbuf, 2);
+	nni_free(rbuf, 2);
 
 	if (proto_ver == MQTT_PROTOCOL_VERSION_v5) {
 		if (reason_code == 0 && prop == NULL) {
