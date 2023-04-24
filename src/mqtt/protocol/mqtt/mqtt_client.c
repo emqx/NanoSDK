@@ -1,5 +1,4 @@
-//
-// Copyright 2022 NanoMQ Team, Inc. <jaylin@emqx.io>
+// Copyright 2023 NanoMQ Team, Inc. <jaylin@emqx.io>
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
