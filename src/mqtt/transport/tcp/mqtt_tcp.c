@@ -56,7 +56,7 @@ struct mqtt_tcptran_pipe {
 	nni_aio         *rpaio;
 	nni_msg         *rxmsg;
 	nni_msg         *smsg;
-	nni_lmq          rslmq;
+	// nni_lmq          rslmq;
 	nni_mtx          mtx;
 	bool             closed;
 	bool             busy;
@@ -128,7 +128,7 @@ mqtt_tcptran_pipe_close(void *arg)
 	nni_mtx_lock(&p->mtx);
 
 	p->closed = true;
-	nni_lmq_flush(&p->rslmq);
+	// nni_lmq_flush(&p->rslmq);
 	nni_mtx_unlock(&p->mtx);
 
 	nni_aio_close(p->rxaio);
@@ -195,7 +195,7 @@ mqtt_tcptran_pipe_init(void *arg, nni_pipe *npipe)
 	mqtt_tcptran_pipe *p = arg;
 	p->npipe             = npipe;
 
-	nni_lmq_init(&p->rslmq, 16);
+	// nni_lmq_init(&p->rslmq, 10240);
 	p->busy = false;
 	p->packmax = 0xFFFF;
 	p->qosmax  = 2;
@@ -228,7 +228,7 @@ mqtt_tcptran_pipe_fini(void *arg)
 	nni_aio_free(p->rpaio);
 	nng_stream_free(p->conn);
 	nni_msg_free(p->rxmsg);
-	nni_lmq_fini(&p->rslmq);
+	// nni_lmq_fini(&p->rslmq);
 	nni_mtx_fini(&p->mtx);
 	nni_aio_fini(&p->tmaio);
 	NNI_FREE_STRUCT(p);
@@ -521,19 +521,21 @@ mqtt_tcptran_pipe_qos_send_cb(void *arg)
 	msg = nni_aio_get_msg(p->qsaio);
 	if (msg != NULL)
 		nni_msg_free(msg);
-	if (nni_lmq_get(&p->rslmq, &msg) == 0) {
-		nni_iov iov;
-		// TODO QOS V5
-		iov.iov_len = 4;
-		iov.iov_buf = nni_msg_header(msg);
-		nni_aio_set_msg(p->qsaio, msg);
-		// send it down...
-		nni_aio_set_iov(p->qsaio, 1, &iov);
-		nng_stream_send(p->conn, p->qsaio);
-		p->busy = true;
-		nni_mtx_unlock(&p->mtx);
-		return;
-	}
+	// if (nni_lmq_get(&p->rslmq, &msg) == 0) {
+	// 	nni_iov iov[2];
+	// 	// TODO QOS V5
+	// 	iov[0].iov_len = nni_msg_header_len(msg);
+	// 	iov[0].iov_buf = nni_msg_header(msg);
+	// 	iov[1].iov_len = nni_msg_len(msg);
+	// 	iov[1].iov_buf = nni_msg_body(msg);
+	// 	p->busy        = true;
+	// 	nni_aio_set_msg(p->qsaio, msg);
+	// 	// send ACK down...
+	// 	nni_aio_set_iov(p->qsaio, 2, iov);
+	// 	nng_stream_send(p->conn, p->qsaio);
+	// 	nni_mtx_unlock(&p->mtx);
+	// 	return;
+	// }
 	p->busy = false;
 	nni_aio_set_msg(qsaio, NULL);
 	nni_mtx_unlock(&p->mtx);
@@ -762,40 +764,41 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 			property_free(prop);
 		}
 		// aio_begin?
-		if (p->busy == false) {
-			iov[0].iov_len = nni_msg_header_len(qmsg);
-			iov[0].iov_buf = nni_msg_header(qmsg);
-			iov[1].iov_len = nni_msg_len(qmsg);
-			iov[1].iov_buf = nni_msg_body(qmsg);
-			p->busy        = true;
-			nni_aio_set_msg(p->qsaio, qmsg);
-			// send ACK down...
-			nni_aio_set_iov(p->qsaio, 2, iov);
-			nng_stream_send(p->conn, p->qsaio);
-		} else {
-			if (nni_lmq_full(&p->rslmq)) {
-				// Make space for the new message. TODO add max
-				// limit of msgq len in conf
-				if (nni_lmq_cap(&p->rslmq) <=
-				    NNG_TRAN_MAX_LMQ_SIZE) {
-					if ((rv = nni_lmq_resize(&p->rslmq,
-					         nni_lmq_cap(&p->rslmq) *
-					             2)) == 0) {
-						nni_lmq_put(&p->rslmq, qmsg);
-					} else {
-						// memory error.
-						nni_msg_free(qmsg);
-					}
-				} else {
-					nni_msg *old;
-					(void) nni_lmq_get(&p->rslmq, &old);
-					nni_msg_free(old);
-					nni_lmq_put(&p->rslmq, qmsg);
-				}
-			} else {
-				nni_lmq_put(&p->rslmq, qmsg);
-			}
-		}
+		// if (!nni_aio_busy(p->qsaio)) {
+		iov[0].iov_len = nni_msg_header_len(qmsg);
+		iov[0].iov_buf = nni_msg_header(qmsg);
+		iov[1].iov_len = nni_msg_len(qmsg);
+		iov[1].iov_buf = nni_msg_body(qmsg);
+		p->busy        = true;
+		nni_aio_set_msg(p->qsaio, qmsg);
+		// send ACK down...
+		nni_aio_set_iov(p->qsaio, 2, iov);
+		nng_stream_send(p->conn, p->qsaio);
+		// }
+		// else {
+		// 	if (nni_lmq_full(&p->rslmq)) {
+		// 		// Make space for the new message. TODO add max
+		// 		// limit of msgq len in conf
+		// 		if (nni_lmq_cap(&p->rslmq) <=
+		// 		    NNG_TRAN_MAX_LMQ_SIZE) {
+		// 			if ((rv = nni_lmq_resize(&p->rslmq,
+		// 			         nni_lmq_cap(&p->rslmq) *
+		// 			             2)) == 0) {
+		// 				nni_lmq_put(&p->rslmq, qmsg);
+		// 			} else {
+		// 				// memory error.
+		// 				nni_msg_free(qmsg);
+		// 			}
+		// 		} else {
+		// 			nni_msg *old;
+		// 			(void) nni_lmq_get(&p->rslmq, &old);
+		// 			nni_msg_free(old);
+		// 			nni_lmq_put(&p->rslmq, qmsg);
+		// 		}
+		// 	} else {
+		// 		nni_lmq_put(&p->rslmq, qmsg);
+		// 	}
+		// }
 		ack = false;
 	}
 
