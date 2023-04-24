@@ -65,6 +65,8 @@ struct mqtt_tcptran_pipe {
 struct mqtt_tcptran_ep {
 	nni_mtx              mtx;
 	uint16_t             proto; //socket's 16-bit protocol number
+	nni_duration         backoff;
+	nni_duration         backoff_max;
 	bool                 fini;
 	bool                 started;
 	bool                 closed;
@@ -172,6 +174,7 @@ mqtt_pipe_timer_cb(void *arg)
 		nng_stream_send(p->conn, p->qsaio);
 		p->pingcnt ++;
 	}
+	log_info("send pingreq!");
 	nni_mtx_unlock(&p->mtx);
 	nni_sleep_aio(p->keepalive, &p->tmaio);
 }
@@ -1344,6 +1347,7 @@ mqtt_tcptran_ep_init(mqtt_tcptran_ep **epp, nng_url *url, nni_sock *sock)
 	ep->connmsg     = NULL;
 	ep->reason_code = 0;
 	ep->property    = NULL;
+	ep->backoff     = 0;
 
 #ifdef NNG_ENABLE_STATS
 	static const nni_stat_info rcv_max_info = {
@@ -1455,14 +1459,26 @@ mqtt_tcptran_ep_cancel(nni_aio *aio, void *arg, int rv)
 	nni_mtx_unlock(&ep->mtx);
 }
 
+// called by dialer
 static void
 mqtt_tcptran_ep_connect(void *arg, nni_aio *aio)
 {
 	mqtt_tcptran_ep *ep = arg;
 	int              rv;
+	nni_duration     time;
 
 	if (nni_aio_begin(aio) != 0) {
 		return;
+	}
+	if (ep->backoff != 0) {
+		ep->backoff = ep->backoff * 2;
+		ep->backoff = ep->backoff > ep->backoff_max
+		    ? nni_random() % 2000
+		    : ep->backoff;
+		log_debug("reconnect in %ld", ep->backoff);
+		nni_msleep(ep->backoff);
+	} else {
+		ep->backoff = nni_random()%2000;
 	}
 	nni_mtx_lock(&ep->mtx);
 	if (ep->closed) {
@@ -1554,6 +1570,25 @@ mqtt_tcptran_ep_set_connmsg(
 	return (rv);
 }
 
+// NanoSDK use exponential backoff strategy as default
+// Backoff for random time that exponentially curving
+static void
+mqtt_tcptran_ep_set_reconnect_backoff(void *arg, const void *v, size_t sz, nni_opt_type t)
+{
+	mqtt_tcptran_ep *ep = arg;
+	nni_duration    tmp;
+	int rv;
+
+	// max backoff time cannot exceed 10min
+
+	if ((rv = nni_copyin_ms(&tmp, v, sz, t)) == 0) {
+		nni_mtx_lock(&ep->mtx);
+		ep->backoff_max = tmp > 600000 ? 360000 : tmp;
+		nni_mtx_unlock(&ep->mtx);
+	}
+	return (rv);
+}
+
 static int
 mqtt_tcptran_ep_bind(void *arg)
 {
@@ -1628,6 +1663,10 @@ static const nni_option mqtt_tcptran_ep_opts[] = {
 	    .o_set  = mqtt_tcptran_ep_set_connmsg,
 	},
 	{
+	    .o_name = NNG_OPT_MQTT_RECONNECT_BACKOFF_MAX,
+	    .o_set  = mqtt_tcptran_ep_set_reconnect_backoff,
+	},
+	{
 	    .o_name = NNG_OPT_URL,
 	    .o_get  = mqtt_tcptran_ep_get_url,
 	},
@@ -1658,7 +1697,6 @@ mqtt_tcptran_dialer_setopt(
 	mqtt_tcptran_ep *ep = arg;
 	int              rv;
 
-	// TODO get mqtt dialer's option
 	rv = nni_stream_dialer_set(ep->dialer, name, buf, sz, t);
 	if (rv == NNG_ENOTSUP) {
 		rv = nni_setopt(mqtt_tcptran_ep_opts, name, ep, buf, sz, t);
