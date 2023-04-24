@@ -192,7 +192,7 @@ mqtts_tcptran_pipe_init(void *arg, nni_pipe *npipe)
 	mqtts_tcptran_pipe *p = arg;
 	p->npipe              = npipe;
 
-	nni_lmq_init(&p->rslmq, 16);
+	nni_lmq_init(&p->rslmq, 1024);
 	p->packmax = 0xFFFF;
 	p->qosmax  = 2;
 	p->busy    = false;
