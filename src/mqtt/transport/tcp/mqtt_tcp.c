@@ -174,7 +174,6 @@ mqtt_pipe_timer_cb(void *arg)
 		nng_stream_send(p->conn, p->qsaio);
 		p->pingcnt ++;
 	}
-	log_info("send pingreq!");
 	nni_mtx_unlock(&p->mtx);
 	nni_sleep_aio(p->keepalive, &p->tmaio);
 }
@@ -1474,7 +1473,6 @@ mqtt_tcptran_ep_connect(void *arg, nni_aio *aio)
 		ep->backoff = ep->backoff > ep->backoff_max
 		    ? nni_random() % 2000
 		    : ep->backoff;
-		log_debug("reconnect in %ld", ep->backoff);
 		nni_msleep(ep->backoff);
 	} else {
 		ep->backoff = nni_random()%2000;
