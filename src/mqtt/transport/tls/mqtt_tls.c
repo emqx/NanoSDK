@@ -509,16 +509,16 @@ mqtts_tcptran_pipe_qos_send_cb(void *arg)
 	if (msg != NULL)
 		nni_msg_free(msg);
 	if (nni_lmq_get(&p->rslmq, &msg) == 0) {
-		nni_iov iov[2];
-		// TODO QOS V5
-		iov[0].iov_len = nni_msg_header_len(msg);
-		iov[0].iov_buf = nni_msg_header(msg);
-		iov[1].iov_len = nni_msg_len(msg);
-		iov[1].iov_buf = nni_msg_body(msg);
-		p->busy        = true;
+		nni_iov iov;
+		// TLS transport can only use one single iov
+		nni_msg_insert(
+		    msg, nni_msg_header(msg), nni_msg_header_len(msg));
+		iov.iov_len = nni_msg_len(msg);
+		iov.iov_buf = nni_msg_body(msg);
+		p->busy     = true;
 		nni_aio_set_msg(p->qsaio, msg);
 		// send ACK down...
-		nni_aio_set_iov(p->qsaio, 2, iov);
+		nni_aio_set_iov(p->qsaio, 1, &iov);
 		nng_stream_send(p->conn, p->qsaio);
 		nni_mtx_unlock(&p->mtx);
 		return;
