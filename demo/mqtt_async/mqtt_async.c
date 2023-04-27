@@ -235,7 +235,7 @@ client(const char *url, uint8_t proto_ver)
 	struct work *works[nwork];
 	int          i;
 	int          rv;
-
+	
 	if (proto_ver == MQTT_PROTOCOL_VERSION_v5) {
 		if ((rv = nng_mqttv5_client_open(&sock)) != 0) {
 			fatal("nng_socket", rv);
@@ -394,8 +394,8 @@ out:
 }
 
 int
-tls_client(const char *url, const char *ca, const char *cert, const char *key,
-    const char *pass)
+tls_client(const char *url, uint8_t proto_ver, const char *ca,
+    const char *cert, const char *key, const char *pass)
 {
 	nng_socket   sock;
 	nng_dialer   dialer;
@@ -403,8 +403,14 @@ tls_client(const char *url, const char *ca, const char *cert, const char *key,
 	int          i;
 	int          rv;
 
-	if ((rv = nng_mqtt_client_open(&sock)) != 0) {
-		fatal("nng_socket", rv);
+	if (proto_ver == MQTT_PROTOCOL_VERSION_v5) {
+		if ((rv = nng_mqttv5_client_open(&sock)) != 0) {
+			fatal("nng_socket", rv);
+		}
+	} else {
+		if ((rv = nng_mqtt_client_open(&sock)) != 0) {
+			fatal("nng_socket", rv);
+		}
 	}
 
 	for (i = 0; i < nwork; i++) {
@@ -416,6 +422,7 @@ tls_client(const char *url, const char *ca, const char *cert, const char *key,
 	nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
 	nng_mqtt_msg_set_connect_keep_alive(msg, 60);
 	nng_mqtt_msg_set_connect_clean_session(msg, true);
+	nng_mqtt_msg_set_connect_proto_version(msg, proto_ver);
 
 	nng_mqtt_set_connect_cb(sock, connect_cb, &sock);
 	nng_mqtt_set_disconnect_cb(sock, disconnect_cb, NULL);
@@ -544,7 +551,7 @@ main(int argc, char **argv)
 
 	if (enable_ssl) {
 #ifdef NNG_SUPP_TLS
-		tls_client(url, cafile, cert, key, key_psw);
+		tls_client(url, proto_ver, cafile, cert, key, key_psw);
 #else
 		fprintf(stderr, "tls client: Not supported \n");
 #endif
