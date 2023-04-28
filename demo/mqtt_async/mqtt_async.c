@@ -377,7 +377,7 @@ init_dialer_tls(nng_dialer d, const char *cacert, const char *cert,
 			goto out;
 		}
 	} else {
-		nng_tls_config_auth_mode(cfg, NNG_TLS_AUTH_MODE_NONE);
+		nng_tls_config_auth_mode(cfg, NNG_TLS_AUTH_MODE_OPTIONAL);
 	}
 
 	if (cacert != NULL) {
@@ -423,6 +423,8 @@ tls_client(const char *url, uint8_t proto_ver, const char *ca,
 	nng_mqtt_msg_set_connect_keep_alive(msg, 60);
 	nng_mqtt_msg_set_connect_clean_session(msg, true);
 	nng_mqtt_msg_set_connect_proto_version(msg, proto_ver);
+	nng_mqtt_msg_set_connect_user_name(msg, "emqx");
+	nng_mqtt_msg_set_connect_password(msg, "emqx123");
 
 	nng_mqtt_set_connect_cb(sock, connect_cb, &sock);
 	nng_mqtt_set_disconnect_cb(sock, disconnect_cb, NULL);
@@ -436,7 +438,9 @@ tls_client(const char *url, uint8_t proto_ver, const char *ca,
 	}
 
 	nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, msg);
-	nng_dialer_start(dialer, NNG_FLAG_NONBLOCK);
+	if ((rv = nng_dialer_start(dialer, NNG_FLAG_ALLOC)) != 0){
+		fatal("nng_dialer_start", rv);
+	}
 
 	for (i = 0; i < nwork; i++) {
 		client_cb(works[i]);
