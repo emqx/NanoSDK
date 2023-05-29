@@ -363,11 +363,11 @@ client(int type, const char *url, const char *qos, const char *topic,
 		break;
 	case PUB:
 		msg = compose_publish(q, (char *) topic, (char *) data);
-		nng_sendmsg(*g_sock, msg, NNG_FLAG_ALLOC);
 		pl = nng_mqtt_msg_get_publish_property(msg);
 		if (pl != NULL) {
 			mqtt_property_foreach(pl, print_property);
 		}
+		nng_sendmsg(*g_sock, msg, NNG_FLAG_ALLOC);
 		goto done;
 
 #if defined(NNG_SUPP_SQLITE)
