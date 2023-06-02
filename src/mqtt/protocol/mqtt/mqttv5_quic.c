@@ -1,5 +1,5 @@
 //
-// Copyright 2022 NanoMQ Team, Inc. <jaylin@emqx.io>
+// Copyright 2023 NanoMQ Team, Inc. <jaylin@emqx.io>
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -55,6 +55,19 @@ static int mqtt_sub_stream(mqtt_pipe_t *p, nni_msg *msg, uint16_t packet_id, nni
 static void *mqtt_quic_sock_get_sqlite_option(mqtt_sock_t *s);
 #endif
 
+#define QUIC_API_C_DEBUG 0
+
+#if MQTT_PROTOCOL_DEBUG
+#define qdebug(fmt, ...)                                                 \
+	do {                                                            \
+		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
+	} while (0)
+
+#define log_debug(fmt, ...)                                                 \
+	do {                                                            \
+		printf("[%s]: " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
+	} while (0)
+
 #define log_info(fmt, ...)                                                 \
 	do {                                                            \
 		printf("[%s]: " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
@@ -65,15 +78,18 @@ static void *mqtt_quic_sock_get_sqlite_option(mqtt_sock_t *s);
 		printf("[%s]: " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
 	} while (0)
 
-#define log_debug(fmt, ...)                                                 \
-	do {                                                            \
-		printf("[%s]: " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
-	} while (0)
-
 #define log_error(fmt, ...)                                                 \
 	do {                                                            \
 		printf("[%s]: " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
 	} while (0)
+
+#else
+#define qdebug(fmt, ...) do {} while(0)
+#define log_debug(fmt, ...) do {} while(0)
+#define log_info(fmt, ...) do {} while(0)
+#define log_warn(fmt, ...) do {} while(0)
+#define log_error(fmt, ...) do {} while(0)
+#endif
 
 
 //default QUIC config for define QUIC transport
@@ -871,15 +887,18 @@ mqtt_quic_recv_cb(void *arg)
 	nni_msg * cached_msg = NULL;
 	nni_aio *aio;
 
-	if (nni_aio_result(&p->recv_aio) != 0) {
+	if (s == NULL || nni_aio_result(&p->recv_aio) != 0) {
 		// stream is closed in transport layer
+		log_warn("Stream is closed!");
 		return;
 	}
 
 	nni_mtx_lock(&s->mtx);
+	nni_sock_hold(s->nsock);
 	nni_msg *msg = nni_aio_get_msg(&p->recv_aio);
 	nni_aio_set_msg(&p->recv_aio, NULL);
 	if (msg == NULL) {
+		nni_sock_rele(s->nsock);
 		nni_mtx_unlock(&s->mtx);
 		quic_pipe_recv(p->qpipe, &p->recv_aio);
 		return;
@@ -890,6 +909,7 @@ mqtt_quic_recv_cb(void *arg)
 		if (msg) {
 			nni_msg_free(msg);
 		}
+		nni_sock_rele(s->nsock);
 		nni_mtx_unlock(&s->mtx);
 		return;
 	}
@@ -909,6 +929,7 @@ mqtt_quic_recv_cb(void *arg)
 
 	// Restore pingcnt
 	s->pingcnt = 0;
+
 	switch (packet_type) {
 	case NNG_MQTT_CONNACK:
 		// Clone CONNACK for connect_cb & aio_cb
@@ -1069,6 +1090,7 @@ mqtt_quic_recv_cb(void *arg)
 		// Rely on health checker of Quic stream
 		// free msg
 		nni_msg_free(msg);
+		nni_sock_rele(s->nsock);
 		nni_mtx_unlock(&s->mtx);
 		return;
 	case NNG_MQTT_PUBREC:
@@ -1081,16 +1103,19 @@ mqtt_quic_recv_cb(void *arg)
 		// ignore result of this send ?
 		mqtt_send_msg(NULL, ack, s);
 		nni_msg_free(msg);
+		nni_sock_rele(s->nsock);
 		nni_mtx_unlock(&s->mtx);
 		return;
 	default:
 		// unexpected packet type, server misbehaviour
 		nni_msg_free(msg);
+		nni_sock_rele(s->nsock);
 		nni_mtx_unlock(&s->mtx);
 		// close quic stream
 		// nni_pipe_close(p->pipe);
 		return;
 	}
+	nni_sock_rele(s->nsock);
 	nni_mtx_unlock(&s->mtx);
 
 	if (user_aio) {
@@ -1201,22 +1226,15 @@ static void
 mqtt_quic_sock_fini(void *arg)
 {
 	mqtt_sock_t *s = arg;
-	/*
-#if defined(NNG_SUPP_SQLITE) && defined(NNG_HAVE_MQTT_BROKER)
-	bool is_sqlite = get_persist(s);
-	if (is_sqlite) {
-		nni_qos_db_fini_sqlite(s->sqlite_db);
-		nni_lmq_fini(&s->offline_cache);
-	}
-#endif
-	*/
-	if (s->multi_stream) {
-		nni_id_map_fini(s->streams);
-		nng_free(s->streams, sizeof(nni_id_map));
-	}
+
+	nni_id_map_fini(s->streams);
+	nng_free(s->streams, sizeof(nni_id_map));
 	mqtt_quic_ctx_fini(&s->master);
 	nni_lmq_fini(&s->send_messages);
 	nni_aio_fini(&s->time_aio);
+	nni_msg_free(s->connmsg);
+	nni_msg_free(s->ping_msg);
+	s = NULL;
 }
 
 static void
@@ -1363,11 +1381,7 @@ quic_mqtt_stream_fini(void *arg)
 	nni_aio_fini(&p->recv_aio);
 	nni_aio_fini(&p->rep_aio);
 	nni_aio_abort(&s->time_aio, 0);
-	/*
-#if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
-	nni_id_map_fini(&p->sent_unack);
-#endif
-	*/
+
 	nni_id_map_fini(&p->recv_unack);
 	nni_id_map_fini(&p->sent_unack);
 	if(s->multi_stream)
@@ -1454,7 +1468,6 @@ quic_mqtt_stream_stop(void *arg)
 	mqtt_pipe_t *p = arg;
 	mqtt_sock_t *s = p->mqtt_sock;
 	nni_msg *msg;
-	nni_aio *aio;
 
 	if (!nni_atomic_get_bool(&p->closed))
 		if (quic_pipe_close(p->qpipe, &p->reason_code) == 0) {
@@ -1494,11 +1507,6 @@ quic_mqtt_stream_stop(void *arg)
 		nni_aio_fini(&p->recv_aio);
 		nni_aio_fini(&p->rep_aio);
 
-		/*
-	#if defined(NNG_HAVE_MQTT_BROKER) && defined(NNG_SUPP_SQLITE)
-		nni_id_map_fini(&p->sent_unack);
-	#endif
-		*/
 		nni_id_map_fini(&p->recv_unack);
 		nni_id_map_fini(&p->sent_unack);
 		if (s->multi_stream)
@@ -1523,6 +1531,7 @@ quic_mqtt_stream_close(void *arg)
 
 	nni_atomic_set_bool(&p->closed, true);
 	nni_mtx_lock(&s->mtx);
+	nni_sock_hold(s->nsock);
 	s->pipe = NULL;
 	nni_aio_close(&p->send_aio);
 	nni_aio_close(&p->recv_aio);
@@ -1536,11 +1545,13 @@ quic_mqtt_stream_close(void *arg)
 	nni_lmq_flush(&p->recv_messages);
 	if(s->multi_stream)
 		nni_lmq_flush(&p->send_inflight);
-	nni_id_map_foreach(&p->sent_unack, mqtt_close_unack_msg_cb);
-	nni_id_map_foreach(&p->recv_unack, mqtt_close_unack_msg_cb);
 	p->qpipe = NULL;
 	p->ready = false;
+	nni_id_map_foreach(&p->sent_unack, mqtt_close_unack_msg_cb);
+	nni_id_map_foreach(&p->recv_unack, mqtt_close_unack_msg_cb);
+	nni_sock_rele(s->nsock);
 	nni_mtx_unlock(&s->mtx);
+
 }
 
 /******************************************************************************
@@ -1831,102 +1842,3 @@ nng_mqttv5_quic_client_open_conf(nng_socket *sock, const char *url, conf_quic *c
 	nni_sock_rele(nsock);
 	return rv;
 }
-
-/**
- * init an AIO for Acknoledgement message only, in order to make QoS/connect truly asychrounous
- * For QoS 0 message, we do not care the result of sending
- * valid with Connack + puback + pubcomp
- * return 0 if set callback sucessfully
-*/
-// int
-// nng_mqtt_quic_ack_callback_set(nng_socket *sock, void (*cb)(void *), void *arg)
-// {
-// 	nni_sock *nsock = NULL;
-// 	nni_aio  *aio;
-// 
-// 	nni_sock_find(&nsock, sock->id);
-// 	if (nsock) {
-// 		mqtt_sock_t *mqtt_sock = nni_sock_proto_data(nsock);
-// 		if ((aio = NNI_ALLOC_STRUCT(aio)) == NULL) {
-// 			return (NNG_ENOMEM);
-// 		}
-// 		nni_aio_init(aio, (nni_cb) cb, aio);
-// 		nni_aio_set_prov_data(aio, arg);
-// 		mqtt_sock->ack_aio = aio;
-// 		mqtt_sock->ack_lmq = nni_alloc(sizeof(nni_lmq));
-// 		nni_lmq_init(mqtt_sock->ack_lmq, NNG_MAX_RECV_LMQ);
-// 	} else {
-// 		nni_sock_rele(nsock);
-// 		return -1;
-// 	}
-// 	nni_sock_rele(nsock);
-// 	return 0;
-// }
-
-// int
-// nng_mqtt_quic_set_connect_cb(nng_socket *sock, int (*cb)(void *, void *), void *arg)
-// {
-// 	nni_sock *nsock = NULL;
-// 
-// 	nni_sock_find(&nsock, sock->id);
-// 	if (nsock) {
-// 		mqtt_sock_t *mqtt_sock = nni_sock_proto_data(nsock);
-// 		mqtt_sock->cb.connect_cb = cb;
-// 		mqtt_sock->cb.connarg = arg;
-// 	} else {
-// 		return -1;
-// 	}
-// 	nni_sock_rele(nsock);
-// 	return 0;
-// }
-
-// int
-// nng_mqtt_quic_set_disconnect_cb(nng_socket *sock, int (*cb)(void *, void *), void *arg)
-// {
-// 	nni_sock *nsock = NULL;
-// 
-// 	nni_sock_find(&nsock, sock->id);
-// 	if (nsock) {
-// 		mqtt_sock_t *mqtt_sock = nni_sock_proto_data(nsock);
-// 		mqtt_sock->cb.disconnect_cb = cb;
-// 		mqtt_sock->cb.discarg = arg;
-// 	} else {
-// 		return -1;
-// 	}
-// 	nni_sock_rele(nsock);
-// 	return 0;
-// }
-
-// int
-// nng_mqtt_quic_set_msg_recv_cb(nng_socket *sock, int (*cb)(void *, void *), void *arg)
-// {
-// 	nni_sock *nsock = NULL;
-// 
-// 	nni_sock_find(&nsock, sock->id);
-// 	if (nsock) {
-// 		mqtt_sock_t *mqtt_sock = nni_sock_proto_data(nsock);
-// 		mqtt_sock->cb.msg_recv_cb = cb;
-// 		mqtt_sock->cb.recvarg = arg;
-// 	} else {
-// 		return -1;
-// 	}
-// 	nni_sock_rele(nsock);
-// 	return 0;
-// }
-// 
-// int
-// nng_mqtt_quic_set_msg_send_cb(nng_socket *sock, int (*cb)(void *, void *), void *arg)
-// {
-// 	nni_sock *nsock = NULL;
-// 
-// 	nni_sock_find(&nsock, sock->id);
-// 	if (nsock) {
-// 		mqtt_sock_t *mqtt_sock = nni_sock_proto_data(nsock);
-// 		mqtt_sock->cb.msg_send_cb = cb;
-// 		mqtt_sock->cb.sendarg = arg;
-// 	} else {
-// 		return -1;
-// 	}
-// 	nni_sock_rele(nsock);
-// 	return 0;
-// }
