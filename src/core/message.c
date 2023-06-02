@@ -448,7 +448,7 @@ void
 nni_msg_free(nni_msg *m)
 {
 	if ((m != NULL) && (nni_atomic_dec_nv(&m->m_refcnt) == 0)) {
-		struct nni_msg_opt *mo;
+		// struct nni_msg_opt *mo;
 		nni_chunk_free(&m->m_body);
 
 		if (m->m_proto_ops != NULL &&
