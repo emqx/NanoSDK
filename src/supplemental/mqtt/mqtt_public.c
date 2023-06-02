@@ -808,9 +808,6 @@ nng_mqtt_client_send_cb(void* arg)
 	nng_aio *        aio    = client->send_aio;
 	nng_msg *        msg    = nng_aio_get_msg(aio);
 	nng_msg *        tmsg   = NULL;
-	uint32_t         count;
-	uint8_t *        code;
-	uint8_t          type;
 
 	nni_lmq * lmq = (nni_lmq *)client->msgq;
 

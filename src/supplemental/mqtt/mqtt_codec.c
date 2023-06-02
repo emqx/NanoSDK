@@ -737,12 +737,11 @@ nni_mqtt_msg_encode_fixed_header(nni_msg *msg, nni_mqtt_proto_data *data)
 static int
 nni_mqtt_msg_encode_connect(nni_msg *msg)
 {
+	int                  poslength     = 6;
 	nni_mqtt_proto_data *mqtt          = nni_msg_get_proto_data(msg);
 	char                 client_id[20] = { 0 };
 
 	nni_msg_clear(msg);
-
-	int poslength = 6;
 
 	mqtt_connect_vhdr *var_header = &mqtt->var_header.connect;
 
