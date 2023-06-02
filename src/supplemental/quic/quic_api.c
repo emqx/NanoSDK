@@ -207,6 +207,7 @@ verify_peer_cert_tls(QUIC_CERTIFICATE* cert, QUIC_CERTIFICATE* chain, char *cace
 static BOOLEAN
 quic_load_sdk_config(BOOLEAN Unsecure)
 {
+	NNI_ARG_UNUSED(Unsecure);
 	QUIC_SETTINGS          Settings = { 0 };
 	QUIC_CREDENTIAL_CONFIG CredConfig;
 
