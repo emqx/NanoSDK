@@ -77,8 +77,14 @@ However, it should be noted that this will consume the number of threads inside 
   cmake -G Ninja ..
   ninja
   ```
+
+  To enable Debug + ASAN
+  ```bash
+  cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=OFF ..
+  ```
+
 To enable MQTT over QUIC feature  
 ```bash
--DNNG_ENABLE_QUIC=ON
+cmake -G Ninja -DBUILD_SHARED_LIBS=OFF -DNNG_ENABLE_QUIC=ON ..
 ```
 
