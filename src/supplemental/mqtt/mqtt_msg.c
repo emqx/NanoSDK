@@ -885,23 +885,11 @@ mqtt_close_unack_msg_cb(void *key, void *val)
 	nni_msg * msg = val;
 	nni_aio * aio = NULL;
 
-	aio = nni_mqtt_msg_get_aio(msg);
-	if (aio) {
-		nni_aio_finish_error(aio, NNG_ECLOSED);
-	}
+	// aio = nni_mqtt_msg_get_aio(msg);
+	// if (aio && nni_aio_begin(aio) == true) {
+	// 	nni_aio_abort(&aio, NNG_ECLOSED);
+	// }
 	nni_msg_free(msg);
-}
-
-void
-mqtt_close_unack_aio_cb(void *key, void *val)
-{
-	NNI_ARG_UNUSED(key);
-
-	nni_aio * aio = val;
-
-	if (aio) {
-		nni_aio_finish_error(aio, NNG_ECLOSED);
-	}
 }
 
 void

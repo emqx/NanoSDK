@@ -452,7 +452,6 @@ NNG_DECL void nni_mqtt_topic_qos_array_set(nni_mqtt_topic_qos *,
 NNG_DECL void nni_mqtt_topic_qos_array_free(nni_mqtt_topic_qos *, size_t);
 
 NNG_DECL void mqtt_close_unack_msg_cb(void *, void *);
-NNG_DECL void mqtt_close_unack_aio_cb(void *, void *);
 
 NNG_DECL uint16_t nni_msg_get_pub_pid(nni_msg *);
 
