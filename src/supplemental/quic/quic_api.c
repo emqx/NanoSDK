@@ -903,13 +903,8 @@ quic_aio_send(void *arg, nni_aio *aio)
 
 	if (qstrm->closed) {
 		nni_msg_free(msg);
+		nni_mtx_unlock(&qstrm->mtx);
 		nni_aio_finish_error(aio, NNG_ECLOSED);
-		while ((aio = nni_list_first(&qstrm->sendq)) != NULL) {
-			nni_list_remove(&qstrm->sendq, aio);
-			msg = nni_aio_get_msg(aio);
-			nni_msg_free(msg);
-			nni_aio_finish_error(aio, NNG_ECLOSED);
-		}
 		return 0;
 	}
 
