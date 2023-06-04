@@ -1269,6 +1269,7 @@ mqtt_quic_sock_close(void *arg)
 	}
 	// need to disconnect connection before sock fini
 	quic_disconnect(p->qsock, p->qpipe);
+	quic_sock_close(p->qsock);
 	if (s->multi_stream) {
 		nni_id_map_foreach(s->streams,mqtt_quic_pipe_close);
 	}
