@@ -55,6 +55,9 @@ static int mqtt_sub_stream(mqtt_pipe_t *p, nni_msg *msg, uint16_t packet_id, nni
 static void *mqtt_quic_sock_get_sqlite_option(mqtt_sock_t *s);
 #endif
 
+#define MQTT_PROTOCOL_DEBUG 0
+
+#if MQTT_PROTOCOL_DEBUG
 #define log_info(fmt, ...)                                                 \
 	do {                                                            \
 		printf("[%s]: " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
@@ -74,7 +77,13 @@ static void *mqtt_quic_sock_get_sqlite_option(mqtt_sock_t *s);
 	do {                                                            \
 		printf("[%s]: " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
 	} while (0)
-
+#else
+#define qdebug(fmt, ...) do {} while(0)
+#define log_debug(fmt, ...) do {} while(0)
+#define log_info(fmt, ...) do {} while(0)
+#define log_warn(fmt, ...) do {} while(0)
+#define log_error(fmt, ...) do {} while(0)
+#endif
 
 //default QUIC config for define QUIC transport
 static conf_quic config_default = {
@@ -1232,19 +1241,34 @@ mqtt_quic_sock_open(void *arg)
 }
 
 static void
+mqtt_quic_pipe_close(void *key, void *val)
+{
+	NNI_ARG_UNUSED(key);
+	quic_mqtt_stream_stop(val);
+}
+
+static void
 mqtt_quic_sock_close(void *arg)
 {
 	nni_aio *aio;
 	mqtt_sock_t *s = arg;
+	mqtt_pipe_t *p = s->pipe;
 
+	nni_sock_hold(s->nsock);
 	nni_aio_stop(&s->time_aio);
 	nni_aio_close(&s->time_aio);
+	nni_atomic_set_bool(&s->closed, true);
 
 	while ((aio = nni_list_first(&s->recv_queue)) != NULL) {
 		// Pipe was closed.  just push an error back to the
 		// entire socket, because we only have one pipe
 		nni_list_remove(&s->recv_queue, aio);
 		nni_aio_finish_error(aio, NNG_ECONNABORTED);
+	}
+	// need to disconnect connection before sock fini
+	quic_disconnect(p->qsock, p->qpipe);
+	if (s->multi_stream) {
+		nni_id_map_foreach(s->streams,mqtt_quic_pipe_close);
 	}
 	nni_lmq_flush(&s->send_messages);
 	nni_sock_rele(s->nsock);
@@ -1454,7 +1478,6 @@ quic_mqtt_stream_stop(void *arg)
 	mqtt_pipe_t *p = arg;
 	mqtt_sock_t *s = p->mqtt_sock;
 	nni_msg *msg;
-	nni_aio *aio;
 
 	if (!nni_atomic_get_bool(&p->closed))
 		if (quic_pipe_close(p->qpipe, &p->reason_code) == 0) {
