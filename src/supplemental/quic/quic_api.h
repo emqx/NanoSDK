@@ -30,7 +30,8 @@ extern void quic_proto_close();
 extern int quic_connect_ipv4(const char *url, nni_sock *sock, uint32_t *index);
 // Close connection
 extern int quic_disconnect(void *qsock, void *qpipe);
-
+// set close flag of qsock to true
+extern void quic_sock_close(void *qsock);
 // Create a qpipe and open it
 extern int quic_pipe_open(void *qsock, void **qpipe, void *mqtt_pipe);
 // Receive msg from a qpipe
