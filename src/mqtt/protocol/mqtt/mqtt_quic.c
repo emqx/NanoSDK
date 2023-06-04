@@ -1547,7 +1547,7 @@ quic_mqtt_stream_close(void *arg)
 
 	nni_atomic_set_bool(&p->closed, true);
 	nni_mtx_lock(&s->mtx);
-	s->pipe = NULL;
+	nni_atomic_set_bool(&s->pipe->closed, true);
 	nni_aio_close(&p->send_aio);
 	nni_aio_close(&p->recv_aio);
 	nni_aio_close(&p->rep_aio);

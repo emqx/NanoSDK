@@ -182,6 +182,9 @@ struct mqtt_sock_s {
 struct mqtt_pipe_s {
 	nni_mtx         lk;
 	void           *qconnection;
+	// qsock actually is the [quic_sock_t] obj of quic_api
+	// however it could not be put in mqtt_sock_s due to type issue
+	// need memory align, but the type is hiddnen from protocol layer
 	void           *qsock; // quic socket for MSQUIC/etc transport usage
 	void           *qpipe; // each pipe has their own QUIC stream
 	nni_atomic_bool closed;
@@ -1542,7 +1545,8 @@ quic_mqtt_stream_close(void *arg)
 	nni_atomic_set_bool(&p->closed, true);
 	nni_mtx_lock(&s->mtx);
 	nni_sock_hold(s->nsock);
-	s->pipe = NULL;
+	nni_atomic_set_bool(&s->pipe->closed, true);
+
 	nni_aio_close(&p->send_aio);
 	nni_aio_close(&p->recv_aio);
 	nni_aio_close(&p->rep_aio);
