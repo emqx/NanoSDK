@@ -1546,6 +1546,7 @@ quic_mqtt_stream_close(void *arg)
 	nni_mtx_lock(&s->mtx);
 	nni_sock_hold(s->nsock);
 	nni_atomic_set_bool(&s->pipe->closed, true);
+	// s->pipe = NULL;
 
 	nni_aio_close(&p->send_aio);
 	nni_aio_close(&p->recv_aio);
@@ -1636,7 +1637,7 @@ mqtt_quic_ctx_send(void *arg, nni_aio *aio)
 	}
 	nni_mqttv5_msg_encode(msg);
 
-	if (p == NULL || p->ready == false) {
+	if (p == NULL || nni_atomic_get_bool(&p->closed) || p->ready == false) {
 		// connection is lost or not established yet
 #if defined(NNG_SUPP_SQLITE)
 		if (nni_mqtt_msg_get_packet_type(msg) == NNG_MQTT_PUBLISH) {
