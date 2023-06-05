@@ -998,6 +998,7 @@ quic_pipe_send_start(quic_strm_t *qstrm)
 		log_debug("Failed in StreamSend, 0x%x!", rv);
 		free(buf);
 	}
+	nni_aio_set_msg(aio, NULL);
 	// Directly finish AIO here instead of waiting send_complete cb?
 }
 
