@@ -362,6 +362,25 @@ client(int type, const char *url, const char *qos, const char *topic,
 
 		break;
 	case PUB:
+		if (!strcmp("-l", data) || !strcmp("--stdin-line", data)) {
+			while (1) {
+				uint8_t *payload     = NULL;
+				size_t msg_len = 0;
+				size_t len;
+				if ((msg_len = getline((char**)&(payload), &len, stdin)) == -1) {
+					fprintf(stderr, "Read line error!\n");
+				}
+				payload[msg_len-1] = '\0';
+				if (msg_len > 1)  {
+					msg = compose_publish(q, (char *) topic, (char *) payload);
+					// pl = nng_mqtt_msg_get_publish_property(msg);
+					// if (pl != NULL) {
+					// 	mqtt_property_foreach(pl, print_property);
+					// }
+					nng_sendmsg(*g_sock, msg, NNG_FLAG_ALLOC);
+				}
+			}
+		}
 		msg = compose_publish(q, (char *) topic, (char *) data);
 		nng_sendmsg(*g_sock, msg, NNG_FLAG_ALLOC);
 		pl = nng_mqtt_msg_get_publish_property(msg);
@@ -396,7 +415,7 @@ printf_helper(char *exec)
 	fprintf(stderr,
 	    "Usage: %s conn <url>\n"
 	    "       %s sub  <url> <qos> <topic>\n"
-	    "       %s pub  <url> <qos> <topic> <data>\n",
+	    "       %s pub  <url> <qos> <topic> <data> or <stdin-line>\n",
 	    exec, exec, exec);
 	exit(EXIT_FAILURE);
 }
