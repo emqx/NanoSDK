@@ -438,6 +438,7 @@ nni_mqtt_msg_dup(void **dest, const void *src)
 	mqtt = NNI_ALLOC_STRUCT(mqtt);
 	memcpy(mqtt, (nni_mqtt_proto_data *) src, sizeof(nni_mqtt_proto_data));
 	mqtt->initialized = false;
+
 	switch (mqtt->fixed_header.common.packet_type) {
 	case NNG_MQTT_CONNECT:
 		if (mqtt->is_copied) {
