@@ -443,8 +443,9 @@ quic_strm_cb(_In_ HQUIC stream, _In_opt_ void *Context,
 			QUIC_BUFFER *buf = nni_aio_get_input(aio, 0);
 			free(buf);
 			smsg = nni_aio_get_msg(aio);
-			nni_msg_free(smsg);
 			nni_mtx_unlock(&qstrm->mtx);
+			nni_msg_free(smsg);
+			nni_aio_set_msg(aio, NULL);
 			//Process QoS ACK in Protocol layer
 			nni_aio_finish_sync(aio, 0, 0);
 			break;
@@ -458,6 +459,7 @@ quic_strm_cb(_In_ HQUIC stream, _In_opt_ void *Context,
 			nni_mtx_unlock(&qstrm->mtx);
 			smsg = nni_aio_get_msg(aio);
 			nni_msg_free(smsg);
+			nni_aio_set_msg(aio, NULL);
 			nni_aio_finish_sync(aio, 0, 0);
 			break;
 		} else {
@@ -998,7 +1000,6 @@ quic_pipe_send_start(quic_strm_t *qstrm)
 		log_debug("Failed in StreamSend, 0x%x!", rv);
 		free(buf);
 	}
-	nni_aio_set_msg(aio, NULL);
 	// Directly finish AIO here instead of waiting send_complete cb?
 }
 
