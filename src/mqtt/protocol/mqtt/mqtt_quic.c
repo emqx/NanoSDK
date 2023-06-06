@@ -1037,6 +1037,8 @@ mqtt_quic_recv_cb(void *arg)
 			if ((aio = nni_list_first(&s->recv_queue)) == NULL) {
 				// No one waiting to receive yet, putting msg
 				// into lmq
+				if (s->cb.msg_recv_cb)
+					break;
 				if (0 != mqtt_pipe_recv_msgq_putq(&p->recv_messages, msg)) {
 					nni_msg_free(msg);
 					msg = NULL;
