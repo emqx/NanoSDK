@@ -176,7 +176,8 @@ if (NNG_TRANSPORT_WS OR NNG_TRANSPORT_WSS)
 endif()
 
 if (CMAKE_BUILD_TYPE MATCHES "Debug")
-  message("-- Turn off Tools & Tests--")
-  set(NNG_TOOLS OFF)
-  set(NNG_TESTS OFF)
+  message("-- Please Turn off Tools & Tests if you want ASAN/TSAN--")
+# turn off tools and tests if you want ASAN enabled! 
+# set(NNG_TOOLS OFF)
+# set(NNG_TESTS OFF)
 endif()
