@@ -20,7 +20,9 @@ add_subdirectory(compat)
 add_subdirectory(mqtt)
 add_subdirectory(sp)
 add_subdirectory(supplemental)
+if (CMAKE_BUILD_TYPE MATCHES "Release")
 add_subdirectory(tools)
+endif()
 add_subdirectory(testing)
 
 # When building shared libraries we prefer to suppress default symbol
