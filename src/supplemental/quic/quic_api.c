@@ -717,13 +717,15 @@ quic_disconnect(void *qsock, void *qpipe)
 	if (!qsock) {
 		return -1;
 	}
-	if (qstrm->closed == true || qstrm->stream != NULL) {
-		return -1;
+	if (qstrm != NULL) {
+		if (qstrm->closed == true || qstrm->stream != NULL) {
+			return -1;
+		}
+		MsQuic->StreamClose(qstrm->stream);
+		MsQuic->StreamShutdown(qstrm->stream,
+		    QUIC_STREAM_SHUTDOWN_FLAG_ABORT, NNG_ECONNSHUT);
 	}
-	MsQuic->StreamClose(qstrm->stream);
-	MsQuic->StreamShutdown(
-	    qstrm->stream, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, NNG_ECONNSHUT);
-
+	qstrm->closed = true;
 	nni_mtx_lock(&qs->mtx);
 	MsQuic->ConnectionShutdown(
 	    qs->qconn, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, NNG_ECLOSED);
@@ -1386,6 +1388,8 @@ quic_pipe_close(void *qpipe, uint8_t *code)
 	// take care of aios
 	while ((aio = nni_list_first(&qstrm->sendq)) != NULL) {
 		nni_list_remove(&qstrm->sendq, aio);
+		nni_msg *msg = nni_aio_get_msg(aio);
+		nni_msg_free(msg);
 		nni_aio_finish_error(aio, NNG_ECLOSED);
 	}
 	while ((aio = nni_list_first(&qstrm->recvq)) != NULL) {
