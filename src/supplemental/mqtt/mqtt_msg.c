@@ -15,6 +15,18 @@ nni_proto_data_init(nni_mqtt_proto_data *proto_data)
 {
 	proto_data->var_header.connect.conn_flags.clean_session = true;
 	proto_data->var_header.connect.keep_alive = 30;
+	proto_data->var_header.connack.properties = NULL;
+	proto_data->var_header.connect.properties = NULL;
+	proto_data->var_header.disconnect.properties = NULL;
+	proto_data->var_header.puback.properties = NULL;
+	proto_data->var_header.pubcomp.properties = NULL;
+	proto_data->var_header.publish.properties = NULL;
+	proto_data->var_header.pubrec.properties = NULL;
+	proto_data->var_header.pubrel.properties = NULL;
+	proto_data->var_header.suback.properties = NULL;
+	proto_data->var_header.subscribe.properties = NULL;
+	proto_data->var_header.unsuback.properties = NULL;
+	proto_data->var_header.unsubscribe.properties = NULL;
 }
 
 int
