@@ -33,7 +33,7 @@ struct nng_msg {
 	uint32_t           m_pipe; // set on receive
 };
 
-#if 0
+#if 1
 static void
 nni_chunk_dump(const nni_chunk *chunk, char *prefix)
 {
