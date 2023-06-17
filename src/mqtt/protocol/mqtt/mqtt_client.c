@@ -63,7 +63,6 @@ struct mqtt_ctx_s {
 // A mqtt_pipe_s is our per-pipe protocol private structure.
 struct mqtt_pipe_s {
 	nni_atomic_bool closed;			// indicates mqtt connection status
-	nni_atomic_int  next_packet_id; // packet id to use; TODO: move to sock?
 	nni_pipe *      pipe;
 	mqtt_sock_t *   mqtt_sock;
 
@@ -81,6 +80,7 @@ struct mqtt_pipe_s {
 // A mqtt_sock_s is our per-socket protocol private structure.
 struct mqtt_sock_s {
 	nni_atomic_bool closed;
+	nni_atomic_int  next_packet_id; // packet id to use
 	nni_duration    retry;
 	nni_mtx         mtx;    // more fine grained mutual exclusion
 	mqtt_ctx_t      master; // to which we delegate send/recv calls
@@ -241,13 +241,13 @@ mqtt_sock_recv(void *arg, nni_aio *aio)
  ******************************************************************************/
 
 static uint16_t
-mqtt_pipe_get_next_packet_id(mqtt_pipe_t *p)
+mqtt_sock_get_next_packet_id(mqtt_sock_t *s)
 {
 	int packet_id;
 	do {
-		packet_id = nni_atomic_get(&p->next_packet_id);
+		packet_id = nni_atomic_get(&s->next_packet_id);
 	} while (
-	    !nni_atomic_cas(&p->next_packet_id, packet_id, packet_id + 1));
+	    !nni_atomic_cas(&s->next_packet_id, packet_id, packet_id + 1));
 	return packet_id & 0xFFFF;
 }
 
@@ -258,10 +258,10 @@ mqtt_pipe_init(void *arg, nni_pipe *pipe, void *s)
 
 	nni_atomic_init_bool(&p->closed);
 	nni_atomic_set_bool(&p->closed, true);
-	nni_atomic_set(&p->next_packet_id, 1);
 	p->pipe      = pipe;
 	p->mqtt_sock = s;
 	p->rid       = 1;
+	nni_atomic_set(&p->mqtt_sock->next_packet_id, 1);
 	nni_aio_init(&p->send_aio, mqtt_send_cb, p);
 	nni_aio_init(&p->recv_aio, mqtt_recv_cb, p);
 	nni_aio_init(&p->time_aio, mqtt_timer_cb, p);
