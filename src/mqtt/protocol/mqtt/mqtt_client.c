@@ -521,7 +521,6 @@ mqtt_timer_cb(void *arg)
 		if (!p->busy) {
 			p->busy = true;
 			nni_msg_clone(msg);
-			nni_mqtt_msg_encode(msg);
 			aio = nni_mqtt_msg_get_aio(msg);
 			if (aio) {
 				nni_aio_bump_count(aio,
