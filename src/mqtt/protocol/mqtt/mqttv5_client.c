@@ -263,6 +263,7 @@ mqtt_pipe_init(void *arg, nni_pipe *pipe, void *s)
 	p->pipe      = pipe;
 	p->mqtt_sock = s;
 	p->rid       = 1;
+	nni_atomic_set(&p->mqtt_sock->next_packet_id, 1);
 	nni_aio_init(&p->send_aio, mqtt_send_cb, p);
 	nni_aio_init(&p->recv_aio, mqtt_recv_cb, p);
 	nni_aio_init(&p->time_aio, mqtt_timer_cb, p);
