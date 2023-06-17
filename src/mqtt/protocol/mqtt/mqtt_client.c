@@ -636,7 +636,7 @@ mqtt_recv_cb(void *arg)
 		return;
 	}
 	nni_msg_set_pipe(msg, nni_pipe_id(p->pipe));
-	nni_msg_dump("Neuron debugging", msg);
+	// nni_msg_dump("Neuron debugging", msg);
 	nni_mqtt_msg_proto_data_alloc(msg);
 	nni_mqtt_msg_decode(msg);
 
