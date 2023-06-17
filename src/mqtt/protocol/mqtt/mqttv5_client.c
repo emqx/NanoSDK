@@ -345,8 +345,7 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 		// FALLTHROUGH
 	case NNG_MQTT_SUBSCRIBE:
 	case NNG_MQTT_UNSUBSCRIBE:
-		packet_id = mqtt_pipe_get_next_packet_id(p);
-		nni_mqtt_msg_set_packet_id(msg, packet_id);
+		packet_id = nni_mqtt_msg_get_packet_id(msg);
 		nni_mqtt_msg_set_aio(msg, aio);
 		tmsg = nni_id_get(&p->sent_unack, packet_id);
 		if (tmsg != NULL) {
