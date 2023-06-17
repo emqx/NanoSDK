@@ -926,12 +926,12 @@ mqtt_pipe_recv_msgq_putq(nni_lmq *lmq, nni_msg *msg)
 	// Just make space for new Message
 	if (nni_lmq_full(lmq)) {
 		if (nni_lmq_get(lmq, &tmsg) == 0) {
-			nni_println("Warning! msg lost due to busy socket");
+			nni_plat_printf("Warning! msg lost due to busy socket");
 			nni_msg_free(tmsg);
 		}
 	}
 	if (0 != nni_lmq_put(lmq, msg)) {
-		nni_println("Warning! msg enqueue failed");
+		nni_plat_printf("Warning! msg enqueue failed");
 		return -1;
 	}
 	return 0;

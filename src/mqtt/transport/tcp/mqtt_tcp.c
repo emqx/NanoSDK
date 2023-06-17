@@ -807,7 +807,7 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 			// send ACK down...
 			nni_aio_set_iov(p->qsaio, 2, iov);
 			nng_stream_send(p->conn, p->qsaio);
-		} else if (!nni_aio_busy(p->faio)){
+		} else if (!nni_aio_busy(p->faio)) {
 			p->busy        = true;
 			nni_aio_set_msg(p->faio, qmsg);
 			// send ACK down...

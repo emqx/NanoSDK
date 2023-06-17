@@ -724,13 +724,13 @@ mqtt_recv_cb(void *arg)
 		if (2 > qos) {
 			// QoS 0, successful receipt
 			// QoS 1, the transport handled sending a PUBACK
+			nni_plat_printf("QoS msg received! pid %d", nni_mqtt_msg_get_packet_id(msg));
 			if ((ctx = nni_list_first(&s->recv_queue)) == NULL) {
 				// No one waiting to receive yet, putting msg
 				// into lmq
 				mqtt_pipe_recv_msgq_putq(&p->recv_messages, msg);
 				nni_mtx_unlock(&s->mtx);
-				// nni_println("ERROR: no ctx found!! create
-				// more ctxs!");
+				nni_plat_printf("ERROR: no ctx found!! create more ctxs!");
 				return;
 			}
 			nni_list_remove(&s->recv_queue, ctx);
