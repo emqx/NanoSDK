@@ -373,7 +373,6 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 	}
 	if (!p->busy) {
 		p->busy = true;
-		nni_mqttv5_msg_encode(msg);
 		nni_aio_set_msg(&p->send_aio, msg);
 		nni_aio_bump_count(
 		    aio, nni_msg_header_len(msg) + nni_msg_len(msg));
@@ -513,7 +512,6 @@ mqtt_timer_cb(void *arg)
 		if (!p->busy) {
 			p->busy = true;
 			nni_msg_clone(msg);
-			nni_mqttv5_msg_encode(msg);
 			aio = nni_mqtt_msg_get_aio(msg);
 			if (aio) {
 				nni_aio_bump_count(aio,
@@ -575,7 +573,6 @@ mqtt_send_cb(void *arg)
 	}
 	if (nni_lmq_get(&p->send_messages, &msg) == 0) {
 		p->busy = true;
-		nni_mqttv5_msg_encode(msg);
 		nni_aio_set_msg(&p->send_aio, msg);
 		nni_pipe_send(p->pipe, &p->send_aio);
 		nni_mtx_unlock(&s->mtx);
@@ -844,17 +841,18 @@ mqtt_ctx_fini(void *arg)
 static void
 mqtt_ctx_send(void *arg, nni_aio *aio)
 {
-	mqtt_ctx_t * ctx = arg;
+	mqtt_ctx_t  *ctx = arg;
 	mqtt_sock_t *s   = ctx->mqtt_sock;
 	mqtt_pipe_t *p;
-	nni_msg *    msg;
+	nni_msg     *msg;
+	uint8_t      qos;
+	uint16_t     packet_id;
 
 	if (nni_aio_begin(aio) != 0) {
 		return;
 	}
 
 	nni_mtx_lock(&s->mtx);
-	p = s->mqtt_pipe;
 	if (nni_atomic_get_bool(&s->closed)) {
 		nni_mtx_unlock(&s->mtx);
 		nni_aio_finish_error(aio, NNG_ECLOSED);
@@ -868,6 +866,25 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 		nni_aio_finish_error(aio, NNG_EPROTO);
 		return;
 	}
+	// set pid & encode first
+	nni_mqtt_packet_type ptype = nni_mqtt_msg_get_packet_type(msg);
+	switch (ptype) {
+	case NNG_MQTT_PUBLISH:
+		qos = nni_mqtt_msg_get_publish_qos(msg);
+		if (qos == 0) {
+			break;
+		}
+	case NNG_MQTT_SUBSCRIBE:
+	case NNG_MQTT_UNSUBSCRIBE:
+		packet_id = mqtt_sock_get_next_packet_id(s);
+		nni_mqtt_msg_set_packet_id(msg, packet_id);
+		break;
+	default:
+		break;
+	}
+	nni_mqttv5_msg_encode(msg);
+	p = s->mqtt_pipe;
+
 	if (p == NULL) {
 		// connection is lost or not established yet
 #if defined(NNG_SUPP_SQLITE)
