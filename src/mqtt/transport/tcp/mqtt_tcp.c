@@ -762,21 +762,24 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 		nni_mqtt_msgack_encode(
 		    qmsg, packet_id, reason_code, prop, p->proto);
 		nni_mqtt_pubres_header_encode(qmsg, ack_cmd);
+		printf("ack msg %ld\n", packet_id);
 		if (p->proto == MQTT_PROTOCOL_VERSION_v5) {
 			property_free(prop);
 		}
 		// aio_begin?
-		// if (!nni_aio_busy(p->qsaio)) {
 		iov[0].iov_len = nni_msg_header_len(qmsg);
 		iov[0].iov_buf = nni_msg_header(qmsg);
 		iov[1].iov_len = nni_msg_len(qmsg);
 		iov[1].iov_buf = nni_msg_body(qmsg);
-		p->busy        = true;
-		nni_aio_set_msg(p->qsaio, qmsg);
-		// send ACK down...
-		nni_aio_set_iov(p->qsaio, 2, iov);
-		nng_stream_send(p->conn, p->qsaio);
-		// }
+		if (p->busy != true && !nni_aio_busy(p->qsaio)) {
+			p->busy        = true;
+			nni_aio_set_msg(p->qsaio, qmsg);
+			// send ACK down...
+			nni_aio_set_iov(p->qsaio, 2, iov);
+			nng_stream_send(p->conn, p->qsaio);
+		} else {
+			nni_msg_free(qmsg);
+		}
 		// else {
 		// 	if (nni_lmq_full(&p->rslmq)) {
 		// 		// Make space for the new message. TODO add max
