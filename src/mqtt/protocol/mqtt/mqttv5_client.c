@@ -367,6 +367,7 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 
 	default:
 		nni_mtx_unlock(&s->mtx);
+		nni_msg_free(msg);
 		nni_aio_finish_error(aio, NNG_EPROTO);
 		return;
 	}
@@ -379,6 +380,7 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 		nni_mtx_unlock(&s->mtx);
 		if (0 == qos && ptype != NNG_MQTT_SUBSCRIBE &&
 		    ptype != NNG_MQTT_UNSUBSCRIBE) {
+			nni_aio_set_msg(aio, NULL);
 			nni_aio_finish(aio, 0, 0);
 		}
 		return;
