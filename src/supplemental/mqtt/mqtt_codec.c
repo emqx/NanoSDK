@@ -2677,6 +2677,7 @@ nni_mqttv5_msg_decode_unsuback(nni_msg *msg)
 	    decode_buf_properties(body, length, &pos, &prop_len, true);
 	buf.curpos = &body[0] + pos;
 
+	mqtt->payload.unsuback.ret_code_count = length - pos;
 	mqtt->payload.unsuback.ret_code_arr =
 	    (uint8_t *) nni_alloc(mqtt->payload.unsuback.ret_code_count);
 	uint8_t *ptr = mqtt->payload.unsuback.ret_code_arr;
