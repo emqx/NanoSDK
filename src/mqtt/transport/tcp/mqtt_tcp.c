@@ -684,6 +684,8 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 			rv = UNSPECIFIED_ERROR;
 			goto recv_error;
 		}
+		n = len;
+		nni_plat_printf("length1 %d\n", len);
 
 		// Submit the rest of the data for a read -- seperate Fixed
 		// header with variable header and so on
@@ -706,7 +708,8 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 	nni_msg_header_append(p->rxmsg, p->rxlen, pos + 1);
 	msg      = p->rxmsg;
 	p->rxmsg = NULL;
-	n        = nni_msg_len(msg);
+	// n        = nni_msg_len(msg);
+	nni_plat_printf("length2 %d\n", nni_msg_len(msg));
 	type     = p->rxlen[0] & 0xf0;
 	flags    = p->rxlen[0] & 0x0f;
 
@@ -730,7 +733,19 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 				rv = PROTOCOL_ERROR;
 				goto recv_error;
 			}
-			if ((packet_id = nni_msg_get_pub_pid(msg)) == 0) {
+			uint16_t pid2;
+			uint8_t *pos2, len2;
+
+			pos2 = nni_msg_body(msg);
+			NNI_GET16(pos2, len2);
+			// assume a min pub packet here
+			if (len2 > n - 3)
+				packet_id = 0;
+			else {
+				NNI_GET16(pos2 + len2 + 2, pid2);
+				packet_id = pid2;
+			}
+			if (packet_id == 0) {
 				rv = PROTOCOL_ERROR;
 				goto recv_error;
 			}
