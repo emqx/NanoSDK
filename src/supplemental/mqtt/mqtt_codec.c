@@ -72,6 +72,7 @@ static void destory_publish(nni_mqtt_proto_data *);
 static void destory_subscribe(nni_mqtt_proto_data *);
 static void destory_suback(nni_mqtt_proto_data *);
 static void destory_unsubscribe(nni_mqtt_proto_data *);
+static void destory_unsuback(nni_mqtt_proto_data *mqtt);
 
 static void dup_connect(nni_mqtt_proto_data *, nni_mqtt_proto_data *);
 static void dup_publish(nni_mqtt_proto_data *, nni_mqtt_proto_data *);
@@ -396,6 +397,7 @@ mqtt_msg_content_free(nni_mqtt_proto_data *mqtt)
 		break;
 
 	case NNG_MQTT_UNSUBACK:
+		destory_unsuback(mqtt);
 		if (mqtt->var_header.unsuback.properties) {
 			property_free(mqtt->var_header.unsuback.properties);
 		}
@@ -668,6 +670,17 @@ destory_suback(nni_mqtt_proto_data *mqtt)
 		    mqtt->payload.suback.ret_code_count);
 		mqtt->payload.suback.ret_code_arr   = NULL;
 		mqtt->payload.suback.ret_code_count = 0;
+	}
+}
+
+static void
+destory_unsuback(nni_mqtt_proto_data *mqtt)
+{
+	if (mqtt->payload.unsuback.ret_code_count > 0) {
+		nni_free(mqtt->payload.unsuback.ret_code_arr,
+		    mqtt->payload.unsuback.ret_code_count);
+		mqtt->payload.unsuback.ret_code_arr   = NULL;
+		mqtt->payload.unsuback.ret_code_count = 0;
 	}
 }
 
