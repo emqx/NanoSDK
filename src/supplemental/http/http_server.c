@@ -126,7 +126,7 @@ nni_http_handler_init(
 	h->host           = NULL;
 	h->tree           = false;
 	h->tree_exclusive = false;
-	h->maxbody = 1024 * 1024; // By default we accept up to 1MB of body
+	h->maxbody = 8 * 1024 * 1024; // By default we accept up to 8MB of body
 	h->getbody = true;
 	*hp        = h;
 	return (0);
