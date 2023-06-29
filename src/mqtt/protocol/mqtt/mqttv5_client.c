@@ -396,6 +396,7 @@ out:
 	nni_mtx_unlock(&s->mtx);
 	if (0 == qos && ptype != NNG_MQTT_SUBSCRIBE &&
 	    ptype != NNG_MQTT_UNSUBSCRIBE) {
+		nni_aio_set_msg(aio, NULL);
 		nni_aio_finish(aio, 0, 0);
 	}
 	return;
