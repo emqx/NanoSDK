@@ -321,7 +321,6 @@ typedef struct mqtt_topic_qos_t {
 
 typedef struct mqtt_topic_qos_t nng_mqtt_topic_qos;
 
-extern uint16_t nni_msg_get_pub_pid(nng_msg *m);
 struct mqtt_string {
 	char *   body;
 	uint32_t len;
