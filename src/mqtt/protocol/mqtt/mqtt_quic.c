@@ -1222,7 +1222,7 @@ mqtt_quic_sock_fini(void *arg)
 {
 	mqtt_sock_t *s = arg;
 	nni_aio     *aio;
-	nni_msg     *tmsg = NULL, *msg = NULL;
+	nni_msg     *msg = NULL;
 	size_t       count = 0;
 	/*
 #if defined(NNG_SUPP_SQLITE) && defined(NNG_HAVE_MQTT_BROKER)
@@ -1246,19 +1246,6 @@ mqtt_quic_sock_fini(void *arg)
 	if (s->ack_lmq != NULL) {
 		nni_lmq_fini(s->ack_lmq);
 		nng_free(s->ack_lmq, sizeof(nni_lmq));
-	}
-	// emulate disconnect notify msg as a normal publish
-	while ((aio = nni_list_first(&s->recv_queue)) != NULL) {
-		// Pipe was closed.  just push an error back to the
-		// entire socket, because we only have one pipe
-		nni_list_remove(&s->recv_queue, aio);
-		nni_aio_set_msg(aio, tmsg);
-		// only return pipe closed error once for notification
-		// sync action to avoid NULL conn param
-		count == 0 ? nni_aio_finish_sync(aio, NNG_ECONNSHUT, 0)
-		           : nni_aio_finish_error(aio, NNG_ECLOSED);
-		// there should be no msg waiting
-		count++;
 	}
 	while ((aio = nni_list_first(&s->send_queue)) != NULL) {
 		nni_list_remove(&s->send_queue, aio);
