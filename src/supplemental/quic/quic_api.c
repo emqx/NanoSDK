@@ -68,22 +68,24 @@
 #define log_error(fmt, ...) do {} while(0)
 #endif
 
-typedef struct quic_sock_s   quic_sock_t;
+typedef struct quic_sock_s quic_sock_t;
 
 struct quic_sock_s {
-	HQUIC           qconn; // QUIC connection
-	nni_sock       *sock;
-	bool            closed;
-	void           *pipe; // main mqtt_pipe
+	HQUIC     qconn; // QUIC connection
+	nni_sock *sock;
+	bool      closed;
+	void     *pipe; //main mqtt_pipe
 
-	nni_mtx mtx;          // for reconnect
-	nni_aio close_aio;
+	nni_mtx  mtx; // for reconnect
+	nni_aio  close_aio;
 
 	uint8_t  rticket[4096];
 	uint16_t rticket_sz;
 	nng_url *url_s;
 
-	char *cacert;
+	char    *cacert;
+	bool     enable_0rtt;
+	uint8_t  reason_code; // reason code in transport layer
 };
 
 typedef struct quic_strm_s quic_strm_t;
@@ -97,6 +99,7 @@ struct quic_strm_s {
 	quic_sock_t *sock; // QUIC socket
 	void        *pipe; // Stream pipe if multi-stream is enabled
 
+	bool     inrr;          // is rraio in run_q
 	bool     closed;
 	nni_lmq  recv_messages; // recv messages queue
 	nni_lmq  send_messages; // send messages queue
@@ -327,20 +330,21 @@ there:
 static void
 quic_sock_init(quic_sock_t *qsock)
 {
-	qsock->qconn = NULL;
-	qsock->sock  = NULL;
-	qsock->pipe  = NULL;
+	qsock->qconn  = NULL;
+	qsock->sock   = NULL;
+	qsock->pipe   = NULL;
+	qsock->closed = 0;
 
 	nni_mtx_init(&qsock->mtx);
 	nni_aio_init(&qsock->close_aio, quic_sock_close_cb, qsock);
 
-	qsock->url_s = NULL;
-	qsock->rticket_sz = 0;
-
-	qsock->cacert = NULL;
-	qsock->closed = false;
+	qsock->url_s       = NULL;
+	qsock->rticket_sz  = 0;
+	qsock->cacert      = NULL;
+	qsock->enable_0rtt = false;
+	qsock->closed      = false;
+	qsock->reason_code = 0;
 }
-
 
 void
 quic_sock_close(void *qsock)
@@ -359,7 +363,6 @@ quic_sock_fini(quic_sock_t *qsock)
 	nni_mtx_fini(&qsock->mtx);
 	if (qsock->url_s)
 		nng_url_free(qsock->url_s);
-
 	nni_aio_stop(&qsock->close_aio);
 	nni_aio_fini(&qsock->close_aio);
 }
@@ -375,6 +378,7 @@ quic_strm_init(quic_strm_t *qstrm, quic_sock_t *qsock)
 
 	qstrm->sock = qsock;
 	qstrm->closed = false;
+	qstrm->inrr   = false;
 
 	nni_lmq_init(&qstrm->recv_messages, NNG_MAX_RECV_LMQ);
 	nni_lmq_init(&qstrm->send_messages, NNG_MAX_SEND_LMQ);
@@ -418,6 +422,7 @@ quic_strm_cb(_In_ HQUIC stream, _In_opt_ void *Context,
 	_Inout_ QUIC_STREAM_EVENT *Event)
 {
 	quic_strm_t *qstrm = Context;
+	quic_sock_t *qsock = qstrm->sock;
 	uint32_t rlen;
 	uint8_t *rbuf;
 	nni_msg *smsg;
@@ -475,6 +480,13 @@ quic_strm_cb(_In_ HQUIC stream, _In_opt_ void *Context,
 
 		log_debug("[strm][%p] Data received Flag: %d", stream, Event->RECEIVE.Flags);
 
+		if (Event->RECEIVE.Flags & QUIC_RECEIVE_FLAG_FIN) {
+			if (qsock->reason_code == 0)
+				qsock->reason_code = CLIENT_IDENTIFIER_NOT_VALID;
+			log_warn("FIN received in QUIC stream");
+			break;
+		}
+
 		nni_mtx_lock(&qstrm->mtx);
 		// Get all the buffers in quic stream
 		if (count == 0 || rlen <= 0) {
@@ -484,31 +496,36 @@ quic_strm_cb(_In_ HQUIC stream, _In_opt_ void *Context,
 		log_debug("Body is [%d]-[0x%x 0x%x].", rlen, *(rbuf), *(rbuf + 1));
 
 		if (rlen > qstrm->rrcap - qstrm->rrlen - qstrm->rrpos) {
-			qstrm->rrbuf = realloc(qstrm->rrbuf, rlen + qstrm->rrlen);
-			qstrm->rrcap = rlen + qstrm->rrlen;
+			qstrm->rrbuf = realloc(qstrm->rrbuf, rlen + qstrm->rrlen + qstrm->rrpos);
+			qstrm->rrcap = rlen + qstrm->rrlen + qstrm->rrpos;
 		}
 		// Copy data from quic stream to rrbuf
-		memcpy(qstrm->rrbuf + (int)qstrm->rrlen, rbuf, rlen);
+		memcpy(qstrm->rrbuf + qstrm->rrpos + (int)qstrm->rrlen, rbuf, rlen);
 		qstrm->rrlen += rlen;
 		MsQuic->StreamReceiveComplete(qstrm->stream, rlen);
-		nni_mtx_unlock(&qstrm->mtx);
-		if (!nni_list_empty(&qstrm->recvq)) {
+		if (!nni_list_empty(&qstrm->recvq) && qstrm->inrr == false) {
 			// We should not do executing now, Or circle calling occurs
-			nng_aio_wait(&qstrm->rraio);
-			nni_aio_finish_sync(&qstrm->rraio, 0, 0);
+			// nng_aio_wait(&qstrm->rraio);
+			qstrm->inrr = true;
+			nni_aio_finish(&qstrm->rraio, 0, 0);
 		}
+		nni_mtx_unlock(&qstrm->mtx);
 		log_debug("stream cb over\n");
 
 		return QUIC_STATUS_PENDING;
 	case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-		// The peer gracefully shut down its send direction of the stream.
+		// The peer gracefully shut down its send direction of the
+		// stream.
 		log_warn("[strm][%p] Peer SEND aborted\n", stream);
 		log_info("PEER_SEND_ABORTED Error Code: %llu",
-				 (unsigned long long) Event->PEER_SEND_ABORTED.ErrorCode);
+		    (unsigned long long) Event->PEER_SEND_ABORTED.ErrorCode);
+		if (qsock->reason_code == 0)
+			qsock->reason_code = SERVER_SHUTTING_DOWN;
 		break;
 	case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
 		// The peer aborted its send direction of the stream.
-		log_warn("[strm][%p] Peer shut down\n", stream);
+		log_warn("[strm][%p] Peer send shut down\n", stream);
+		MsQuic->StreamShutdown(stream, QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL, 0);
 		break;
 	case QUIC_STREAM_EVENT_SEND_SHUTDOWN_COMPLETE:
 		// fall through to close the stream
@@ -517,22 +534,29 @@ quic_strm_cb(_In_ HQUIC stream, _In_opt_ void *Context,
 	case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
 		// Both directions of the stream have been shut down and MsQuic
 		// is done with the stream. It can now be safely cleaned up.
-		log_warn("[strm][%p] QUIC_STREAM_EVENT shutdown: All done.", stream);
+		log_warn("[strm][%p] QUIC_STREAM_EVENT shutdown: All done.",
+		    stream);
 		log_info("close stream with Error Code: %llu",
-				 (unsigned long long) Event->SHUTDOWN_COMPLETE.ConnectionErrorCode);
+		    (unsigned long long)
+		        Event->SHUTDOWN_COMPLETE.ConnectionErrorCode);
 		if (qstrm->sock->pipe != qstrm->pipe) {
 			// close data stream only
 			const nni_proto_pipe_ops *pipe_ops =
 			    g_quic_proto->proto_pipe_ops;
-				log_warn("close the data stream [%p]!", stream);
+			log_warn("close the data stream [%p]!", stream);
 			pipe_ops->pipe_stop(qstrm->pipe);
-			MsQuic->StreamClose(stream);
+			if (qstrm->closed != true)
+				MsQuic->StreamClose(stream);
 			break;
 		}
 		if (!Event->SHUTDOWN_COMPLETE.AppCloseInProgress) {
-			// only server close the stream gonna trigger this
+			// only server close the main stream gonna trigger this
 			log_warn("close the main stream [%p]!", stream);
-			MsQuic->StreamClose(stream);
+			if (qstrm->closed != true) {
+				MsQuic->ConnectionShutdown(stream,
+				    QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
+				MsQuic->StreamClose(stream);
+			}
 			qstrm->stream = NULL;
 			// close stream here if in multi-stream mode?
 			// Conflic with quic_pipe_close
@@ -621,6 +645,8 @@ quic_connection_cb(_In_ HQUIC Connection, _In_opt_ void *Context,
 		    qconn, Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status,
 		    (unsigned long long)
 		        Event->SHUTDOWN_INITIATED_BY_TRANSPORT.ErrorCode);
+		if (qsock->reason_code == 0)
+            	qsock->reason_code = SERVER_UNAVAILABLE;
 		break;
 	case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
 		// The connection was explicitly shut down by the peer.
@@ -630,6 +656,8 @@ quic_connection_cb(_In_ HQUIC Connection, _In_opt_ void *Context,
 		    qconn,
 		    (unsigned long long)
 		        Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
+		if (qsock->reason_code == 0)
+			qsock->reason_code = SERVER_SHUTTING_DOWN;
 		break;
 	case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
 		// The connection has completed the shutdown process and is
@@ -671,6 +699,10 @@ quic_connection_cb(_In_ HQUIC Connection, _In_opt_ void *Context,
 		// was received from the server.
 		log_warn("[conn][%p] Resumption ticket received (%u bytes):\n",
 		    Connection, Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength);
+		if (qsock->enable_0rtt == false) {
+			log_warn("[conn][%p] Ignore ticket due to turn off the 0RTT");
+			break;
+		}
 		qsock->rticket_sz = Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength;
 		memcpy(qsock->rticket, Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicket,
 		        Event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength);
@@ -717,13 +749,12 @@ quic_disconnect(void *qsock, void *qpipe)
 	if (!qsock) {
 		return -1;
 	}
+	// unable to close a closed pipe
 	if (qstrm != NULL) {
-		if (qstrm->closed == true || qstrm->stream != NULL) {
-			return -1;
-		}
-		MsQuic->StreamClose(qstrm->stream);
-		MsQuic->StreamShutdown(qstrm->stream,
-		    QUIC_STREAM_SHUTDOWN_FLAG_ABORT, NNG_ECONNSHUT);
+		if (qstrm->closed == true || qstrm->stream == NULL)
+			return -2;
+		MsQuic->StreamShutdown(
+		    qstrm->stream, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, NNG_ECONNSHUT);
 	}
 	qstrm->closed = true;
 	nni_mtx_lock(&qs->mtx);
@@ -738,7 +769,7 @@ quic_disconnect(void *qsock, void *qpipe)
 }
 
 int
-quic_connect_ipv4(const char *url, nni_sock *sock, uint32_t *index)
+quic_connect_ipv4(const char *url, nni_sock *sock, uint32_t *index, void **qsockp)
 {
 	// Load the client configuration
 	if (!quic_load_sdk_config(TRUE)) {
@@ -813,6 +844,7 @@ quic_connect_ipv4(const char *url, nni_sock *sock, uint32_t *index)
 	// Here mutex should be unnecessary.
 	qsock->qconn = conn;
 
+	*qsockp = qsock;
 	return 0;
 
 error:
@@ -906,6 +938,7 @@ quic_aio_send(void *arg, nni_aio *aio)
 	}
 
 	if (qstrm->closed) {
+		qdebug("Sending msg on a closed pipe");
 		nni_msg_free(msg);
 		nni_mtx_unlock(&qstrm->mtx);
 		nni_aio_finish_error(aio, NNG_ECLOSED);
@@ -966,6 +999,7 @@ quic_pipe_send_start(quic_strm_t *qstrm)
 			nni_list_remove(&qstrm->sendq, aio);
 			msg = nni_aio_get_msg(aio);
 			nni_msg_free(msg);
+			nni_aio_set_msg(aio, NULL);
 			nni_aio_finish_error(aio, NNG_ECLOSED);
 		}
 		return;
@@ -1022,7 +1056,8 @@ quic_pipe_recv_start(void *arg)
 	if (nni_list_empty(&qstrm->recvq)) {
 		return;
 	}
-	if (qstrm->rrlen > qstrm->rwlen && qstrm->rrlen == 0) {
+	if (qstrm->rrlen > qstrm->rwlen && qstrm->rrlen > 0 && qstrm->inrr == false) {
+		qstrm->inrr = true;
 		nni_aio_finish(&qstrm->rraio, 0, 0);
 		return;
 	}
@@ -1041,15 +1076,16 @@ quic_pipe_recv_cb(void *arg)
 	// qdebug("rrpos %d rrlen %d rrbuf %x %x.\n", qstrm->rrpos, qstrm->rrlen,
 	// qstrm->rrbuf[qstrm->rrpos], qstrm->rrbuf[qstrm->rrpos + 1]);
 	uint8_t  usedbytes;
-	uint8_t *rbuf = qstrm->rrbuf + qstrm->rrpos;
-	uint32_t rlen = qstrm->rrlen, n, remain_len;
+	uint8_t *rbuf;
+	uint32_t rlen, n, remain_len;
 	if (nni_aio_result(&qstrm->rraio) != 0)
 		qdebug("QUIC aio receving error!");
 	nni_mtx_lock(&qstrm->mtx);
-	// Wait MsQuic take back data
+	rbuf = qstrm->rrbuf + qstrm->rrpos;
+	rlen = qstrm->rrlen; // Wait MsQuic take back data
 	if (rlen < qstrm->rwlen - qstrm->rxlen) {
 		qdebug("Data is not enough and rrpos %d rrlen %d.\n", qstrm->rrpos, qstrm->rrlen);
-		if (rlen > 0) {
+		if (rlen > 0 && qstrm->rrpos > 0) {
 			memmove(qstrm->rrbuf, qstrm->rrbuf+qstrm->rrpos, qstrm->rrlen);
 			qstrm->rrpos = 0;
 		}
@@ -1062,6 +1098,7 @@ quic_pipe_recv_cb(void *arg)
 	// Already get 2 Bytes
 	if (qstrm->rxlen == 0) {
 		n = 2; // new
+		qdebug("msg type !!: %x\n", *rbuf);
 		memcpy(qstrm->rxbuf, rbuf, n);
 		qstrm->rxlen = 0 + n;
 		qstrm->rrpos += n;
@@ -1081,12 +1118,12 @@ quic_pipe_recv_cb(void *arg)
 		else
 			qstrm->rwlen = n + 3;
 
-		nni_mtx_unlock(&qstrm->mtx);
-		// Re-schedule now
+		// Re-schedule
 		if (!nni_list_empty(&qstrm->recvq)) {
-			nni_aio_finish_sync(&qstrm->rraio, 0, 0);
+			nni_aio_finish(&qstrm->rraio, 0, 0);
 		}
-		qdebug("1after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+		qdebug("1after  rxlen %d rwlen %d rrlen %d.\n", qstrm->rxlen, qstrm->rwlen, qstrm->rrlen);
+		nni_mtx_unlock(&qstrm->mtx);
 		return;
 	}
 
@@ -1141,12 +1178,12 @@ quic_pipe_recv_cb(void *arg)
 			// Copy Body
 			nni_msg_append(qstrm->rxmsg, qstrm->rxbuf + 2, 3);
 		} else {
-			nni_mtx_unlock(&qstrm->mtx);
 			// Wait to be re-schedule
 			if (!nni_list_empty(&qstrm->recvq)) {
-				nni_aio_finish_sync(&qstrm->rraio, 0, 0);
+				nni_aio_finish(&qstrm->rraio, 0, 0);
 			}
 			qdebug("3after  rxlen %d rwlen %d.\n", qstrm->rxlen, qstrm->rwlen);
+			nni_mtx_unlock(&qstrm->mtx);
 			return;
 		}
 	}
@@ -1174,6 +1211,12 @@ quic_pipe_recv_cb(void *arg)
 	}
 	qdebug("4after  rxlen %d rwlen %d rrlen %d.\n", qstrm->rxlen, qstrm->rwlen, qstrm->rrlen);
 
+	if (qstrm->rrlen > 0 && qstrm->rrpos > 0) {
+		memmove(qstrm->rrbuf, qstrm->rrbuf+qstrm->rrpos, qstrm->rrlen);
+		qstrm->rrpos = 0;
+	}
+	qstrm->inrr = false;
+
 upload:
 	// get aio and trigger cb of protocol layer
 	aio = nni_list_first(&qstrm->recvq);
@@ -1184,6 +1227,17 @@ upload:
 		nni_aio_set_msg(aio, qstrm->rxmsg);
 		qstrm->rxmsg = NULL;
 		qdebug("AIO FINISH\n");
+
+		if (qstrm->rrlen > 0) {
+			if (!nni_list_empty(&qstrm->recvq) && qstrm->inrr == false) {
+				qdebug("inrr false\n");
+				qstrm->rxlen = 0;
+				qstrm->rwlen = 2;
+				qstrm->inrr = true;
+				nni_aio_finish(&qstrm->rraio, 0, 0);
+			}
+		}
+
 		nni_mtx_unlock(&qstrm->mtx);
 		nni_aio_finish_sync(aio, 0, 0);
 	} else {
@@ -1197,15 +1251,19 @@ upload:
 		}
 		nni_lmq_put(&qstrm->recv_messages, qstrm->rxmsg);
 		qstrm->rxmsg = NULL;
+		qstrm->inrr = false;
 		nni_mtx_unlock(&qstrm->mtx);
 	}
 
+	/*
 	if (qstrm->rrlen > 0)
 		if (!nni_list_empty(&qstrm->recvq))
-			nni_aio_finish_sync(&qstrm->rraio, 0, 0);
+			nni_aio_finish(&qstrm->rraio, 0, 0);
 
 	memmove(qstrm->rrbuf, qstrm->rrbuf+qstrm->rrpos, qstrm->rrlen);
 	qstrm->rrpos = 0;
+	*/
+
 	qdebug("over\n");
 }
 
@@ -1271,10 +1329,10 @@ quic_pipe_recv(void *qpipe, nni_aio *raio)
 	// Get msg from cache
 	if (!nni_lmq_empty(&qstrm->recv_messages)) {
 		nni_lmq_get(&qstrm->recv_messages, &msg);
+		nni_aio_set_msg(raio, msg);
 		nni_mtx_unlock(&qstrm->mtx);
 
-		nni_aio_set_msg(raio, msg);
-		nni_aio_finish_sync(raio, 0, 0);
+		nni_aio_finish(raio, 0, 0);
 		return 0;
 	}
 
@@ -1299,6 +1357,12 @@ quic_pipe_send(void *qpipe, nni_aio *aio)
 		return rv;
 	}
 
+	if (qstrm->closed) {
+		nni_msg *msg = nni_aio_get_msg(aio);
+		nni_msg_free(msg);
+		nni_aio_finish_error(aio, NNG_ECLOSED);
+		return -1;
+	}
 	nni_mtx_lock(&qstrm->mtx);
 	if ((rv = nni_aio_schedule(aio, quic_pipe_send_cancel, qstrm)) != 0) {
 		nni_mtx_unlock(&qstrm->mtx);
@@ -1390,6 +1454,7 @@ quic_pipe_close(void *qpipe, uint8_t *code)
 		nni_list_remove(&qstrm->sendq, aio);
 		nni_msg *msg = nni_aio_get_msg(aio);
 		nni_msg_free(msg);
+		nni_aio_set_msg(aio, NULL);
 		nni_aio_finish_error(aio, NNG_ECLOSED);
 	}
 	while ((aio = nni_list_first(&qstrm->recvq)) != NULL) {
@@ -1402,15 +1467,24 @@ quic_pipe_close(void *qpipe, uint8_t *code)
 	return 0;
 }
 
+// only call this when main stream is closed!
+uint8_t
+quic_sock_disconnect_code(void *arg)
+{
+       quic_sock_t *qsock = arg;
+       return qsock->reason_code;
+}
+
 void
 quic_open()
 {
 	QUIC_STATUS rv = QUIC_STATUS_SUCCESS;
-
-	if (QUIC_FAILED(rv = MsQuicOpen2(&MsQuic))) {
-		log_error("MsQuicOpen2 failed, 0x%x!\n", rv);
-		goto error;
-	}
+	// only Open MsQUIC lib once, otherwise cause memleak
+	if (MsQuic == NULL)
+		if (QUIC_FAILED(rv = MsQuicOpen2(&MsQuic))) {
+			log_error("MsQuicOpen2 failed, 0x%x!\n", rv);
+			goto error;
+		}
 
 	// Create a registration for the app's connections.
 	if (QUIC_FAILED(rv = MsQuic->RegistrationOpen(
