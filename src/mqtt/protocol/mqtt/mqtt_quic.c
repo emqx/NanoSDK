@@ -485,7 +485,7 @@ mqtt_pipe_send_msg(nni_aio *aio, nni_msg *msg, mqtt_pipe_t *p, uint16_t packet_i
 			nni_aio *m_aio = nni_mqtt_msg_get_aio(tmsg);
 			if (m_aio) {
 				if (nni_mqtt_msg_get_packet_type(tmsg) == NNG_MQTT_SUBSCRIBE ||
-				    nni_mqtt_msg_get_packet_type(tmsg) == CMD_UNSUBSCRIBE) {
+				    nni_mqtt_msg_get_packet_type(tmsg) == NNG_MQTT_UNSUBSCRIBE) {
 					nni_aio_finish_error(m_aio, UNSPECIFIED_ERROR);
 				}
 			}
