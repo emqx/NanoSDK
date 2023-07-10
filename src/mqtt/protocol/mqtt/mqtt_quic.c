@@ -298,7 +298,7 @@ mqtt_sub_stream(mqtt_pipe_t *p, nni_msg *msg, uint16_t packet_id, nni_aio *aio)
 		         "packetID duplicated!",
 		    packet_id);
 		nni_aio *m_aio = nni_mqtt_msg_get_aio(tmsg);
-		if (m_aio && nni_msg_get_type(tmsg) != CMD_PUBLISH) {
+		if (m_aio && nni_mqtt_msg_get_packet_type(tmsg) != NNG_MQTT_PUBLISH) {
 			nni_aio_finish_error(m_aio, UNSPECIFIED_ERROR);
 		}
 		nni_msg_free(tmsg);
@@ -483,8 +483,11 @@ mqtt_pipe_send_msg(nni_aio *aio, nni_msg *msg, mqtt_pipe_t *p, uint16_t packet_i
 			                "packetID duplicated!",
 			    packet_id);
 			nni_aio *m_aio = nni_mqtt_msg_get_aio(tmsg);
-			if (m_aio && (nni_msg_get_type(tmsg) == CMD_SUBSCRIBE || nni_msg_get_type(tmsg) == CMD_UNSUBSCRIBE)) {
-				nni_aio_finish_error(m_aio, UNSPECIFIED_ERROR);
+			if (m_aio) {
+				if (nni_mqtt_msg_get_packet_type(tmsg) == NNG_MQTT_SUBSCRIBE ||
+				    nni_mqtt_msg_get_packet_type(tmsg) == CMD_UNSUBSCRIBE) {
+					nni_aio_finish_error(m_aio, UNSPECIFIED_ERROR);
+				}
 			}
 			nni_msg_free(tmsg);
 			nni_id_remove(&p->sent_unack, packet_id);
