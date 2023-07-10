@@ -308,7 +308,7 @@ mqtt_sub_stream(mqtt_pipe_t *p, nni_msg *msg, uint16_t packet_id, nni_aio *aio)
 		         "packetID duplicated!",
 		    packet_id);
 		nni_aio *m_aio = nni_mqtt_msg_get_aio(tmsg);
-		if (m_aio && nni_msg_get_type(tmsg) != CMD_PUBLISH) {
+		if (m_aio && nni_mqtt_msg_get_packet_type(tmsg) != NNG_MQTT_PUBLISH) {
 			nni_aio_finish_error(m_aio, UNSPECIFIED_ERROR);
 		}
 		nni_msg_free(tmsg);
