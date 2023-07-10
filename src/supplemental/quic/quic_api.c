@@ -1078,8 +1078,10 @@ quic_pipe_recv_cb(void *arg)
 	uint8_t  usedbytes;
 	uint8_t *rbuf;
 	uint32_t rlen, n, remain_len;
-	if (nni_aio_result(&qstrm->rraio) != 0)
+	if (nni_aio_result(&qstrm->rraio) != 0) {
 		qdebug("QUIC aio receving error!");
+		return;
+	}
 	nni_mtx_lock(&qstrm->mtx);
 	rbuf = qstrm->rrbuf + qstrm->rrpos;
 	rlen = qstrm->rrlen; // Wait MsQuic take back data
@@ -1090,8 +1092,8 @@ quic_pipe_recv_cb(void *arg)
 			qstrm->rrpos = 0;
 		}
 		MsQuic->StreamReceiveSetEnabled(qstrm->stream, TRUE);
-		nni_aio_finish(&qstrm->rraio, 0, 0);
 		nni_mtx_unlock(&qstrm->mtx);
+		nni_aio_finish(&qstrm->rraio, 0, 0);
 		return;
 	}
 	// We get enough data
