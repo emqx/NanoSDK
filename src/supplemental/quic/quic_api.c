@@ -399,6 +399,11 @@ quic_strm_fini(quic_strm_t *qstrm)
 {
 	if (qstrm == NULL)
 		return;
+
+	nni_aio_stop(&qstrm->rraio);
+	nni_aio_close(&qstrm->rraio);
+	nni_aio_fini(&qstrm->rraio);
+
 	if (qstrm->rxmsg)
 		free(qstrm->rxmsg);
 	if (qstrm->rrbuf)
@@ -408,10 +413,6 @@ quic_strm_fini(quic_strm_t *qstrm)
 	nni_lmq_fini(&qstrm->recv_messages);
 	nni_lmq_fini(&qstrm->send_messages);
 	nni_mtx_fini(&qstrm->mtx);
-
-	nni_aio_stop(&qstrm->rraio);
-	nni_aio_close(&qstrm->rraio);
-	nni_aio_fini(&qstrm->rraio);
 }
 
 // The clients's callback for stream events from MsQuic.
