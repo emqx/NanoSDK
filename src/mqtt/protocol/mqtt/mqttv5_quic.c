@@ -432,7 +432,6 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 	}
 	if (s->qos_first)
 		if (qos > 0 && ptype == NNG_MQTT_PUBLISH) {
-			nni_mqttv5_msg_encode(msg);
 			nni_aio_set_msg(aio, msg);
 			quic_aio_send(p->qpipe, aio);
 			log_debug("sending highpriority QoS msg in parallel");
@@ -1290,7 +1289,8 @@ static void
 mqtt_quic_pipe_close(void *key, void *val)
 {
 	NNI_ARG_UNUSED(key);
-	quic_mqtt_stream_stop(val);
+	if (val)
+		quic_mqtt_stream_stop(val);
 }
 
 static void
@@ -1312,11 +1312,16 @@ mqtt_quic_sock_close(void *arg)
 		nni_list_remove(&s->recv_queue, aio);
 		nni_aio_finish_error(aio, NNG_ECONNABORTED);
 	}
-	// need to disconnect connection before sock fini
-	quic_disconnect(p->qsock, p->qpipe);
-	quic_sock_close(p->qsock);
+	// transport might win the contest to reconnect before this
+	// if transport shutdown happens first.
+	if (p != NULL) {
+		// need to disconnect connection before sock fini
+		quic_disconnect(p->qsock, p->qpipe);
+	}
+	quic_sock_close(s->qsock);
+
 	if (s->multi_stream) {
-		nni_id_map_foreach(s->streams,mqtt_quic_pipe_close);
+		nni_id_map_foreach(s->streams, mqtt_quic_pipe_close);
 	}
 	// have to wait for connection shutdown
 	nni_lmq_flush(&s->send_messages);
@@ -1454,7 +1459,6 @@ quic_mqtt_stream_fini(void *arg)
 	if (s->pipe == p && s->cb.disconnect_cb != NULL) {
 		s->cb.disconnect_cb(NULL, s->cb.discarg);
 	}
-	s->pipe = NULL;
 
 	uint16_t count = 0;
 	// connect failed also triggered stream finit, ignore it
