@@ -1219,9 +1219,10 @@ quic_pipe_recv_cb(void *arg)
 		memmove(qstrm->rrbuf, qstrm->rrbuf+qstrm->rrpos, qstrm->rrlen);
 		qstrm->rrpos = 0;
 	}
-	qstrm->inrr = false;
 
 upload:
+	qstrm->inrr = false;
+
 	// get aio and trigger cb of protocol layer
 	aio = nni_list_first(&qstrm->recvq);
 
