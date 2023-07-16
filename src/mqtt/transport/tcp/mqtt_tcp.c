@@ -762,7 +762,6 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 		nni_mqtt_msgack_encode(
 		    qmsg, packet_id, reason_code, prop, p->proto);
 		nni_mqtt_pubres_header_encode(qmsg, ack_cmd);
-		printf("ack msg %ld\n", packet_id);
 		if (p->proto == MQTT_PROTOCOL_VERSION_v5) {
 			property_free(prop);
 		}
