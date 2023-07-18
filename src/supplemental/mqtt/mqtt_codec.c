@@ -2270,10 +2270,12 @@ nni_mqttv5_msg_decode_publish(nni_msg *msg)
 	}
 
 	uint32_t pos = buf.curpos - &body[0];
-	uint32_t prop_len = 0;
+	uint32_t prop_len = 0, prop_sz;
+	uint32_t pos1 = pos;
 	mqtt->var_header.publish.properties =
 	    decode_buf_properties(body, length, &pos, &prop_len, true);
 	buf.curpos = &body[0] + pos;
+	prop_sz = pos - pos1;
 
 
 	/* Payload */
@@ -2283,7 +2285,7 @@ nni_mqttv5_msg_decode_publish(nni_msg *msg)
 	   a PUBLISH Packet to contain a zero length payload.*/
 	mqtt->payload.publish.payload.length =
 	    mqtt->fixed_header.remaining_length -
-	    (2 /* Length bytes of Topic Name */ + 1 + prop_len +
+	    (2 /* Length bytes of Topic Name */ + prop_sz +
 	        mqtt->var_header.publish.topic_name.length + packid_length);
 	mqtt->payload.publish.payload.buf =
 	    (mqtt->payload.publish.payload.length > 0) ? buf.curpos : NULL;
