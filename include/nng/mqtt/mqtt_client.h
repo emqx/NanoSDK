@@ -539,6 +539,7 @@ NNG_DECL int nng_mqttv5_client_open(nng_socket *);
 // TODO: shared subscriptions.  Subscription options (retain, QoS)
 typedef struct nng_mqtt_client nng_mqtt_client;
 typedef void(nng_mqtt_send_cb)(nng_mqtt_client *client, nng_msg *msg, void *);
+typedef void(nng_mqtt_recv_cb)(nng_mqtt_client *client, nng_msg *msg, void *);
 struct nng_mqtt_client{
 	nng_socket sock;
 	nng_aio   *send_aio;
@@ -547,11 +548,12 @@ struct nng_mqtt_client{
 	void      *obj; // user defined callback obj
 	bool       async;
 
-	nng_mqtt_send_cb *cb;
+	nng_mqtt_send_cb *send_cb;
+	nng_mqtt_recv_cb *recv_cb;
 };
 
 
-NNG_DECL nng_mqtt_client *nng_mqtt_client_alloc(nng_socket, nng_mqtt_send_cb, bool);
+NNG_DECL nng_mqtt_client *nng_mqtt_client_alloc(nng_socket, nng_mqtt_send_cb, nng_mqtt_recv_cb, bool);
 NNG_DECL void nng_mqtt_client_free(nng_mqtt_client*, bool);
 NNG_DECL int nng_mqtt_subscribe(nng_socket, nng_mqtt_topic_qos *, size_t, property *);
 NNG_DECL int nng_mqtt_subscribe_async(nng_mqtt_client *, nng_mqtt_topic_qos *, size_t, property *);
