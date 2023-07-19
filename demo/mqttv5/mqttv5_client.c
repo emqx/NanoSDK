@@ -473,7 +473,7 @@ main(const int argc, const char **argv)
 		// rv = nng_mqtt_subscribe(sock, subscriptions, 1, plist);
 
 		// Asynchronous subscription
-		nng_mqtt_client *client = nng_mqtt_client_alloc(sock, &send_callback, true);
+		nng_mqtt_client *client = nng_mqtt_client_alloc(sock, &send_callback, NULL, true);
 		nng_mqtt_subscribe_async(client, subscriptions,
 		    sizeof(subscriptions) / sizeof(nng_mqtt_topic_qos), plist);
 
