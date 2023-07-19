@@ -837,15 +837,6 @@ nng_mqtt_client_recv_cb(void* arg)
 		nni_plat_printf("aio recv error! %d", rv);
 	}
 	nng_recv_aio(client->sock, client->recv_aio);
-	uint32_t topicsz, payloadsz;
-	char *topic = (char *)nng_mqtt_msg_get_publish_topic(msg, &topicsz);
-	char *payload =
-		(char *)nng_mqtt_msg_get_publish_payload(msg, &payloadsz);
-
-	nni_plat_printf("[Msg Arrived][%s]...\n", (char *)arg);
-	nni_plat_printf("topic   => %.*s\n"
-		   "payload => %.*s\n",
-		   topicsz, topic, payloadsz, payload);
 	client->recv_cb(client, msg, client->obj);
 
 	return;
