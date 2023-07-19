@@ -813,7 +813,7 @@ nng_mqtt_client_send_cb(void* arg)
 	nni_lmq * lmq = (nni_lmq *)client->msgq;
 
 	if (msg == NULL || nng_aio_result(aio) != 0) {
-		client->cb(client, msg, client->obj);
+		client->send_cb(client, NULL, client->obj);
 		return;
 	}
 
@@ -821,7 +821,33 @@ nng_mqtt_client_send_cb(void* arg)
 		nng_aio_set_msg(client->send_aio, tmsg);
 		nng_send_aio(client->sock, client->send_aio);
 	}
-	client->cb(client, msg, client->obj);
+	client->send_cb(client, msg, client->obj);
+	return;
+}
+
+static void
+nng_mqtt_client_recv_cb(void* arg)
+{
+	nng_mqtt_client *client = (nng_mqtt_client *) arg;
+	nng_aio *        aio    = client->recv_aio;
+	nng_msg *        msg    = nng_aio_get_msg(aio);
+	int 			 rv;
+
+	if (msg == NULL || (rv = nng_aio_result(aio)) != 0) {
+		nni_plat_printf("aio recv error! %d", rv);
+	}
+	nng_recv_aio(client->sock, client->recv_aio);
+	uint32_t topicsz, payloadsz;
+	char *topic = (char *)nng_mqtt_msg_get_publish_topic(msg, &topicsz);
+	char *payload =
+		(char *)nng_mqtt_msg_get_publish_payload(msg, &payloadsz);
+
+	nni_plat_printf("[Msg Arrived][%s]...\n", (char *)arg);
+	nni_plat_printf("topic   => %.*s\n"
+		   "payload => %.*s\n",
+		   topicsz, topic, payloadsz, payload);
+	client->recv_cb(client, msg, client->obj);
+
 	return;
 }
 
@@ -833,21 +859,26 @@ nng_mqtt_client_send_cb(void* arg)
  * Return NULL if failed
  * */
 nng_mqtt_client *
-nng_mqtt_client_alloc(nng_socket sock, nng_mqtt_send_cb cb, bool is_async)
+nng_mqtt_client_alloc(nng_socket sock, nng_mqtt_send_cb send_cb, nng_mqtt_recv_cb recv_cb, bool is_async)
 {
 	nng_mqtt_client *client = NNI_ALLOC_STRUCT(client);
 	client->sock            = sock;
 	client->async           = is_async;
-	client->cb              = NULL;
+	client->send_cb         = NULL;
+	client->recv_cb         = NULL;
 	client->msgq            = NULL;
 	client->obj             = NULL;
 
-	if (cb != NULL) {
-		client->cb = cb;
+	if (send_cb != NULL) {
+		client->send_cb = send_cb;
+	}
+	if (recv_cb != NULL) {
+		client->recv_cb = recv_cb;
 	}
 	if (is_async) {
 		// replace nng_mqtt_client_send_cb for lmq
 		nng_aio_alloc(&client->send_aio, nng_mqtt_client_send_cb, client);
+		nng_aio_alloc(&client->recv_aio, nng_mqtt_client_recv_cb, client);
 		if ((client->msgq = nng_alloc(sizeof(nni_lmq))) == NULL) {
 			return NULL;
 		}
@@ -918,7 +949,6 @@ nng_mqtt_unsubscribe_async(nng_mqtt_client *client, nng_mqtt_topic *sbs, size_t 
 	nng_send_aio(client->sock, client->send_aio);
 
 	return 0;
-
 }
 
 int
@@ -961,7 +991,10 @@ nng_mqtt_subscribe_async(nng_mqtt_client *client, nng_mqtt_topic_qos *sbs, size_
 		return 1;
 	}
 	nng_aio_set_msg(client->send_aio, submsg);
-	nng_send_aio(client->sock, client->send_aio);
+	if (client->send_cb != NULL)
+		nng_send_aio(client->sock, client->send_aio);
+	if (client->recv_cb != NULL)
+		nng_recv_aio(client->sock, client->recv_aio);
 
 	return 0;
 }
