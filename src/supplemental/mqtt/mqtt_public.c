@@ -877,8 +877,10 @@ nng_mqtt_client_alloc(nng_socket sock, nng_mqtt_send_cb send_cb, nng_mqtt_recv_c
 	}
 	if (is_async) {
 		// replace nng_mqtt_client_send_cb for lmq
-		nng_aio_alloc(&client->send_aio, nng_mqtt_client_send_cb, client);
-		nng_aio_alloc(&client->recv_aio, nng_mqtt_client_recv_cb, client);
+		if (send_cb != NULL)
+			nng_aio_alloc(&client->send_aio, nng_mqtt_client_send_cb, client);
+		if (recv_cb != NULL)
+			nng_aio_alloc(&client->recv_aio, nng_mqtt_client_recv_cb, client);
 		if ((client->msgq = nng_alloc(sizeof(nni_lmq))) == NULL) {
 			return NULL;
 		}

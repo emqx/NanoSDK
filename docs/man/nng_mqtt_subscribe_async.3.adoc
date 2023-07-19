@@ -55,7 +55,7 @@ sub_callback(void *arg) {
 		    .topic = { .buf = (uint8_t *) topic1,
 			    .length     = strlen(
 		            topic1) } } nng_mqtt_client *client =
-			nng_mqtt_client_alloc(sock, sub_callback, true);
+			nng_mqtt_client_alloc(sock, sub_callback, recv_callback, true);
 	nng_mqtt_subscribe_async(client, subscriptions, 1, NULL);
 ----
 
