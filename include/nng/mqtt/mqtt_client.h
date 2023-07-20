@@ -65,6 +65,8 @@ extern "C" {
 
 #define NNG_OPT_MQTT_DISCONNECT_PROPERTY "mqtt-disconnect-property"
 
+#define NNG_OPT_MQTT_RETRY_INTERVAL "mqtt-client-retry-interval"
+
 #define NNG_OPT_MQTT_DISCONNECT_REASON "mqtt-disconnect-reason"
 
 #define NNG_OPT_MQTT_SQLITE "mqtt-sqlite-option"
