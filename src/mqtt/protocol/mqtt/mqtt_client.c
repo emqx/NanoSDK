@@ -171,15 +171,16 @@ mqtt_sock_get_sqlite_option(mqtt_sock_t *s)
 }
 
 static int
-mqtt_sock_set_retry_interval(void *arg, void *v, size_t sz, nni_opt_type t)
+mqtt_sock_set_retry_interval(void *arg, const void *v, size_t sz, nni_opt_type t)
 {
 	mqtt_sock_t *s = arg;
-	int         val;
-	int         rv;
-	if ((rv = nni_copyin_int(&val, v, sz, 0, sizeof(s->retry), t)) == 0) {
-		s->retry = val * NNI_SECOND;
+	nni_duration    tmp;
+	int rv;
+
+	if ((rv = nni_copyin_ms(&tmp, v, sz, t)) == 0) {
+		s->retry = tmp > 600000 ? 360000 : tmp;
 	}
-	return rv;
+	return (rv);
 }
 
 static int
