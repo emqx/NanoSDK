@@ -171,6 +171,20 @@ mqtt_sock_get_sqlite_option(mqtt_sock_t *s)
 #endif
 }
 
+
+static int
+mqtt_sock_set_retry_interval(void *arg, const void *v, size_t sz, nni_opt_type t)
+{
+	mqtt_sock_t *s = arg;
+	nni_duration    tmp;
+	int rv;
+
+	if ((rv = nni_copyin_ms(&tmp, v, sz, t)) == 0) {
+		s->retry = tmp > 600000 ? 360000 : tmp;
+	}
+	return (rv);
+}
+
 static int
 mqtt_sock_set_sqlite_option(
     void *arg, const void *v, size_t sz, nni_opt_type t)
@@ -422,25 +436,6 @@ mqtt_pipe_start(void *arg)
 		return (0);
 	}
 
-#if defined(NNG_SUPP_SQLITE)
-	nni_mqtt_sqlite_option *sqlite = mqtt_sock_get_sqlite_option(s);
-	if (sqlite_is_enabled(sqlite)) {
-		if (!nni_lmq_empty(&sqlite->offline_cache)) {
-			sqlite_flush_offline_cache(sqlite);
-		}
-		nni_msg *msg = sqlite_get_cache_msg(sqlite);
-		if (NULL != msg) {
-			p->busy = true;
-			nni_aio_set_msg(&p->send_aio, msg);
-			nni_pipe_send(p->pipe, &p->send_aio);
-			nni_mtx_unlock(&s->mtx);
-			nni_sleep_aio(s->retry, &p->time_aio);
-			nni_pipe_recv(p->pipe, &p->recv_aio);
-			return (0);
-		}
-	}
-#endif
-
 	nni_mtx_unlock(&s->mtx);
 	//initiate the global resend timer
 	nni_sleep_aio(s->retry, &p->time_aio);
@@ -533,6 +528,26 @@ mqtt_timer_cb(void *arg)
 		}
 	}
 
+#if defined(NNG_SUPP_SQLITE)
+	if (!p->busy) {
+		nni_mqtt_sqlite_option *sqlite =
+		    mqtt_sock_get_sqlite_option(s);
+		if (sqlite_is_enabled(sqlite)) {
+			if (!nni_lmq_empty(&sqlite->offline_cache)) {
+				sqlite_flush_offline_cache(sqlite);
+			}
+			if (NULL != (msg = sqlite_get_cache_msg(sqlite))) {
+				p->busy = true;
+				nni_aio_set_msg(&p->send_aio, msg);
+				nni_pipe_send(p->pipe, &p->send_aio);
+				nni_mtx_unlock(&s->mtx);
+				nni_sleep_aio(s->retry, &p->time_aio);
+				return;
+			}
+		}
+	}
+#endif
+
 	nni_mtx_unlock(&s->mtx);
 	nni_sleep_aio(s->retry, &p->time_aio);
 	return;
@@ -580,22 +595,6 @@ mqtt_send_cb(void *arg)
 		nni_mtx_unlock(&s->mtx);
 		return;
 	}
-
-#if defined(NNG_SUPP_SQLITE)
-	nni_mqtt_sqlite_option *sqlite = mqtt_sock_get_sqlite_option(s);
-	if (sqlite_is_enabled(sqlite)) {
-		if (!nni_lmq_empty(&sqlite->offline_cache)) {
-			sqlite_flush_offline_cache(sqlite);
-		}
-		if (NULL != (msg = sqlite_get_cache_msg(sqlite))) {
-			p->busy = true;
-			nni_aio_set_msg(&p->send_aio, msg);
-			nni_pipe_send(p->pipe, &p->send_aio);
-			nni_mtx_unlock(&s->mtx);
-			return;
-		}
-	}
-#endif
 
 	p->busy = false;
 	nni_mtx_unlock(&s->mtx);
@@ -999,6 +998,10 @@ static nni_option mqtt_sock_options[] = {
 	{
 	    .o_name = NNG_OPT_MQTT_DISCONNECT_PROPERTY,
 	    .o_get  = mqtt_sock_get_disconnect_prop,
+	},
+	{
+	    .o_name = NNG_OPT_MQTT_RETRY_INTERVAL,
+	    .o_set  = mqtt_sock_set_retry_interval,
 	},
 	{
 	    .o_name = NNG_OPT_MQTT_SQLITE,
