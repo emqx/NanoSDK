@@ -405,6 +405,8 @@ main(const int argc, const char **argv)
 	char *      verbose_env = getenv("VERBOSE");
 	bool        verbose     = verbose_env && strlen(verbose_env) > 0;
 
+	nng_duration retry = 10000;
+	nng_socket_set_ms(sock, NNG_OPT_MQTT_RETRY_INTERVAL, retry);
 	client_connect(&sock, url, verbose);
 	nng_msleep(1000);
 
