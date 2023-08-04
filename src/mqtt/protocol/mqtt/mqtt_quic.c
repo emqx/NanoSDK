@@ -1086,6 +1086,7 @@ mqtt_quic_recv_cb(void *arg)
 		// free msg
 		nni_msg_free(msg);
 		nni_mtx_unlock(&s->mtx);
+		log_info("PINGRESP!");
 		return;
 	case NNG_MQTT_PUBREC:
 		// return PUBREL

@@ -740,7 +740,18 @@ mqtt_recv_cb(void *arg)
 
 	case NNG_MQTT_PUBLISH:
 		// we have received a PUBLISH
+		nni_msg_dump("Message:", msg);
 		qos = nni_mqtt_msg_get_publish_qos(msg);
+		uint32_t topic_len;
+		uint32_t plen;
+		char    *topic;
+		uint8_t *payload;
+		topic   = nni_mqtt_msg_get_publish_topic(msg, &topic_len);
+		payload = nni_mqtt_msg_get_publish_payload(msg, &plen);
+		nni_plat_printf("Received QoS %d msg on topic %.*s in "
+		         "time %ld payload %.*s \n",
+		    qos, topic_len, topic, nni_clock(), plen, payload);
+
 		if (2 > qos) {
 			// QoS 0, successful receipt
 			// QoS 1, the transport handled sending a PUBACK

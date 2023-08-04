@@ -42,17 +42,17 @@ nni_chunk_dump(const nni_chunk *chunk, char *prefix)
 	char    buf[128];
 
 	(void) snprintf(buf, sizeof(buf),
-	    " %s (cap %d, len %d, offset %d ptr %p):", prefix,
+	    " %s (cap %d, len %d, offset %d ptr %p): \n", prefix,
 	    (int) chunk->ch_cap, (int) chunk->ch_len,
 	    (int) (chunk->ch_ptr - chunk->ch_buf), chunk->ch_ptr);
-	nni_println(buf);
+	nni_plat_printf(buf);
 
 	buf[0] = 0;
 	for (i = 0, j = 0; i < chunk->ch_len; i++) {
 		if ((i % 16) == 0) {
 			if (j > 0) {
 				buf[j++] = '\0';
-				nni_println(buf);
+				nni_plat_printf(buf);
 				j = 0;
 			}
 			snprintf(buf, sizeof(buf), " %4x: ", (unsigned) i);
@@ -66,7 +66,7 @@ nni_chunk_dump(const nni_chunk *chunk, char *prefix)
 	}
 	if (j > 0) {
 		buf[j++] = '\0';
-		nni_println(buf);
+		nni_plat_printf(buf);
 	}
 }
 
@@ -75,11 +75,11 @@ nni_msg_dump(const char *banner, const nni_msg *msg)
 {
 	char buf[128];
 
-	(void) snprintf(buf, sizeof(buf), "--- %s BEGIN ---", banner);
-	nni_println(buf);
+	(void) snprintf(buf, sizeof(buf), "--- %s BEGIN --- \n", banner);
+	nni_plat_printf(buf);
 	// TODO: dump the header
 	nni_chunk_dump(&msg->m_body, "BODY");
-	nni_println("--- END ---");
+	nni_plat_printf("\n --- END --- \n");
 }
 #endif
 
