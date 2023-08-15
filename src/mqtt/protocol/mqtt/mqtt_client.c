@@ -477,7 +477,6 @@ mqtt_pipe_close(void *arg)
 #if defined(NNG_SUPP_SQLITE)
 	// flush to disk
 	if (!nni_lmq_empty(&p->send_messages)) {
-		log_info("cached msg into sqlite");
 		sqlite_flush_lmq(
 		    mqtt_sock_get_sqlite_option(s), &p->send_messages);
 	}
