@@ -13,7 +13,7 @@ find_package(nng CONFIG REQUIRED)
 find_package(Threads)
 
 add_executable(mqttv5_client mqttv5_client.c)
-target_link_libraries(mqttv5_client nng)
+target_link_libraries(mqttv5_client nng::nng)
 target_link_libraries(mqttv5_client ${CMAKE_THREAD_LIBS_INIT})
 
 if(NNG_ENABLE_TLS)
