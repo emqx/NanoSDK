@@ -25,7 +25,7 @@ if(OPENSSL_FOUND)
     target_link_libraries(quic_client OpenSSL::Crypto OpenSSL::SSL)
 endif()
 
-target_link_libraries(quic_client nng msquic pthread)
+target_link_libraries(quic_client nng::nng msquic pthread)
 target_compile_definitions(quic_client PRIVATE NNG_ELIDE_DEPRECATED)
 
 if (NNG_ENABLE_SQLITE)

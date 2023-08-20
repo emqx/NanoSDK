@@ -13,7 +13,7 @@ find_package(nng CONFIG REQUIRED)
 find_package(Threads)
 
 add_executable(mqtt_client mqtt_client.c)
-target_link_libraries(mqtt_client nng)
+target_link_libraries(mqtt_client nng::nng)
 target_link_libraries(mqtt_client ${CMAKE_THREAD_LIBS_INIT})
 
 if(NNG_ENABLE_TLS)
