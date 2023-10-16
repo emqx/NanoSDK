@@ -383,14 +383,17 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 		    ptype != NNG_MQTT_UNSUBSCRIBE) {
 			nni_aio_finish(aio, 0, 0);
 		}
+		printf("rhack: %s: %d p->busy: %s\n", __func__, __LINE__, p->busy ? "true" : "false");
 		return;
 	}
 	if (nni_lmq_full(&p->send_messages)) {
 		(void) nni_lmq_get(&p->send_messages, &tmsg);
+		printf("rhack: %s: %d p->busy: %s\n", __func__, __LINE__, p->busy ? "true" : "false");
 		nni_msg_free(tmsg);
 	}
 	if (0 != nni_lmq_put(&p->send_messages, msg)) {
 		nni_println("Warning! msg lost due to busy socket");
+		printf("rhack: %s: %d p->busy: %s put in send_messages msg: %p\n", __func__, __LINE__, p->busy ? "true" : "false", msg);
 	}
 out:
 	nni_mtx_unlock(&s->mtx);
@@ -539,6 +542,7 @@ mqtt_timer_cb(void *arg)
 				        nni_msg_len(msg));
 				nni_aio_set_msg(aio, NULL);
 			}
+			printf("rhack: %s: %d p->busy: %s send msg: %p\n", __func__, __LINE__, p->busy ? "true" : "false", msg);
 			nni_aio_set_msg(&p->send_aio, msg);
 			nni_pipe_send(p->pipe, &p->send_aio);
 
@@ -548,6 +552,7 @@ mqtt_timer_cb(void *arg)
 		} else {
 			nni_msg_clone(msg);
 			nni_lmq_put(&p->send_messages, msg);
+			printf("rhack: %s: %d p->busy: %s put msg: %p in send_message\n", __func__, __LINE__, p->busy ? "true" : "false", msg);
 		}
 	}
 
@@ -566,6 +571,7 @@ mqtt_send_cb(void *arg)
 	nni_msg *    msg = NULL;
 
 	if ((rv = nni_aio_result(&p->send_aio)) != 0) {
+		printf("rhack: %s: %d send_aio failed\n", __func__, __LINE__);
 		// We failed to send... clean up and deal with it.
 		nni_msg_free(nni_aio_get_msg(&p->send_aio));
 		nni_aio_set_msg(&p->send_aio, NULL);
@@ -594,6 +600,7 @@ mqtt_send_cb(void *arg)
 	if (nni_lmq_get(&p->send_messages, &msg) == 0) {
 		p->busy = true;
 		nni_mqttv5_msg_encode(msg);
+		printf("rhack: %s: %d p->busy: %s get msg: %p to send\n", __func__, __LINE__, p->busy ? "true" : "false", msg);
 		nni_aio_set_msg(&p->send_aio, msg);
 		nni_pipe_send(p->pipe, &p->send_aio);
 		nni_mtx_unlock(&s->mtx);
