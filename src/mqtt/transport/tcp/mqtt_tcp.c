@@ -829,6 +829,7 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 			nni_aio_set_iov(p->faio, 2, iov);
 			nng_stream_send(p->conn, p->faio);
 		} else {
+			nni_plat_printf("ack msg lost %d\n", packet_id);
 			nni_msg_free(qmsg);
 		}
 		// else {
