@@ -340,18 +340,6 @@ mqtt_sub_stream(mqtt_pipe_t *p, nni_msg *msg, uint16_t packet_id, nni_aio *aio)
 }
 // end of Multi-stream API
 
-static uint16_t
-mqtt_pipe_get_next_packet_id(mqtt_sock_t *s)
-{
-	int packet_id;
-	do {
-		packet_id = nni_atomic_get(&s->next_packet_id);
-	} while (
-	    !nni_atomic_cas(&s->next_packet_id, packet_id, packet_id + 1));
-	return packet_id & 0xFFFF;
-}
-
-
 
 // Should be called with mutex lock hold after pipe is secured
 // return rv>0 when aio should be finished (error or successed)
@@ -769,7 +757,7 @@ mqtt_quic_data_strm_recv_cb(void *arg)
 		nni_mqtt_msg_set_puback_packet_id(ack, packet_id);
 		nni_mqttv5_msg_encode(ack);
 		// ignore result of this send ?
-		mqtt_pipe_send_msg(NULL, ack, p, mqtt_pipe_get_next_packet_id(p->mqtt_sock));
+		mqtt_pipe_send_msg(NULL, ack, p, mqtt_get_next_packet_id(&p->mqtt_sock->next_packet_id));
 		// return msg to user
 		nni_mtx_lock(&s->mtx);
 		if ((aio = nni_list_first(&s->recv_queue)) == NULL) {
@@ -802,7 +790,7 @@ mqtt_quic_data_strm_recv_cb(void *arg)
 				nni_mqtt_msg_set_packet_type(ack, NNG_MQTT_PUBACK);
 				nni_mqtt_msg_set_puback_packet_id(ack, packet_id);
 				nni_mqttv5_msg_encode(ack);
-				mqtt_pipe_send_msg(NULL, ack, p, mqtt_pipe_get_next_packet_id(p->mqtt_sock));
+				mqtt_pipe_send_msg(NULL, ack, p, mqtt_get_next_packet_id(&p->mqtt_sock->next_packet_id));
 			}
 			nni_mtx_lock(&s->mtx);
 			// TODO aio should be placed in p->recv_queue to achieve parallel
@@ -1691,7 +1679,7 @@ mqtt_quic_ctx_send(void *arg, nni_aio *aio)
 		}
 	case NNG_MQTT_SUBSCRIBE:
 	case NNG_MQTT_UNSUBSCRIBE:
-		packet_id = mqtt_pipe_get_next_packet_id(s);
+		packet_id = mqtt_get_next_packet_id(&s->next_packet_id);
 		nni_mqtt_msg_set_packet_id(msg, packet_id);
 		break;
 	default:
