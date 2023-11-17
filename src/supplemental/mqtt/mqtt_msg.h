@@ -447,24 +447,27 @@ NNG_DECL void nni_mqtt_topic_array_free(nni_mqtt_topic *, size_t);
 
 // mqtt topic_qos create/free/set
 NNG_DECL nni_mqtt_topic_qos *nni_mqtt_topic_qos_array_create(size_t);
-NNG_DECL void nni_mqtt_topic_qos_array_set(nni_mqtt_topic_qos *,
-        size_t, const char *, uint32_t, uint8_t, uint8_t, uint8_t, uint8_t);
+NNG_DECL void nni_mqtt_topic_qos_array_set(nni_mqtt_topic_qos *, size_t,
+    const char *, uint32_t, uint8_t, uint8_t, uint8_t, uint8_t);
 NNG_DECL void nni_mqtt_topic_qos_array_free(nni_mqtt_topic_qos *, size_t);
 
 NNG_DECL void mqtt_close_unack_msg_cb(void *, void *);
 
 NNG_DECL uint16_t nni_msg_get_pub_pid(nni_msg *);
+NNG_DECL uint16_t mqtt_get_next_packet_id(nni_atomic_int *id);
 
-NNG_DECL void nni_mqtt_msg_set_connect_property(nni_msg *, property *);
-NNG_DECL property* nni_mqtt_msg_get_connect_property(nni_msg *);
+NNG_DECL void      nni_mqtt_msg_set_connect_property(nni_msg *, property *);
+NNG_DECL property *nni_mqtt_msg_get_connect_property(nni_msg *);
 
 NNG_DECL reason_code check_properties(property *prop);
-NNG_DECL property *decode_buf_properties(uint8_t *packet, uint32_t packet_len, uint32_t *pos, uint32_t *len, bool copy_value);
-NNG_DECL property *decode_properties(nng_msg *msg, uint32_t *pos, uint32_t *len, bool copy_value);
-NNG_DECL int      encode_properties(nng_msg *msg, property *prop, uint8_t cmd);
+NNG_DECL property *decode_buf_properties(uint8_t *packet, uint32_t packet_len,
+    uint32_t *pos, uint32_t *len, bool copy_value);
+NNG_DECL property *decode_properties(
+    nng_msg *msg, uint32_t *pos, uint32_t *len, bool copy_value);
+NNG_DECL int encode_properties(nng_msg *msg, property *prop, uint8_t cmd);
 
-NNG_DECL uint32_t get_properties_len(property *prop);
-NNG_DECL int      property_free(property *prop);
+NNG_DECL uint32_t  get_properties_len(property *prop);
+NNG_DECL int       property_free(property *prop);
 NNG_DECL void      property_foreach(property *prop, void (*cb)(property *));
 NNG_DECL int       property_dup(property **dup, const property *src);
 NNG_DECL property *property_pub_by_will(property *will_prop);
@@ -474,9 +477,12 @@ NNG_DECL property *property_set_value_u8(uint8_t prop_id, uint8_t value);
 NNG_DECL property *property_set_value_u16(uint8_t prop_id, uint16_t value);
 NNG_DECL property *property_set_value_u32(uint8_t prop_id, uint32_t value);
 NNG_DECL property *property_set_value_varint(uint8_t prop_id, uint32_t value);
-NNG_DECL property *property_set_value_binary(uint8_t prop_id, uint8_t *value, uint32_t len, bool copy_value);
-NNG_DECL property *property_set_value_str( uint8_t prop_id, const char *value, uint32_t len, bool copy_value);
-NNG_DECL property *property_set_value_strpair(uint8_t prop_id, const char *key, uint32_t key_len, const char *value, uint32_t value_len, bool copy_value);
+NNG_DECL property *property_set_value_binary(
+    uint8_t prop_id, uint8_t *value, uint32_t len, bool copy_value);
+NNG_DECL property *property_set_value_str(
+    uint8_t prop_id, const char *value, uint32_t len, bool copy_value);
+NNG_DECL property *property_set_value_strpair(uint8_t prop_id, const char *key,
+    uint32_t key_len, const char *value, uint32_t value_len, bool copy_value);
 
 NNG_DECL property_type_enum property_get_value_type(uint8_t prop_id);
 NNG_DECL property_data *    property_get_value(property *prop, uint8_t prop_id);
@@ -484,11 +490,11 @@ NNG_DECL void               property_append(property *prop_list, property *last)
 NNG_DECL int                property_value_copy(property *dest,const property *src);
 
 /* introduced from mqtt_parser, might be duplicated */
-NNG_DECL int  nni_mqtt_pubres_decode(nng_msg *msg, uint16_t *packet_id,
-     uint8_t *reason_code, property **prop, uint8_t proto_ver);
-NNG_DECL int  nni_mqtt_msgack_encode(nng_msg *msg, uint16_t packet_id,
-     uint8_t reason_code, property *prop, uint8_t proto_ver);
-NNG_DECL int  nni_mqtt_pubres_header_encode(nng_msg *msg, uint8_t cmd);
+NNG_DECL int nni_mqtt_pubres_decode(nng_msg *msg, uint16_t *packet_id,
+    uint8_t *reason_code, property **prop, uint8_t proto_ver);
+NNG_DECL int nni_mqtt_msgack_encode(nng_msg *msg, uint16_t packet_id,
+    uint8_t reason_code, property *prop, uint8_t proto_ver);
+NNG_DECL int nni_mqtt_pubres_header_encode(nng_msg *msg, uint8_t cmd);
 
 #ifdef __cplusplus
 }

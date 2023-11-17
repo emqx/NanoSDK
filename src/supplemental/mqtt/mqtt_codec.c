@@ -4216,3 +4216,24 @@ nni_mqtt_msgack_encode(nng_msg *msg, uint16_t packet_id, uint8_t reason_code,
 
 	return MQTT_SUCCESS;
 }
+/***
+ * @brief get next unique packet id for MQTT packet and increase by 1, skip 0
+ *
+ * @param  nni_atomic_int* id
+ * @return uint16_t packet id
+*/
+uint16_t
+mqtt_get_next_packet_id(nni_atomic_int *id)
+{
+	int packet_id;
+	do {
+		packet_id = nni_atomic_get(id);
+	} while (
+	    !nni_atomic_cas(id, packet_id, packet_id + 1));
+	/* PROTOCOL ERROR: When the expression is 0 */
+	if ((nni_atomic_get(id) & 0xFFFF) == 0) {
+		nni_atomic_set(id, 1);
+	}
+	log_error("id: %d",((uint16_t)packet_id & 0xFFFF) );
+	return (uint16_t)packet_id & 0xFFFF;
+}
