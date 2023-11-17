@@ -3729,10 +3729,10 @@ int
 property_dup(property **dup, const property *src)
 {
 	property *item = NULL;
-	if (src == NULL) {
+	property *list = property_alloc();
+	if (src == NULL || list == NULL) {
 		return -1;
 	}
-	property *list = property_alloc();
 
 	for (property *p = src->next; p != NULL; p = p->next) {
 		property_type_enum type = property_get_value_type(p->id);
