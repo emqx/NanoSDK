@@ -403,7 +403,9 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 				goto mqtt_error;
 			property_free(ep->property);
 			property *prop = (void *)nni_mqtt_msg_get_connack_property(p->rxmsg);
-			property_dup((property **)&ep->property, prop);
+			if (property_dup((property **)&ep->property, prop) != 0) {
+				goto mqtt_error;
+			}
 			property_data *data;
 			data = property_get_value(ep->property, RECEIVE_MAXIMUM);
 			if (data) {
@@ -708,8 +710,6 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 	nni_msg_header_append(p->rxmsg, p->rxlen, pos + 1);
 	msg      = p->rxmsg;
 	p->rxmsg = NULL;
-	// n        = nni_msg_len(msg);
-	nni_plat_printf("length2 %d\n", nni_msg_len(msg));
 	type     = p->rxlen[0] & 0xf0;
 	flags    = p->rxlen[0] & 0x0f;
 
