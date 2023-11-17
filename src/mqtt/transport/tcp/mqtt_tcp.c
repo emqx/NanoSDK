@@ -963,6 +963,7 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 		iov[niov].iov_buf = nni_msg_body(msg);
 		iov[niov].iov_len = nni_msg_len(msg);
 		niov++;
+		nni_plat_printf("sending msg body len %d", nni_msg_len(msg));
 	}
 	nni_aio_set_iov(txaio, niov, iov);
 	nng_stream_send(p->conn, txaio);

@@ -1239,6 +1239,8 @@ nni_mqtt_msg_encode_publish(nni_msg *msg)
 		nni_msg_append(msg, mqtt->payload.publish.payload.buf,
 		    mqtt->payload.publish.payload.length);
 	}
+	nni_plat_printf("encode pub msg remain_len %d payload_len %d msg_len %d",mqtt->fixed_header.remaining_length,
+	mqtt->payload.publish.payload.length, nni_msg_len(msg));
 
 	return MQTT_SUCCESS;
 }
