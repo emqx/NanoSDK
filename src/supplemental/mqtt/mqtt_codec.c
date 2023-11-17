@@ -4234,6 +4234,5 @@ mqtt_get_next_packet_id(nni_atomic_int *id)
 	if ((nni_atomic_get(id) & 0xFFFF) == 0) {
 		nni_atomic_set(id, 1);
 	}
-	log_error("id: %d",((uint16_t)packet_id & 0xFFFF) );
 	return (uint16_t)packet_id & 0xFFFF;
 }
