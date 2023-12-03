@@ -678,6 +678,7 @@ nni_mqtt_msg_set_connect_client_id(nni_msg *msg, const char *client_id)
 	if (0 != mqtt_buf_create(&buf, (uint8_t *) client_id, (uint32_t) strlen(client_id))) {
 		return;
 	}
+	mqtt_buf_free(&proto_data->payload.connect.client_id);
 	proto_data->payload.connect.client_id = buf;
 	proto_data->is_copied = true;
 }
