@@ -584,7 +584,7 @@ mqtts_tcptran_pipe_recv_cb(void *arg)
 	uint8_t             type, pos, flags;
 	uint32_t            len = 0, rv;
 	size_t              n;
-	nni_msg *           msg, *qmsg;
+	nni_msg *           msg;
 	mqtts_tcptran_pipe *p     = arg;
 	nni_aio *           rxaio = p->rxaio;
 	bool                ack   = false;
@@ -727,6 +727,7 @@ mqtts_tcptran_pipe_recv_cb(void *arg)
 	if (ack == true) {
 		// alloc a msg here costs memory. However we must do it for the
 		// sake of compatibility with nng.
+		nni_msg *qmsg;
 		if ((rv = nni_msg_alloc(&qmsg, 0)) != 0) {
 			ack = false;
 			rv  = UNSPECIFIED_ERROR;
