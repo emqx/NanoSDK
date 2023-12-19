@@ -288,6 +288,10 @@ mqtt_pipe_fini(void *arg)
 		nni_aio_set_msg(&p->recv_aio, NULL);
 		nni_msg_free(msg);
 	}
+	if ((msg = nni_aio_get_prov_data(&p->recv_aio)) != NULL) {
+		nni_aio_set_prov_data(&p->recv_aio, NULL);
+		nni_msg_free(msg);
+	}
 	if ((msg = nni_aio_get_msg(&p->send_aio)) != NULL) {
 		nni_aio_set_msg(&p->send_aio, NULL);
 		nni_msg_free(msg);
@@ -604,9 +608,9 @@ mqtt_recv_cb(void *arg)
 {
 	mqtt_pipe_t *p          = arg;
 	mqtt_sock_t *s          = p->mqtt_sock;
-	nni_aio *    user_aio   = NULL;
-	nni_msg *    cached_msg = NULL;
-	mqtt_ctx_t * ctx;
+	nni_aio     *user_aio   = NULL;
+	nni_msg     *cached_msg = NULL;
+	mqtt_ctx_t  *ctx;
 
 	if (nni_aio_result(&p->recv_aio) != 0) {
 		s->disconnect_code = SERVER_SHUTTING_DOWN;
@@ -625,6 +629,21 @@ mqtt_recv_cb(void *arg)
 		}
 		nni_mtx_unlock(&s->mtx);
 		return;
+	}
+	nni_msg *ack_msg = NULL;
+	if ((ack_msg = nni_aio_get_prov_data(&p->recv_aio)) != NULL) {
+		nni_aio_set_prov_data(&p->recv_aio, NULL);
+		if (!p->busy) {
+			p->busy = true;
+			nni_aio_set_msg(&p->send_aio, ack_msg);
+			nni_pipe_send(p->pipe, &p->send_aio);
+		} else {
+			if (0 != nni_lmq_put(&p->send_messages, ack_msg)) {
+				nni_println(
+				    "Warning! ack msg lost due to busy socket");
+				nni_msg_free(ack_msg);
+			}
+		}
 	}
 	nni_msg_set_pipe(msg, nni_pipe_id(p->pipe));
 	// nni_msg_dump("Neuron debugging", msg);
