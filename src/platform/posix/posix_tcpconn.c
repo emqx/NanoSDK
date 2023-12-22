@@ -515,34 +515,11 @@ nni_posix_tcp_init(nni_tcp_conn *c, nni_posix_pfd *pfd)
 void
 nni_posix_tcp_start(nni_tcp_conn *c, int nodelay, int keepalive)
 {
-	int rv = 0;
 	// Configure the initial socket options.
 	(void) setsockopt(nni_posix_pfd_fd(c->pfd), IPPROTO_TCP, TCP_NODELAY,
 	    &nodelay, sizeof(int));
 	(void) setsockopt(nni_posix_pfd_fd(c->pfd), SOL_SOCKET, SO_KEEPALIVE,
 	    &keepalive, sizeof(int));
-	if (keepalive == 1) {
-		int quickack = 1;
-		rv = setsockopt(nni_posix_pfd_fd(c->pfd), IPPROTO_TCP, TCP_QUICKACK, &quickack, sizeof(int));
-		nni_plat_printf("set TCP_QUICKACK rv %d\n", rv);
-		int keepidle = 60;
-		rv = setsockopt(nni_posix_pfd_fd(c->pfd), IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(int));
-		nni_plat_printf("set TCP_KEEPIDLE rv %d\n", rv);
-		int keepintvl = 30;
-		rv = setsockopt(nni_posix_pfd_fd(c->pfd), IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(int));
-		nni_plat_printf("set TCP_KEEPINTVL rv %d\n", rv);
-		int keepcnt = 30;
-		rv = setsockopt(nni_posix_pfd_fd(c->pfd), IPPROTO_TCP, TCP_KEEPCNT, &keepcnt, sizeof(int));
-		nni_plat_printf("set TCP_KEEPCNT rv %d\n", rv);
-		struct timeval tv;
-		tv.tv_sec = 60;
-		tv.tv_usec = 500;
-		rv = setsockopt(nni_posix_pfd_fd(c->pfd), SOL_SOCKET, SO_SNDTIMEO, (char *)&tv, sizeof(struct timeval));
-		nni_plat_printf("set SO_RCVTIMEO rv %d\n", rv);
-		if (rv != 0)
-			perror("SO_RCVTIMEO");
-		rv = setsockopt(nni_posix_pfd_fd(c->pfd), SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof(struct timeval));
-		nni_plat_printf("set SO_RCVTIMEO rv %d\n", rv);
-	}
+	
 	nni_posix_pfd_set_cb(c->pfd, tcp_cb, c);
 }
