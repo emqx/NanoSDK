@@ -540,7 +540,7 @@ nni_aio_completions_add(
 	aio->a_reap_node.rn_next = *clp;
 	aio->a_result            = result;
 	aio->a_count             = count;
-	*clp                     = aio
+	*clp                     = aio;
 }
 
 void
