@@ -1040,7 +1040,7 @@ nni_http_server_start(nni_http_server *s)
 }
 
 static void
-ttp_server_close(nni_http_server *s)
+http_server_close(nni_http_server *s)
 {
 	if (s->closed) {
 		return;
