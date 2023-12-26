@@ -139,6 +139,7 @@ req0_sock_fini(void *arg)
 {
 	req0_sock *s = arg;
 
+	nni_aio_stop(&s->retry_aio);
 	nni_mtx_lock(&s->mtx);
 	NNI_ASSERT(nni_list_empty(&s->busy_pipes));
 	NNI_ASSERT(nni_list_empty(&s->stop_pipes));
@@ -149,7 +150,7 @@ req0_sock_fini(void *arg)
 	nni_pollable_fini(&s->readable);
 	nni_pollable_fini(&s->writable);
 	nni_id_map_fini(&s->requests);
-	nni_aio_stop(&s->retry_aio);
+	nni_aio_fini(&s->retry_aio);
 	nni_mtx_fini(&s->mtx);
 }
 
