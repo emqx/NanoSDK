@@ -12,4 +12,5 @@ nng_sources(nn.c)
 set(NNG_TEST_PREFIX ${NNG_TEST_PREFIX}.compat.nanomsg)
 
 nng_test(compat_msg_test)
+
 nng_test(compat_tcp_test)
