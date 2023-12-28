@@ -63,7 +63,9 @@ The NanoSDK C client comprises four variant libraries, shared or static:
 
 The API documentation is provided in Asciidoc format in the
 `docs/man` subdirectory
-The `docs/man/libnng.3.adoc#,libnng(3)` page is a good starting point.
+The <<docs/man/nng.7.adoc#,nng(7)>> page provides a conceptual overview and links to
+manuals for various patterns.
+The <<docs/man/libnng.3.adoc#,libnng(3)>> page is a good starting point for the API reference.
 
 In addition, many users would like to add self-defined behavior in the callback of online and offline. Therefore, we modified the callback method of connection and disconnection to allow users to perform blocking and waiting operations in the callback without affecting the MQTT connection & pradigm itself, so as to improve the flexibility of NanoSDK.
 However, it should be noted that this will consume the number of threads inside the NanoSDK. If the taskq thread is exhausted, it will still affect the operation of the entire client. Please use it cautiously.
