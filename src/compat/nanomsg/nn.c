@@ -1150,7 +1150,6 @@ nn_setsockopt(int s, int nnlevel, int nnopt, const void *valp, size_t sz)
 		// (e.g. with legacy tests).
 		(void) nng_socket_set_ms(sid, NNG_OPT_REQ_RESENDTICK, 10);
 	}
-
 	return (0);
 }
 

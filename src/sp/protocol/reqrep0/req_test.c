@@ -233,7 +233,7 @@ test_req_resend_reconnect(void)
 	// the retry from loss of our original peer.
 	NUTS_PASS(nng_socket_set_ms(req, NNG_OPT_REQ_RESENDTIME, 60 * SECOND));
 	// And make sure the tick runs faster than our timeout!
-	NUTS_PASS(nng_socket_set_ms(req, NNG_OPT_REQ_RESENDTICK, SECOND/10));
+	NUTS_PASS(nng_socket_set_ms(req, NNG_OPT_REQ_RESENDTICK, SECOND / 10));
 
 	NUTS_MARRY(rep1, req);
 
