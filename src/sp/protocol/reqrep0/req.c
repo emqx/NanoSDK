@@ -913,7 +913,6 @@ static nni_option req0_sock_options[] = {
 	    .o_get  = req0_sock_get_resend_tick,
 	    .o_set  = req0_sock_set_resend_tick,
 	},
-
 	// terminate list
 	{
 	    .o_name = NULL,

@@ -1,4 +1,5 @@
 //
+// Copyright 2023 Garrett D'Amore <garrett@damore.org>
 // Copyright 2023 Staysail Systems, Inc. <info@staysail.tech>
 // Copyright 2017 Capitar IT Group BV <info@capitar.com>
 //
