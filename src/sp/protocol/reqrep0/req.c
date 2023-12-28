@@ -594,7 +594,6 @@ req0_ctx_cancel_recv(nni_aio *aio, void *arg, int rv)
 
 		nni_aio_finish_error(aio, rv);
 	}
-
 	nni_mtx_unlock(&s->mtx);
 }
 
