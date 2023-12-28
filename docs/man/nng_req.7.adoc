@@ -121,7 +121,6 @@ the clock does not tick at all.
 +
 This option is shared for all contexts on a socket, and is only available for the socket itself.
 
-
 === Protocol Headers
 
 (((backtrace)))
