@@ -82,7 +82,7 @@ NNG_DECL void log_clear_callback();
 
 // level: check enum above
 // type: 2--> console, 1-->file, 3--> console & file
-NNG_DECL int  conf_log_init(int level, int type, char *dir, char *file);
+NNG_DECL int  conf_log_init(int level, int type, char *dir, char *file, uint64_t rotation_sz, size_t rotation_count);
 NNG_DECL int  conf_log_fini();
 
 #ifdef ENABLE_LOG

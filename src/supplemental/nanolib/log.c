@@ -100,6 +100,7 @@ file_callback(log_event *ev)
 	pid_t pid = syscall(__NR_gettid);
 #endif
 	FILE *fp = ev->config->fp;
+	printf("dir:%s file:%s\n",ev->config->dir, ev->config->file);
 	buf[strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &ev->time)] = '\0';
 	fprintf(fp, "%s [%i] %-5s %s:%d: ", buf, pid,
 	    level_strings[ev->level], ev->file, ev->line);
@@ -378,24 +379,26 @@ log_fini(conf_log *log)
 static conf_log *log = NULL;
 
 int
-conf_log_init(int level, int type, char *dir, char *file)
+conf_log_init(int level, int type, char *dir, char *file, uint64_t rotation_sz, size_t rotation_count)
 {	
 	if((log = nng_zalloc(sizeof(conf_log))) == NULL) {
 		fprintf(stderr,
 		    "Cannot allocate storge for log, quit\n");
 		return -1;
 	}
-	log->level = level;
-	log->type  = type;
-	log->dir   = dir;
-	log->file  = file;
+	log->level          = level;
+	log->type           = type;
+	log->dir            = nng_strdup(dir);
+	log->file           = nng_strdup(file);
+	log->rotation_sz    = rotation_sz;
+	log->rotation_count = rotation_count;
 
 	log_init(log);
 
 	return 0;
 }
 
-int conf_log_fini(conf_log *log)
+int conf_log_fini()
 {
 	log->level = NNG_LOG_WARN;
 	if (log->fp) {
@@ -419,5 +422,7 @@ int conf_log_fini(conf_log *log)
 	log->rotation_sz    = 10 * 1024;
 
 	log_fini(log);
+	nng_free(log, sizeof(log));
+	log = NULL;
 	return 0;
 }
