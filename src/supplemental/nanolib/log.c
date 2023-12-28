@@ -376,53 +376,53 @@ log_fini(conf_log *log)
 	return 0;
 }
 
-static conf_log *log = NULL;
+static conf_log *cli_log = NULL;
 
 int
 conf_log_init(int level, int type, char *dir, char *file, uint64_t rotation_sz, size_t rotation_count)
 {	
-	if((log = nng_zalloc(sizeof(conf_log))) == NULL) {
+	if((cli_log = nng_zalloc(sizeof(conf_log))) == NULL) {
 		fprintf(stderr,
 		    "Cannot allocate storge for log, quit\n");
 		return -1;
 	}
-	log->level          = level;
-	log->type           = type;
-	log->dir            = nng_strdup(dir);
-	log->file           = nng_strdup(file);
-	log->rotation_sz    = rotation_sz;
-	log->rotation_count = rotation_count;
+	cli_log->level          = level;
+	cli_log->type           = type;
+	cli_log->dir            = nng_strdup(dir);
+	cli_log->file           = nng_strdup(file);
+	cli_log->rotation_sz    = rotation_sz;
+	cli_log->rotation_count = rotation_count;
 
-	log_init(log);
+	log_init(cli_log);
 
 	return 0;
 }
 
 int conf_log_fini()
 {
-	log->level = NNG_LOG_WARN;
-	if (log->fp) {
-		fclose(log->fp);
-		log->fp = NULL;
+	cli_log->level = NNG_LOG_WARN;
+	if (cli_log->fp) {
+		fclose(cli_log->fp);
+		cli_log->fp = NULL;
 	}
-	if (log->file) {
-		nni_strfree(log->file);
+	if (cli_log->file) {
+		nni_strfree(cli_log->file);
 	}
-	if (log->dir) {
-		nni_strfree(log->dir);
+	if (cli_log->dir) {
+		nni_strfree(cli_log->dir);
 	}
-	if (log->rotation_sz_str) {
-		nni_strfree(log->rotation_sz_str);
+	if (cli_log->rotation_sz_str) {
+		nni_strfree(cli_log->rotation_sz_str);
 	}
-	if (log->abs_path) {
-		nni_strfree(log->abs_path);
+	if (cli_log->abs_path) {
+		nni_strfree(cli_log->abs_path);
 	}
-	log->type           = LOG_TO_CONSOLE;
-	log->rotation_count = 5;
-	log->rotation_sz    = 10 * 1024;
+	cli_log->type           = LOG_TO_CONSOLE;
+	cli_log->rotation_count = 5;
+	cli_log->rotation_sz    = 10 * 1024;
 
-	log_fini(log);
-	nng_free(log, sizeof(log));
-	log = NULL;
+	log_fini(cli_log);
+	nng_free(cli_log, sizeof(cli_log));
+	cli_log = NULL;
 	return 0;
 }
