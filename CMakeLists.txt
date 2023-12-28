@@ -64,6 +64,10 @@ set(NNG_ABI_VERSION "${NNG_MAJOR_VERSION}.${NNG_MINOR_VERSION}.${NNG_PATCH_VERSI
 set(NNG_PACKAGE_VERSION "${NNG_ABI_VERSION}")
 message(STATUS "Configuring for NNG version ${NNG_ABI_VERSION}")
 
+if (NOT NOLOG)
+  add_definitions(-DENABLE_LOG)
+endif ()
+
 # User-defined options.
 
 # This prefix is appended to by subdirectories, so that each test
