@@ -64,10 +64,6 @@ set(NNG_ABI_VERSION "${NNG_MAJOR_VERSION}.${NNG_MINOR_VERSION}.${NNG_PATCH_VERSI
 set(NNG_PACKAGE_VERSION "${NNG_ABI_VERSION}")
 message(STATUS "Configuring for NNG version ${NNG_ABI_VERSION}")
 
-if (NOT NOLOG)
-  add_definitions(-DENABLE_LOG)
-endif ()
-
 # User-defined options.
 
 # This prefix is appended to by subdirectories, so that each test
@@ -81,6 +77,11 @@ if (NOT (BUILD_SHARED_LIBS))
     set(NNG_STATIC_LIB ON)
     add_compile_options(-fPIC)
     message(STATUS "Building static libs.")
+endif ()
+
+# log is enabled in default
+if (NOT NOLOG)
+  add_definitions(-DENABLE_LOG)
 endif ()
 
 # These are library targets.  The "nng" library is the main public library.
