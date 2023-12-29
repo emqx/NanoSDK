@@ -70,7 +70,7 @@ stdout_callback(log_event *ev)
 {
 	char buf[64];
 #if (NNG_PLATFORM_WINDOWS || NNG_PLATFORM_DARWIN)
-	int pid = nni_plat_getpid();
+	int pid = (int) getpid();
 #else
 	pid_t pid = syscall(__NR_gettid);
 #endif
@@ -95,7 +95,7 @@ file_callback(log_event *ev)
 {
 	char buf[64];
 #if (NNG_PLATFORM_WINDOWS || NNG_PLATFORM_DARWIN)
-	int pid = nni_plat_getpid();
+	int pid = (int) getpid();
 #else
 	pid_t pid = syscall(__NR_gettid);
 #endif
