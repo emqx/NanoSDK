@@ -14,6 +14,7 @@
 #include "core/nng_impl.h"
 #include "core/sockimpl.h"
 #include "nng/mqtt/mqtt_client.h"
+#include "nng/supplemental/nanolib/log.h"
 #include "supplemental/mqtt/mqtt_msg.h"
 
 // TCP transport.   Platform specific TCP operations must be
@@ -910,6 +911,17 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 		iov[niov].iov_buf = nni_msg_body(msg);
 		iov[niov].iov_len = nni_msg_len(msg);
 		niov++;
+	}
+	int  msg_body_len = 30 < nni_msg_len(msg) ? 30 : nni_msg_len(msg);
+
+	char *data = iov[0].iov_buf;
+	for (int i = 0; i < nni_msg_header_len(msg);++i) {
+		log_debug("msg header %d: %x", i, data[i]);
+	}
+
+	data = iov[1].iov_buf;
+	for (int i = 0; i < msg_body_len; ++i) {
+		log_debug("msg body %d: %x", i, data[i]);
 	}
 	nni_aio_set_iov(txaio, niov, iov);
 	nng_stream_send(p->conn, txaio);
