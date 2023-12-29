@@ -100,7 +100,6 @@ file_callback(log_event *ev)
 	pid_t pid = syscall(__NR_gettid);
 #endif
 	FILE *fp = ev->config->fp;
-	printf("dir:%s file:%s\n",ev->config->dir, ev->config->file);
 	buf[strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &ev->time)] = '\0';
 	fprintf(fp, "%s [%i] %-5s %s:%d: ", buf, pid,
 	    level_strings[ev->level], ev->file, ev->line);
