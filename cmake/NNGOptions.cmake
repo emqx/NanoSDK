@@ -178,9 +178,7 @@ if (NNG_TRANSPORT_WS OR NNG_TRANSPORT_WSS)
     set(NNG_SUPP_SHA1 ON)
 endif()
 
-if (CMAKE_BUILD_TYPE MATCHES "Debug")
-  message("-- Please Turn off Tools & Tests if you want ASAN/TSAN--")
-# turn off tools and tests if you want ASAN enabled! 
-# set(NNG_TOOLS OFF)
-# set(NNG_TESTS OFF)
-endif()
+# ID hash API is small wrapper around core, probably should always be enabled unless memory
+# is extraordinarily constrained.
+option(NNG_SUPP_IDHASH "Enable application IDHASH API" ON)
+mark_as_advanced(NNG_SUPP_IDHASH)
