@@ -116,17 +116,17 @@ static conf_quic config_default = {
 	.qcongestion_control = 0, // cubic
 };
 
-static uint32_t
-DJBHashn(char *str, uint16_t len)
+static uint64_t 
+DJBHashn(uint8_t* str, uint32_t len)
 {
-	unsigned int hash = 5381;
-	uint16_t     i    = 0;
-	while (i < len) {
-		hash = ((hash << 5) + hash) + (*str++); /* times 33 */
-		i++;
-	}
-	hash &= ~(1U << 31); /* strip the highest bit */
-	return hash;
+    uint64_t hash = 5381;
+    uint64_t i    = 0;
+
+    for(i = 0; i < len; str++, i++) {
+        hash = ((hash << 5) + hash) + (*str);
+    }
+
+    return hash;
 }
 
 static int nng_mqtt_quic_set_config(nng_socket *sock, void *node);
@@ -204,7 +204,7 @@ struct mqtt_pipe_s {
 	nni_aio         rep_aio;       // aio for resending qos msg and PINGREQ
 	nni_lmq 		send_inflight; // only used in multi-stream mode
 	nni_lmq         recv_messages; // recv messages queue
-	uint32_t        stream_id;	   // only for multi-stream
+	uint64_t        stream_id;	   // only for multi-stream
 	uint16_t        rid;           // index of resending packet id
 	uint8_t         reason_code;   // MQTTV5 reason code
 };
@@ -220,7 +220,7 @@ nng_mqtt_quic_open_topic_stream(mqtt_sock_t *mqtt_sock, const char *topic, uint3
 {
 	mqtt_pipe_t *p          = mqtt_sock->pipe;
 	mqtt_pipe_t *new_pipe   = NULL;
-	uint32_t     hash;
+	uint64_t     hash;
 
 	// create a pipe/stream here
 	if ((new_pipe = nng_alloc(sizeof(mqtt_pipe_t))) == NULL) {
@@ -231,7 +231,7 @@ nng_mqtt_quic_open_topic_stream(mqtt_sock_t *mqtt_sock, const char *topic, uint3
 		log_warn("Failed in open the topic-stream pair.");
 		return NULL;
 	}
-	hash = DJBHashn((char *) topic, len);
+	hash = DJBHashn((unsigned char *) topic, len);
 	nni_id_set(mqtt_sock->streams, hash, new_pipe);
 	new_pipe->stream_id = hash;
 	log_debug("create new pipe %p for topic %.*s", new_pipe, len, topic);
@@ -259,7 +259,8 @@ nng_mqtt_quic_open_topic_stream(mqtt_sock_t *mqtt_sock, const char *topic, uint3
 static int
 mqtt_sub_stream(mqtt_pipe_t *p, nni_msg *msg, uint16_t packet_id, nni_aio *aio)
 {
-	uint32_t count, hash;
+	uint32_t count;
+	uint64_t hash;
 	nni_msg *tmsg;
 	mqtt_sock_t *sock = p->mqtt_sock;
 	mqtt_pipe_t *new_pipe   = NULL;
@@ -270,7 +271,7 @@ mqtt_sub_stream(mqtt_pipe_t *p, nni_msg *msg, uint16_t packet_id, nni_aio *aio)
 	// there is only one topic in Sub msg if multi-stream is enabled
 	for (uint32_t i = 0; i < count; i++) {
 		hash = DJBHashn(
-		    (char *) topics[i].topic.buf, topics[i].topic.length);
+		    (unsigned char *) topics[i].topic.buf, topics[i].topic.length);
 		if ((new_pipe = nni_id_get(sock->streams, hash)) == NULL) {
 			// create pipe here & set stream id
 			log_debug("topic %s qos %d", topics[i].topic.buf, topics[i].qos);
@@ -315,7 +316,7 @@ mqtt_sub_stream(mqtt_pipe_t *p, nni_msg *msg, uint16_t packet_id, nni_aio *aio)
 		nni_id_remove(&new_pipe->sent_unack, packet_id);
 	}
 	nni_msg_clone(msg);
-	if (0 != nni_id_set(&new_pipe->sent_unack, packet_id, msg)) {
+	if (0 != nni_id_set(&new_pipe->sent_unack, (uint64_t)packet_id, msg)) {
 		nni_println("Warning! Cache QoS msg failed");
 		nni_msg_free(msg);
 		nni_aio_finish_error(aio, UNSPECIFIED_ERROR);
@@ -379,7 +380,7 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 			char *topic = (char *) nni_mqtt_msg_get_publish_topic(
 			    msg, &topic_len);
 			pub_pipe =
-			    nni_id_get(s->streams, DJBHashn(topic, topic_len));
+			    nni_id_get(s->streams, DJBHashn((unsigned char *)topic, topic_len));
 			if (pub_pipe == NULL) {
 				pub_pipe = nng_mqtt_quic_open_topic_stream(
 				    s, topic, topic_len);
@@ -409,7 +410,7 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 			nni_id_remove(&p->sent_unack, packet_id);
 		}
 		nni_msg_clone(msg);
-		if (0 != nni_id_set(&p->sent_unack, packet_id, msg)) {
+		if (0 != nni_id_set(&p->sent_unack, (uint64_t)packet_id, msg)) {
 			nni_println("Warning! Cache QoS msg failed");
 			nni_msg_free(msg);
 			nni_aio_finish_error(aio, UNSPECIFIED_ERROR);
@@ -1216,8 +1217,7 @@ mqtt_quic_sock_fini(void *arg)
 {
 	mqtt_sock_t *s = arg;
 	nni_aio     *aio;
-	nni_msg     *tmsg = NULL, *msg = NULL;
-	size_t       count = 0;
+	nni_msg     *msg = NULL;
 	/*
 #if defined(NNG_SUPP_SQLITE) && defined(NNG_HAVE_MQTT_BROKER)
 	bool is_sqlite = get_persist(s);

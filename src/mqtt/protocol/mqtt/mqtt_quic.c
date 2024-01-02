@@ -49,7 +49,7 @@ static void mqtt_quic_ctx_fini(void *arg);
 static void mqtt_quic_ctx_recv(void *arg, nni_aio *aio);
 static void mqtt_quic_ctx_send(void *arg, nni_aio *aio);
 
-static int mqtt_sub_stream(mqtt_pipe_t *p, nni_msg *msg, uint16_t packet_id, nni_aio *aio);
+static int mqtt_sub_stream(mqtt_pipe_t *p, nni_msg *msg, uint64_t packet_id, nni_aio *aio);
 
 #if defined(NNG_SUPP_SQLITE)
 static void *mqtt_quic_sock_get_sqlite_option(mqtt_sock_t *s);
@@ -109,17 +109,17 @@ static conf_quic config_default = {
 	.qcongestion_control = 0, // cubic
 };
 
-static uint32_t
-DJBHashn(char *str, uint16_t len)
+static uint64_t 
+DJBHashn(uint8_t* str, uint32_t len)
 {
-	unsigned int hash = 5381;
-	uint16_t     i    = 0;
-	while (i < len) {
-		hash = ((hash << 5) + hash) + (*str++); /* times 33 */
-		i++;
-	}
-	hash &= ~(1U << 31); /* strip the highest bit */
-	return hash;
+    uint64_t hash = 5381;
+    uint64_t i    = 0;
+
+    for(i = 0; i < len; str++, i++) {
+        hash = ((hash << 5) + hash) + (*str);
+    }
+
+    return hash;
 }
 
 static int nng_mqtt_quic_set_config(nng_socket *sock, void *node);
@@ -195,7 +195,7 @@ struct mqtt_pipe_s {
 	nni_lmq 		send_inflight; // only used in multi-stream mode
 	nni_lmq         recv_messages; // recv messages queue
 	uint32_t        stream_id;	   // only for multi-stream
-	uint16_t        rid;           // index of resending packet id
+	uint64_t        rid;           // index of resending packet id
 	uint8_t         reason_code;   // MQTTV5 reason code
 };
 
@@ -210,7 +210,7 @@ nng_mqtt_quic_open_topic_stream(mqtt_sock_t *mqtt_sock, const char *topic, uint3
 {
 	mqtt_pipe_t *p          = mqtt_sock->pipe;
 	mqtt_pipe_t *new_pipe   = NULL;
-	uint32_t     hash;
+	uint64_t     hash;
 
 	// create a pipe/stream here
 	if ((new_pipe = nng_alloc(sizeof(mqtt_pipe_t))) == NULL) {
@@ -221,7 +221,7 @@ nng_mqtt_quic_open_topic_stream(mqtt_sock_t *mqtt_sock, const char *topic, uint3
 		log_warn("Failed in open the topic-stream pair.");
 		return NULL;
 	}
-	hash = DJBHashn((char *) topic, len);
+	hash = DJBHashn((unsigned char *) topic, len);
 	nni_id_set(mqtt_sock->streams, hash, new_pipe);
 	new_pipe->stream_id = hash;
 	log_debug("create new pipe %p for topic %.*s", new_pipe, len, topic);
@@ -247,9 +247,10 @@ nng_mqtt_quic_open_topic_stream(mqtt_sock_t *mqtt_sock, const char *topic, uint3
  * mapping sub topics (if >1) with the new stream.
 */
 static int
-mqtt_sub_stream(mqtt_pipe_t *p, nni_msg *msg, uint16_t packet_id, nni_aio *aio)
+mqtt_sub_stream(mqtt_pipe_t *p, nni_msg *msg, uint64_t packet_id, nni_aio *aio)
 {
-	uint32_t count, hash;
+	uint32_t count;
+	uint64_t hash;
 	nni_msg *tmsg;
 	mqtt_sock_t *sock = p->mqtt_sock;
 	mqtt_pipe_t *new_pipe   = NULL;
@@ -260,7 +261,7 @@ mqtt_sub_stream(mqtt_pipe_t *p, nni_msg *msg, uint16_t packet_id, nni_aio *aio)
 	// there is only one topic in Sub msg if multi-stream is enabled
 	for (uint32_t i = 0; i < count; i++) {
 		hash = DJBHashn(
-		    (char *) topics[i].topic.buf, topics[i].topic.length);
+		    (unsigned char *) topics[i].topic.buf, topics[i].topic.length);
 		if ((new_pipe = nni_id_get(sock->streams, hash)) == NULL) {
 			// create pipe here & set stream id
 			log_debug("topic %s qos %d", topics[i].topic.buf, topics[i].qos);
@@ -338,9 +339,10 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 {
 	mqtt_pipe_t *p   = s->pipe;
 	nni_msg     *tmsg;
-	uint16_t     ptype, packet_id;
-	uint32_t     topic_len = 0;
 	uint8_t      qos = 0;
+	uint16_t     ptype;
+	uint32_t     topic_len = 0;
+	uint64_t     packet_id;
 
 	ptype = nni_mqtt_msg_get_packet_type(msg);
 	switch (ptype) {
@@ -366,10 +368,9 @@ mqtt_send_msg(nni_aio *aio, nni_msg *msg, mqtt_sock_t *s)
 			// check if topic-stream pair exist
 			mqtt_pipe_t *pub_pipe;
 
-			char *topic = (char *) nni_mqtt_msg_get_publish_topic(
-			    msg, &topic_len);
-			pub_pipe =
-			    nni_id_get(s->streams, DJBHashn(topic, topic_len));
+			char *topic =(char *) nni_mqtt_msg_get_publish_topic(
+			              msg, &topic_len);
+			pub_pipe = nni_id_get(s->streams, DJBHashn((unsigned char *)topic, topic_len));
 			if (pub_pipe == NULL) {
 				pub_pipe = nng_mqtt_quic_open_topic_stream(
 				    s, topic, topic_len);
@@ -481,7 +482,7 @@ mqtt_pipe_send_msg(nni_aio *aio, nni_msg *msg, mqtt_pipe_t *p, uint16_t packet_i
 			nni_id_remove(&p->sent_unack, packet_id);
 		}
 		nni_msg_clone(msg);
-		if (0 != nni_id_set(&p->sent_unack, packet_id, msg)) {
+		if (0 != nni_id_set(&p->sent_unack, (uint64_t)packet_id, msg)) {
 			nni_println("Warning! Cache QoS msg failed");
 			nni_msg_free(msg);
 			nni_aio_finish_error(aio, UNSPECIFIED_ERROR);
@@ -565,7 +566,6 @@ mqtt_quic_send_cb(void *arg)
 	mqtt_sock_t *s   = p->mqtt_sock;
 	nni_msg     *msg = NULL;
 	nni_aio     *aio;
-	int          rv;
 
 	if (nni_aio_result(&p->send_aio) != 0) {
 		// We failed to send... clean up and deal with it.
@@ -672,7 +672,7 @@ mqtt_quic_data_strm_recv_cb(void *arg)
 
 	packet_type_t packet_type = nni_mqtt_msg_get_packet_type(msg);
 
-	int32_t       packet_id;
+	uint64_t      packet_id;
 	uint8_t       qos;
 	nni_msg      *ack;
 
@@ -692,7 +692,7 @@ mqtt_quic_data_strm_recv_cb(void *arg)
 		// FALLTHROUGH
 	case NNG_MQTT_PUBCOMP:
 		// we have received a PUBCOMP, successful delivery of a QoS 2
-		packet_id  = nni_mqtt_msg_get_packet_id(msg);
+		packet_id  = (uint64_t)nni_mqtt_msg_get_packet_id(msg);
 		p->rid     = packet_id;
 		cached_msg = nni_id_get(&p->sent_unack, packet_id);
 		if (cached_msg != NULL) {
@@ -718,7 +718,7 @@ mqtt_quic_data_strm_recv_cb(void *arg)
 		// FALLTHROUGH
 	case NNG_MQTT_UNSUBACK:
 		// we have received a UNSUBACK, successful unsubscription
-		packet_id  = nni_mqtt_msg_get_packet_id(msg);
+		packet_id  = (uint64_t)nni_mqtt_msg_get_packet_id(msg);
 		p->rid     = packet_id;
 		cached_msg = nni_id_get(&p->sent_unack, packet_id);
 		if (cached_msg != NULL) {
@@ -735,7 +735,7 @@ mqtt_quic_data_strm_recv_cb(void *arg)
 		nni_msg_free(msg);
 		break;
 	case NNG_MQTT_PUBREL:
-		packet_id = nni_mqtt_msg_get_pubrel_packet_id(msg);
+		packet_id = (uint64_t)nni_mqtt_msg_get_pubrel_packet_id(msg);
 		cached_msg = nni_id_get(&p->recv_unack, packet_id);
 		nni_msg_free(msg);
 		if (cached_msg == NULL) {
@@ -902,7 +902,7 @@ mqtt_quic_recv_cb(void *arg)
 
 	packet_type_t packet_type = nni_mqtt_msg_get_packet_type(msg);
 
-	int32_t       packet_id;
+	uint64_t      packet_id;
 	uint8_t       qos;
 	nni_msg      *ack;
 
@@ -938,7 +938,7 @@ mqtt_quic_recv_cb(void *arg)
 		// FALLTHROUGH
 	case NNG_MQTT_PUBCOMP:
 		// we have received a PUBCOMP, successful delivery of a QoS 2
-		packet_id  = nni_mqtt_msg_get_packet_id(msg);
+		packet_id  = (uint64_t)nni_mqtt_msg_get_packet_id(msg);
 		p->rid     = packet_id;
 		cached_msg = nni_id_get(&p->sent_unack, packet_id);
 		if (cached_msg != NULL) {
@@ -964,7 +964,7 @@ mqtt_quic_recv_cb(void *arg)
 		// FALLTHROUGH
 	case NNG_MQTT_UNSUBACK:
 		// we have received a UNSUBACK, successful unsubscription
-		packet_id  = nni_mqtt_msg_get_packet_id(msg);
+		packet_id  = (uint64_t)nni_mqtt_msg_get_packet_id(msg);
 		p->rid     = packet_id;
 		cached_msg = nni_id_get(&p->sent_unack, packet_id);
 		if (cached_msg != NULL) {
@@ -978,7 +978,7 @@ mqtt_quic_recv_cb(void *arg)
 		nni_msg_free(msg);
 		break;
 	case NNG_MQTT_PUBREL:
-		packet_id = nni_mqtt_msg_get_pubrel_packet_id(msg);
+		packet_id = (uint64_t)nni_mqtt_msg_get_pubrel_packet_id(msg);
 		cached_msg = nni_id_get(&p->recv_unack, packet_id);
 		nni_msg_free(msg);
 		if (cached_msg == NULL) {
@@ -1020,7 +1020,7 @@ mqtt_quic_recv_cb(void *arg)
 				uint32_t payload_len;
 				payload = nng_mqtt_msg_get_publish_payload(msg, &payload_len);
 				*/
-				packet_id = nni_mqtt_msg_get_publish_packet_id(msg);
+				packet_id = (uint64_t)nni_mqtt_msg_get_publish_packet_id(msg);
 				nni_mqtt_msg_set_packet_type(ack, NNG_MQTT_PUBACK);
 				nni_mqtt_msg_set_puback_packet_id(ack, packet_id);
 				nni_mqtt_msg_encode(ack);
@@ -1045,7 +1045,7 @@ mqtt_quic_recv_cb(void *arg)
 			nni_aio_set_msg(user_aio, msg);
 			break;
 		} else {
-			packet_id = nni_mqtt_msg_get_publish_packet_id(msg);
+			packet_id = (uint64_t)nni_mqtt_msg_get_publish_packet_id(msg);
 			if ((cached_msg = nni_id_get(
 			         &p->recv_unack, packet_id)) != NULL) {
 				// packetid already exists.
@@ -1077,7 +1077,7 @@ mqtt_quic_recv_cb(void *arg)
 		return;
 	case NNG_MQTT_PUBREC:
 		// return PUBREL
-		packet_id = nni_mqtt_msg_get_pubrec_packet_id(msg);
+		packet_id = (uint64_t)nni_mqtt_msg_get_pubrec_packet_id(msg);
 		nni_mqtt_msg_alloc(&ack, 0);
 		nni_mqtt_msg_set_packet_type(ack, NNG_MQTT_PUBREL);
 		nni_mqtt_msg_set_puback_packet_id(ack, packet_id);
@@ -1210,7 +1210,6 @@ mqtt_quic_sock_fini(void *arg)
 	mqtt_sock_t *s = arg;
 	nni_aio     *aio;
 	nni_msg     *msg = NULL;
-	size_t       count = 0;
 	/*
 #if defined(NNG_SUPP_SQLITE) && defined(NNG_HAVE_MQTT_BROKER)
 	bool is_sqlite = get_persist(s);
@@ -1742,7 +1741,7 @@ mqtt_quic_ctx_send(void *arg, nni_aio *aio)
 
 	if (s->multi_stream &&
 	    ptype == NNG_MQTT_SUBSCRIBE) {
-		mqtt_sub_stream(p, msg, packet_id, aio);
+		mqtt_sub_stream(p, msg, (uint64_t)packet_id, aio);
 	} else if ((rv = mqtt_send_msg(aio, msg, s)) >= 0) {
 		nni_mtx_unlock(&s->mtx);
 		nni_aio_finish(aio, rv, 0);
