@@ -916,26 +916,26 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 		niov++;
 	}
 
-	int msg_body_len = 30 < nni_msg_len(msg) ? 30 : nni_msg_len(msg);
+	// int msg_body_len = 30 < nni_msg_len(msg) ? 30 : nni_msg_len(msg);
 
-	char *strheader = nng_alloc(nni_msg_header_len(msg) * 3 + 1);
-	char *strbody   = nng_alloc(msg_body_len * 3 + 1);
-	char *data;
+	// char *strheader = nng_alloc(nni_msg_header_len(msg) * 3 + 1);
+	// char *strbody   = nng_alloc(msg_body_len * 3 + 1);
+	// char *data;
 
-	data = nni_msg_header(msg);
-	for (int i = 0; i < nni_msg_header_len(msg); ++i) {
-		sprintf(strheader + i * 3, "%02X ", data[i]);
-	}
-	log_debug("msg header: %s", strheader);
+	// data = nni_msg_header(msg);
+	// for (int i = 0; i < nni_msg_header_len(msg); ++i) {
+	// 	sprintf(strheader + i * 3, "%02X ", data[i]);
+	// }
+	// log_debug("msg header: %s", strheader);
 
-	data = nni_msg_body(msg);
-	for (int i = 0; i < msg_body_len; ++i) {
-		sprintf(strbody + i * 3, "%02X ", data[i]);
-	}
-	log_debug("msg body: %s", strbody);
+	// data = nni_msg_body(msg);
+	// for (int i = 0; i < msg_body_len; ++i) {
+	// 	sprintf(strbody + i * 3, "%02X ", data[i]);
+	// }
+	// log_debug("msg body: %s", strbody);
 
-	nng_free(strheader, nni_msg_header_len(msg) * 3 + 1);
-	nng_free(strbody, msg_body_len * 3 + 1);
+	// nng_free(strheader, nni_msg_header_len(msg) * 3 + 1);
+	// nng_free(strbody, msg_body_len * 3 + 1);
 
 	nni_aio_set_iov(txaio, niov, iov);
 	nng_stream_send(p->conn, txaio);
