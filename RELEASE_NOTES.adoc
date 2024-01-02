@@ -10,7 +10,7 @@ This document has the following sections:
 * Notable Changes
 * End of Feature Announcements
 
-== Notable Changes (since 1.6.0)
+== Notable Changes
 
 A new compile time setting, `NNG_MAX_POLLER_THREADS` is introduced,
 with a default value of 8, and will limit the number of threads
@@ -70,6 +70,13 @@ A bug which caused TLS connections to spin on accept, causing high
 CPU usage, is fixed.  (See bug #1673)
 Various minor documentation fixes were made, some contributed by
 Patrik Wenger <patrik.wenger@mindclue.ch>.
+
+A new ability to override compile-time settings for thread counts
+is available.  This facility is considered experimental, and is not
+documented in manual pages -- and is subject to change without notice.
+Please see nng_init_set_parameter() in the nng.h header file.  The
+values that can be tuned are listed there along with comments
+describing their use.  See bug #1572.
 
 == End of Feature Announcements
 
