@@ -16,6 +16,7 @@
 #include "supplemental/mqtt/mqtt_msg.h"
 #include "supplemental/mqtt/mqtt_qos_db_api.h"
 #include "supplemental/quic/quic_api.h"
+#include "nng/supplemental/nanolib/log.h"
 
 #define NNG_MQTT_SELF 0
 #define NNG_MQTT_SELF_NAME "mqtt-client"
@@ -54,43 +55,6 @@ static int mqtt_sub_stream(mqtt_pipe_t *p, nni_msg *msg, uint16_t packet_id, nni
 #if defined(NNG_SUPP_SQLITE)
 static void *mqtt_quic_sock_get_sqlite_option(mqtt_sock_t *s);
 #endif
-
-#define MQTT_PROTOCOL_V5_DEBUG 0
-
-#if MQTT_PROTOCOL_V5_DEBUG
-#define qdebug(fmt, ...)                                                 \
-	do {                                                            \
-		printf("[%s]: " fmt "", __FUNCTION__, ##__VA_ARGS__); \
-	} while (0)
-
-#define log_debug(fmt, ...)                                                 \
-	do {                                                            \
-		printf("[%s]: " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
-	} while (0)
-
-#define log_info(fmt, ...)                                                 \
-	do {                                                            \
-		printf("[%s]: " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
-	} while (0)
-
-#define log_warn(fmt, ...)                                                 \
-	do {                                                            \
-		printf("[%s]: " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
-	} while (0)
-
-#define log_error(fmt, ...)                                                 \
-	do {                                                            \
-		printf("[%s]: " fmt "\n", __FUNCTION__, ##__VA_ARGS__); \
-	} while (0)
-
-#else
-#define qdebug(fmt, ...) do {} while(0)
-#define log_debug(fmt, ...) do {} while(0)
-#define log_info(fmt, ...) do {} while(0)
-#define log_warn(fmt, ...) do {} while(0)
-#define log_error(fmt, ...) do {} while(0)
-#endif
-
 
 //default QUIC config for define QUIC transport
 static conf_quic config_default = {
