@@ -311,13 +311,14 @@ mqtt_pipe_fini(void *arg)
 static inline void
 mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 {
-	mqtt_ctx_t * ctx   = arg;
-	mqtt_sock_t *s     = ctx->mqtt_sock;
-	mqtt_pipe_t *p     = s->mqtt_pipe;
-	uint16_t     ptype = 0, packet_id = 0;
-	uint8_t      qos = 0;
-	nni_msg *    msg = NULL;
-	nni_msg *    tmsg;
+	mqtt_ctx_t  *ctx       = arg;
+	mqtt_sock_t *s         = ctx->mqtt_sock;
+	mqtt_pipe_t *p         = s->mqtt_pipe;
+	uint64_t     packet_id = 0;
+	uint16_t     ptype     = 0;
+	uint8_t      qos       = 0;
+	nni_msg     *msg       = NULL;
+	nni_msg     *tmsg;
 
 	if (p == NULL || nni_atomic_get_bool(&p->closed) || aio == NULL) {
 		//pipe closed, should never gets here
@@ -358,11 +359,11 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 		// FALLTHROUGH
 	case NNG_MQTT_SUBSCRIBE:
 	case NNG_MQTT_UNSUBSCRIBE:
-		packet_id = nni_mqtt_msg_get_packet_id(msg);
+		packet_id = (uint64_t)nni_mqtt_msg_get_packet_id(msg);
 		nni_mqtt_msg_set_aio(msg, aio);
 		tmsg = nni_id_get(&p->sent_unack, packet_id);
 		if (tmsg != NULL) {
-			nni_plat_printf("Warning : msg %d lost due to "
+			nni_plat_printf("Warning : msg %ld lost due to "
 			                "packetID duplicated!",
 			    packet_id);
 			nni_aio *m_aio = nni_mqtt_msg_get_aio(tmsg);
@@ -489,9 +490,10 @@ mqtt_timer_cb(void *arg)
 {
 	mqtt_pipe_t *p = arg;
 	mqtt_sock_t *s = p->mqtt_sock;
-	nni_msg *  msg = NULL;
-	nni_aio *  aio;
-	uint16_t   pid = p->rid;
+	// disable retransmission
+	// nni_msg *  msg = NULL;
+	// nni_aio *  aio;
+	// uint16_t   pid = p->rid;
 
 	if (nng_aio_result(&p->time_aio) != 0) {
 		return;
@@ -651,7 +653,7 @@ mqtt_recv_cb(void *arg)
 	nni_mqtt_msg_decode(msg);
 
 	packet_type_t packet_type = nni_mqtt_msg_get_packet_type(msg);
-	int32_t       packet_id;
+	uint64_t      packet_id;
 	uint8_t       qos;
 
 	// schedule another receive
@@ -674,7 +676,7 @@ mqtt_recv_cb(void *arg)
 		// FALLTHROUGH
 	case NNG_MQTT_UNSUBACK:
 		// we have received a UNSUBACK, successful unsubscription
-		packet_id  = nni_mqtt_msg_get_packet_id(msg);
+		packet_id  = (uint64_t)nni_mqtt_msg_get_packet_id(msg);
 		p->rid ++;
 		cached_msg = nni_id_get(&p->sent_unack, packet_id);
 		if (cached_msg != NULL) {
@@ -701,7 +703,7 @@ mqtt_recv_cb(void *arg)
 		break;
 
 	case NNG_MQTT_PUBREL:
-		packet_id  = nni_mqtt_msg_get_pubrel_packet_id(msg);
+		packet_id  = (uint64_t)nni_mqtt_msg_get_pubrel_packet_id(msg);
 		cached_msg = nni_id_get(&p->recv_unack, packet_id);
 		nni_msg_free(msg);
 		if (cached_msg == NULL) {
@@ -750,7 +752,7 @@ mqtt_recv_cb(void *arg)
 			return;
 		} else {
 			// TODO check if this packetid already there
-			packet_id = nni_mqtt_msg_get_publish_packet_id(msg);
+			packet_id = (uint64_t)nni_mqtt_msg_get_publish_packet_id(msg);
 			if ((cached_msg = nni_id_get(
 			         &p->recv_unack, packet_id)) != NULL) {
 				// packetid already exists.

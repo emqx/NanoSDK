@@ -74,7 +74,7 @@ struct mqtt_pipe_s {
 	nni_aio    time_aio;      // timer aio to resend unack msg
 	nni_lmq    recv_messages; // recv messages queue
 	nni_lmq    send_messages; // send messages queue
-	uint16_t   rid;           // index of resending packet id
+	uint64_t   rid;           // index of resending packet id
 	bool       busy;
 };
 
@@ -313,13 +313,14 @@ mqtt_pipe_fini(void *arg)
 static inline void
 mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 {
-	mqtt_ctx_t * ctx   = arg;
-	mqtt_sock_t *s     = ctx->mqtt_sock;
-	mqtt_pipe_t *p     = s->mqtt_pipe;
-	uint16_t     ptype = 0, packet_id = 0;
-	uint8_t      qos  = 0;
-	nni_msg *    msg  = NULL;
-	nni_msg *    tmsg = NULL;
+	mqtt_ctx_t  *ctx       = arg;
+	mqtt_sock_t *s         = ctx->mqtt_sock;
+	mqtt_pipe_t *p         = s->mqtt_pipe;
+	uint64_t     packet_id = 0;
+	uint16_t     ptype     = 0;
+	uint8_t      qos       = 0;
+	nni_msg     *msg       = NULL;
+	nni_msg     *tmsg      = NULL;
 
 	if (NULL == aio || (msg = nni_aio_get_msg(aio)) == NULL) {
 #if defined(NNG_SUPP_SQLITE)
@@ -479,9 +480,9 @@ mqtt_timer_cb(void *arg)
 {
 	mqtt_pipe_t *p = arg;
 	mqtt_sock_t *s = p->mqtt_sock;
-	nni_msg *  msg;
-	nni_aio *  aio;
-	uint16_t   pid = p->rid;
+	// nni_msg *  msg;
+	// nni_aio *  aio;
+	// uint16_t   pid = p->rid;
 
 	if (nng_aio_result(&p->time_aio) != 0) {
 		return;
@@ -669,7 +670,7 @@ mqtt_recv_cb(void *arg)
 	}
 
 	packet_type_t packet_type = nni_mqtt_msg_get_packet_type(msg);
-	int32_t       packet_id;
+	uint64_t      packet_id;
 	uint8_t       qos;
 
 	// schedule another receive
