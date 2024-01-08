@@ -491,7 +491,7 @@ mqtt_timer_cb(void *arg)
 	mqtt_pipe_t *p = arg;
 	mqtt_sock_t *s = p->mqtt_sock;
 	// disable retransmission
-	// nni_msg *  msg = NULL;
+	nni_msg *  msg = NULL;
 	// nni_aio *  aio;
 	// uint16_t   pid = p->rid;
 
