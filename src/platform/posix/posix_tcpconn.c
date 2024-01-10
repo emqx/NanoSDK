@@ -10,6 +10,7 @@
 //
 
 #include "core/nng_impl.h"
+#include "nng/supplemental/nanolib/log.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -59,6 +60,7 @@ tcp_dowrite(nni_tcp_conn *c)
 			if (aiov[i].iov_len > 0) {
 				iovec[niov].iov_len  = aiov[i].iov_len;
 				iovec[niov].iov_base = aiov[i].iov_buf;
+				log_debug("no %d iov_len %ld", niov, iovec[niov].iov_len);
 				niov++;
 			}
 		}
@@ -71,6 +73,7 @@ tcp_dowrite(nni_tcp_conn *c)
 			case EINTR:
 				continue;
 			case EAGAIN:
+				log_debug("EAGAIN! TCP Socket congested!");
 #ifdef EWOULDBLOCK
 #if EWOULDBLOCK != EAGAIN
 			case EWOULDBLOCK:

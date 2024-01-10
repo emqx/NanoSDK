@@ -35,9 +35,9 @@ struct mqtt_tcptran_pipe {
 	nni_reap_node    reap;
 	uint32_t         packmax; // MQTT Maximum Packet Size (Max length)
 	uint16_t         peer;    // broker info
-	uint16_t         proto;   // MQTT version
 	uint16_t         keepalive;
 	uint16_t         sndmax;  // MQTT Receive Maximum (QoS 1/2 packet)
+	uint8_t          proto;   // MQTT version
 	uint8_t          pingcnt; // pingreq counter
 	uint8_t          qosmax;
 	uint8_t          txlen[sizeof(uint64_t)];
@@ -857,6 +857,9 @@ mqtt_tcptran_pipe_send_cancel(nni_aio *aio, void *arg, int rv)
 static void
 mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 {
+	uint32_t len;
+	uint32_t len_of_var = 0;
+	uint8_t *header;
 	nni_aio *aio;
 	nni_aio *txaio;
 	nni_msg *msg;
@@ -877,9 +880,8 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 
 	// This runs to send the message.
 	msg = nni_aio_get_msg(aio);
-
+	header = nni_msg_header(msg);
 	if (msg != NULL && p->proto == MQTT_PROTOCOL_VERSION_v5) {
-		uint8_t *header = nni_msg_header(msg);
 		if ((*header & 0XF0) == CMD_PUBLISH) {
 			// check max qos
 			uint8_t qos = nni_mqtt_msg_get_publish_qos(msg);
@@ -931,6 +933,13 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 	}
 	log_debug("msg body: %s", strbody);
 
+	// assure send correct packet
+	if ((mqtt_get_remaining_length(header, nni_msg_header_len(msg),
+	        (uint32_t *) &len, &len_of_var)) != 0) {
+		log_debug("Wrong remaining length before sending!");
+	}
+
+	NNI_ASSERT(len == nni_msg_len(msg));
 	nni_aio_set_iov(txaio, niov, iov);
 	nng_stream_send(p->conn, txaio);
 }
