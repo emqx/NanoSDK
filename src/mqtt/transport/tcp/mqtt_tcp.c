@@ -917,8 +917,8 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 
 	int msg_body_len = 30 < nni_msg_len(msg) ? 30 : nni_msg_len(msg);
 
-	char *strheader = nng_alloc(nni_msg_header_len(msg) * 3 + 1);
-	char *strbody   = nng_alloc(msg_body_len * 3 + 1);
+	char  strheader[nni_msg_header_len(msg) * 3 + 1];
+	char  strbody[msg_body_len * 3 + 1];
 	char *data;
 
 	data = nni_msg_header(msg);
@@ -933,8 +933,6 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 	}
 	log_debug("msg body: %s", strbody);
 
-	nng_free(strheader, nni_msg_header_len(msg) * 3 + 1);
-	nng_free(strbody, msg_body_len * 3 + 1);
 	// assure send correct packet
 	if ((mqtt_get_remaining_length(header, nni_msg_header_len(msg),
 	        (uint32_t *) &len, &len_of_var)) != 0) {
@@ -942,7 +940,6 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 	}
 
 	NNI_ASSERT(len == nni_msg_len(msg));
-
 	nni_aio_set_iov(txaio, niov, iov);
 	nng_stream_send(p->conn, txaio);
 }
