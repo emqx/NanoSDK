@@ -3041,6 +3041,9 @@ read_packet_length(struct pos_buf *buf, uint32_t *length)
 	return 0;
 }
 
+/**
+ * 
+*/
 int
 mqtt_get_remaining_length(uint8_t *packet, uint32_t len,
     uint32_t *remainning_length, uint8_t *used_bytes)
@@ -3081,6 +3084,7 @@ mqtt_buf_create(mqtt_buf *mbuf, const uint8_t *buf, uint32_t length)
 {
 	if ((mbuf->buf = nni_alloc(length)) != NULL) {
 		mbuf->length = length;
+		memset(mbuf->buf, '\0', length);
 		memcpy(mbuf->buf, buf, mbuf->length);
 		return (0);
 	}
