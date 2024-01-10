@@ -914,7 +914,6 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 		iov[niov].iov_len = nni_msg_len(msg);
 		niov++;
 	}
-<<<<<<< HEAD
 
 	int msg_body_len = 30 < nni_msg_len(msg) ? 30 : nni_msg_len(msg);
 
@@ -936,11 +935,9 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 
 	nng_free(strheader, nni_msg_header_len(msg) * 3 + 1);
 	nng_free(strbody, msg_body_len * 3 + 1);
-=======
 	// assure send correct packet
 	len = get_var_integer((header + 1), &len_of_var);
 	NNI_ASSERT(len == nni_msg_len(msg));
->>>>>>> 5128121ce (* MDF [mqtt_tcp] add Assert to check msg len)
 
 	nni_aio_set_iov(txaio, niov, iov);
 	nng_stream_send(p->conn, txaio);
