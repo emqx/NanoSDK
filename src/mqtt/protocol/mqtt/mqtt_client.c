@@ -864,7 +864,14 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 	default:
 		break;
 	}
-	nni_mqtt_msg_encode(msg);
+	if (nni_mqtt_msg_encode(msg) != MQTT_SUCCESS) {
+		nni_mtx_unlock(&s->mtx);
+		nni_plat_println("MQTT client encoding msg failed!");
+		nni_msg_free(msg);
+		nni_aio_set_msg(aio, NULL);
+		nni_aio_finish_error(aio, NNG_EPROTO);
+		return;
+	}
 	p = s->mqtt_pipe;
 
 	if (p == NULL) {

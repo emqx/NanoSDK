@@ -35,9 +35,9 @@ struct mqtt_tcptran_pipe {
 	nni_reap_node    reap;
 	uint32_t         packmax; // MQTT Maximum Packet Size (Max length)
 	uint16_t         peer;    // broker info
-	uint8_t          proto;   // MQTT version
 	uint16_t         keepalive;
 	uint16_t         sndmax;  // MQTT Receive Maximum (QoS 1/2 packet)
+	uint8_t          proto;   // MQTT version
 	uint8_t          pingcnt; // pingreq counter
 	uint8_t          qosmax;
 	uint8_t          txlen[sizeof(uint64_t)];
