@@ -35,7 +35,7 @@ struct mqtt_tcptran_pipe {
 	nni_reap_node    reap;
 	uint32_t         packmax; // MQTT Maximum Packet Size (Max length)
 	uint16_t         peer;    // broker info
-	uint16_t         proto;   // MQTT version
+	uint8_t          proto;   // MQTT version
 	uint16_t         keepalive;
 	uint16_t         sndmax;  // MQTT Receive Maximum (QoS 1/2 packet)
 	uint8_t          pingcnt; // pingreq counter
@@ -857,7 +857,9 @@ mqtt_tcptran_pipe_send_cancel(nni_aio *aio, void *arg, int rv)
 static void
 mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 {
-	uint32_t len, len_of_var = 0;
+	uint32_t len;
+	uint32_t len_of_var = 0;
+	uint8_t *header;
 	nni_aio *aio;
 	nni_aio *txaio;
 	nni_msg *msg;
@@ -878,9 +880,8 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 
 	// This runs to send the message.
 	msg = nni_aio_get_msg(aio);
-
+	header = nni_msg_header(msg);
 	if (msg != NULL && p->proto == MQTT_PROTOCOL_VERSION_v5) {
-		uint8_t *header = nni_msg_header(msg);
 		if ((*header & 0XF0) == CMD_PUBLISH) {
 			// check max qos
 			uint8_t qos = nni_mqtt_msg_get_publish_qos(msg);
@@ -937,7 +938,7 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 	nng_free(strbody, msg_body_len * 3 + 1);
 =======
 	// assure send correct packet
-	len = (uint32_t) get_var_integer(nni_msg_header(msg) + 1, &len_of_var);
+	len = get_var_integer((header + 1), &len_of_var);
 	NNI_ASSERT(len == nni_msg_len(msg));
 >>>>>>> 5128121ce (* MDF [mqtt_tcp] add Assert to check msg len)
 
