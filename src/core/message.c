@@ -9,6 +9,7 @@
 //
 
 #include <string.h>
+#include <stdio.h>
 
 #include "core/nng_impl.h"
 
