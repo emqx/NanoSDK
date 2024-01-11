@@ -200,8 +200,9 @@ mqtt_tcptran_pipe_init(void *arg, nni_pipe *npipe)
 
 	// nni_lmq_init(&p->rslmq, 10240);
 	p->busy = false;
-	p->packmax = 0xFFFF;
-	p->qosmax  = 2;
+	// set max value by default
+	p->packmax == 0 ? p->packmax = (uint32_t)0xFFFFFFFF : p->packmax;
+	p->qosmax  == 0 ? p->qosmax  = 2 : p->qosmax;
 	p->pingcnt = 0;
 	nni_sleep_aio(p->keepalive, &p->tmaio);
 	return (0);
@@ -420,6 +421,7 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 					goto mqtt_error;
 				} else {
 					p->packmax = data->p_value.u32;
+					log_error("Set max packet size as %ld", p->packmax);
 				}
 			}
 			data = property_get_value(ep->property, PUBLISH_MAXIMUM_QOS);
@@ -1069,10 +1071,12 @@ mqtt_tcptran_pipe_start(
 
 	ep->refcnt++;
 
-	p->conn   = conn;
-	p->ep     = ep;
-	p->rcvmax = 0;
-	p->sndmax = 65535;
+	p->conn    = conn;
+	p->ep      = ep;
+	p->rcvmax  = 0;
+	p->qosmax  = 0;
+	p->packmax = 0;
+	p->sndmax  = 65535;
 
 	nni_dialer_getopt(ep->ndialer, NNG_OPT_MQTT_CONNMSG, &connmsg, NULL,
 	    NNI_TYPE_POINTER);
