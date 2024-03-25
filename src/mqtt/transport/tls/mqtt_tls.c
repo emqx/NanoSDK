@@ -31,9 +31,7 @@ struct mqtts_tcptran_pipe {
 	uint32_t          packmax; // MQTT Maximum Packet Size (Max length)
 	uint16_t          peer;    // broker info
 	uint16_t          proto;   // MQTT version
-	uint16_t          keepalive;
 	uint16_t          sndmax; // MQTT Receive Maximum (QoS 1/2 packet)
-	uint8_t           pingcnt; // pingreq counter
 	uint8_t           qosmax;
 	size_t            rcvmax;
 	bool              closed;
@@ -49,13 +47,12 @@ struct mqtts_tcptran_pipe {
 	size_t            wantrxhead;
 	nni_list          recvq;
 	nni_list          sendq;
-	nni_aio           tmaio;
 	nni_aio *         txaio;
 	nni_aio *         rxaio;
+	nni_aio *         negoaio;
 	nni_aio *         rpaio;
 	nni_aio *         qsaio;
 	// nni_lmq           rslmq;
-	nni_aio *         negoaio;
 	nni_msg *         rxmsg;
 	nni_msg *         smsg;
 	nni_mtx           mtx;
@@ -96,14 +93,13 @@ struct mqtts_tcptran_ep {
 #endif
 };
 
-static void     mqtts_tcptran_pipe_send_start(mqtts_tcptran_pipe *);
-static void     mqtts_tcptran_pipe_recv_start(mqtts_tcptran_pipe *);
-static void     mqtts_tcptran_pipe_send_cb(void *);
-static void     mqtts_tcptran_pipe_qos_send_cb(void *);
-static void     mqtts_tcptran_pipe_recv_cb(void *);
-static void     mqtts_tcptran_pipe_nego_cb(void *);
-static void     mqtts_tcptran_ep_fini(void *);
-static void     mqtts_tcptran_pipe_fini(void *);
+static void mqtts_tcptran_pipe_send_start(mqtts_tcptran_pipe *);
+static void mqtts_tcptran_pipe_recv_start(mqtts_tcptran_pipe *);
+static void mqtts_tcptran_pipe_send_cb(void *);
+static void mqtts_tcptran_pipe_recv_cb(void *);
+static void mqtts_tcptran_pipe_nego_cb(void *);
+static void mqtts_tcptran_ep_fini(void *);
+static void mqtts_tcptran_pipe_fini(void *);
 
 static nni_reap_list tcptran_ep_reap_list = {
 	.rl_offset = offsetof(mqtts_tcptran_ep, reap),
@@ -136,43 +132,10 @@ mqtts_tcptran_pipe_close(void *arg)
 	nni_mtx_unlock(&p->mtx);
 
 	nni_aio_close(p->rxaio);
-	nni_aio_close(p->qsaio);
 	nni_aio_close(p->txaio);
-	nni_aio_close(&p->tmaio);
 	nni_aio_close(p->negoaio);
 	nni_aio_close(p->rpaio);
 	nng_stream_close(p->conn);
-}
-
-static void
-mqtts_pipe_timer_cb(void *arg)
-{
-	mqtts_tcptran_pipe *p = arg;
-	uint8_t             buf[2];
-
-	if (nng_aio_result(&p->tmaio) != 0) {
-		return;
-	}
-	if (p->pingcnt > 1) {
-		mqtts_tcptran_pipe_close(p);
-		return;
-	}
-	nni_mtx_lock(&p->mtx);
-	if (!p->busy && !nni_aio_busy(p->qsaio)) {
-		// send pingreq
-		buf[0] = 0xC0;
-		buf[1] = 0x00;
-
-		nni_iov iov;
-		iov.iov_len = 2;
-		iov.iov_buf = &buf;
-		// send it down...
-		p->busy = true;
-		nni_aio_set_iov(p->qsaio, 1, &iov);
-		nng_stream_send(p->conn, p->qsaio);
-	}
-	nni_mtx_unlock(&p->mtx);
-	nni_sleep_aio(p->keepalive, &p->tmaio);
 }
 
 static void
@@ -181,11 +144,9 @@ mqtts_tcptran_pipe_stop(void *arg)
 	mqtts_tcptran_pipe *p = arg;
 
 	nni_aio_stop(p->rxaio);
-	nni_aio_stop(p->qsaio);
 	nni_aio_stop(p->txaio);
 	nni_aio_stop(p->negoaio);
 	nni_aio_stop(p->rpaio);
-	nni_aio_stop(&p->tmaio);
 }
 
 static int
@@ -197,9 +158,6 @@ mqtts_tcptran_pipe_init(void *arg, nni_pipe *npipe)
 	// nni_lmq_init(&p->rslmq, 1024);
 	p->packmax = 0xFFFF;
 	p->qosmax  = 2;
-	p->busy    = false;
-	p->pingcnt = 0;
-	nni_sleep_aio(p->keepalive, &p->tmaio);
 	return (0);
 }
 
@@ -222,14 +180,12 @@ mqtts_tcptran_pipe_fini(void *arg)
 
 	nni_aio_free(p->rxaio);
 	nni_aio_free(p->txaio);
-	nni_aio_free(p->qsaio);
 	nni_aio_free(p->negoaio);
 	nni_aio_free(p->rpaio);
 	nng_stream_free(p->conn);
 	nni_msg_free(p->rxmsg);
 	// nni_lmq_fini(&p->rslmq);
 	nni_mtx_fini(&p->mtx);
-	nni_aio_fini(&p->tmaio);
 	NNI_FREE_STRUCT(p);
 }
 
@@ -254,13 +210,10 @@ mqtts_tcptran_pipe_alloc(mqtts_tcptran_pipe **pipep)
 		return (NNG_ENOMEM);
 	}
 	nni_mtx_init(&p->mtx);
-	nni_aio_init(&p->tmaio, mqtts_pipe_timer_cb, p);
 	if (((rv = nni_aio_alloc(&p->txaio, mqtts_tcptran_pipe_send_cb, p)) !=
 	        0) ||
 	    ((rv = nni_aio_alloc(&p->rxaio, mqtts_tcptran_pipe_recv_cb, p)) !=
 	        0) ||
-	    ((rv = nni_aio_alloc(
-	          &p->qsaio, mqtts_tcptran_pipe_qos_send_cb, p)) != 0) ||
 	    ((rv = nni_aio_alloc(&p->rpaio, NULL, p)) != 0) ||
 	    ((rv = nni_aio_alloc(
 	          &p->negoaio, mqtts_tcptran_pipe_nego_cb, p)) != 0)) {
@@ -493,45 +446,6 @@ error:
 }
 
 static void
-mqtts_tcptran_pipe_qos_send_cb(void *arg)
-{
-	mqtts_tcptran_pipe *p = arg;
-	nni_msg *           msg;
-	nni_aio *           qsaio = p->qsaio;
-
-	if (nni_aio_result(qsaio) != 0) {
-		nni_msg_free(nni_aio_get_msg(qsaio));
-		nni_aio_set_msg(qsaio, NULL);
-		mqtts_tcptran_pipe_close(p);
-		return;
-	}
-	nni_mtx_lock(&p->mtx);
-
-	msg = nni_aio_get_msg(p->qsaio);
-	if (msg != NULL)
-		nni_msg_free(msg);
-	// if (nni_lmq_get(&p->rslmq, &msg) == 0) {
-	// 	nni_iov iov;
-	// 	// TLS transport can only use one single iov
-	// 	nni_msg_insert(
-	// 	    msg, nni_msg_header(msg), nni_msg_header_len(msg));
-	// 	iov.iov_len = nni_msg_len(msg);
-	// 	iov.iov_buf = nni_msg_body(msg);
-	// 	p->busy     = true;
-	// 	nni_aio_set_msg(p->qsaio, msg);
-	// 	// send ACK down...
-	// 	nni_aio_set_iov(p->qsaio, 1, &iov);
-	// 	nng_stream_send(p->conn, p->qsaio);
-	// 	nni_mtx_unlock(&p->mtx);
-	// 	return;
-	// }
-	p->busy = false;
-	nni_aio_set_msg(qsaio, NULL);
-	nni_mtx_unlock(&p->mtx);
-	return;
-}
-
-static void
 mqtts_tcptran_pipe_send_cb(void *arg)
 {
 	mqtts_tcptran_pipe *p = arg;
@@ -742,42 +656,8 @@ mqtts_tcptran_pipe_recv_cb(void *arg)
 		if (p->proto == MQTT_PROTOCOL_VERSION_v5) {
 			property_free(prop);
 		}
-		// aio_begin?
-		if (p->busy == false) {
-			nni_msg_insert(qmsg, nni_msg_header(qmsg),
-			    nni_msg_header_len(qmsg));
-			iov.iov_len    = nni_msg_len(qmsg);
-			iov.iov_buf    = nni_msg_body(qmsg);
-			p->busy        = true;
-			nni_aio_set_msg(p->qsaio, qmsg);
-			// send ACK down...
-			nni_aio_set_iov(p->qsaio, 1, &iov);
-			nng_stream_send(p->conn, p->qsaio);
-		}
-		// else {
-		// 	if (nni_lmq_full(&p->rslmq)) {
-		// 		// Make space for the new message. TODO add max
-		// 		// limit of msgq len in conf
-		// 		if (nni_lmq_cap(&p->rslmq) <=
-		// 		    NNG_TRAN_MAX_LMQ_SIZE) {
-		// 			if ((rv = nni_lmq_resize(&p->rslmq,
-		// 			         nni_lmq_cap(&p->rslmq) *
-		// 			             2)) == 0) {
-		// 				nni_lmq_put(&p->rslmq, qmsg);
-		// 			} else {
-		// 				// memory error.
-		// 				nni_msg_free(qmsg);
-		// 			}
-		// 		} else {
-		// 			nni_msg *old;
-		// 			(void) nni_lmq_get(&p->rslmq, &old);
-		// 			nni_msg_free(old);
-		// 			nni_lmq_put(&p->rslmq, qmsg);
-		// 		}
-		// 	} else {
-		// 		nni_lmq_put(&p->rslmq, qmsg);
-		// 	}
-		// }
+		// let protocol layer handle ack msg for us
+		nni_aio_set_prov_data(aio, qmsg);
 		ack = false;
 	}
 
@@ -1065,7 +945,6 @@ mqtts_tcptran_pipe_start(
 	p->wantrxhead = 2;
 	p->wanttxhead = nni_msg_header_len(connmsg) + nni_msg_len(connmsg);
 	p->rxmsg      = NULL;
-	p->keepalive  = nni_mqtt_msg_get_connect_keep_alive(connmsg) * 1000;
 	p->proto      = mqtt_version;
 
 	if (nni_msg_len(connmsg) > 0) {
