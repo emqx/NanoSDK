@@ -66,15 +66,17 @@ struct mqtt_pipe_s {
 	nni_pipe *      pipe;
 	mqtt_sock_t *   mqtt_sock;
 
-	nni_id_map sent_unack;    // send messages unacknowledged
-	nni_id_map recv_unack;    // recv messages unacknowledged
-	nni_aio    send_aio;      // send aio to the underlying transport
-	nni_aio    recv_aio;      // recv aio to the underlying transport
-	nni_aio    time_aio;      // timer aio to resend unack msg
-	nni_lmq    recv_messages; // recv messages queue
-	nni_lmq    send_messages; // send messages queue
-	bool       busy;
-	uint16_t   rid;
+	nni_id_map      sent_unack;    // send messages unacknowledged
+	nni_id_map      recv_unack;    // recv messages unacknowledged
+	nni_aio         send_aio;      // send aio to the underlying transport
+	nni_aio         recv_aio;      // recv aio to the underlying transport
+	nni_aio         time_aio;      // timer aio to resend unack msg
+	nni_lmq         recv_messages; // recv messages queue
+	nni_lmq         send_messages; // send messages queue
+	bool            busy;
+	uint16_t        rid;
+	uint8_t         pingcnt;
+	nni_msg        *pingmsg;
 };
 
 // A mqtt_sock_s is our per-socket protocol private structure.
@@ -82,6 +84,8 @@ struct mqtt_sock_s {
 	nni_atomic_bool closed;
 	nni_atomic_int  next_packet_id; // packet id to use
 	nni_duration    retry;
+	nni_duration    keepalive; // mqtt keepalive
+	nni_duration    timeleft;  // left time to send next ping
 	nni_mtx         mtx;    // more fine grained mutual exclusion
 	mqtt_ctx_t      master; // to which we delegate send/recv calls
 	mqtt_pipe_t *   mqtt_pipe;
@@ -108,8 +112,11 @@ mqtt_sock_init(void *arg, nni_sock *sock)
 	nni_atomic_set(&s->next_packet_id, 1);
 
 	// this is "semi random" start for request IDs.
-	s->retry      = NNI_SECOND * 60;
 	s->sqlite_opt = NULL;
+
+	s->retry     = NNI_SECOND * 5;
+	s->keepalive = NNI_SECOND * 10; // default mqtt keepalive
+	s->timeleft  = NNI_SECOND * 10;
 
 	nni_mtx_init(&s->mtx);
 	mqtt_ctx_init(&s->master, s);
@@ -264,6 +271,18 @@ mqtt_pipe_init(void *arg, nni_pipe *pipe, void *s)
 	p->pipe      = pipe;
 	p->mqtt_sock = s;
 	p->rid       = 1;
+	p->pingcnt   = 0;
+	p->pingmsg   = NULL;
+	nni_msg_alloc(&p->pingmsg, 0);
+	if (!p->pingmsg) {
+		return NNG_ENOMEM;
+	} else {
+		uint8_t buf[2];
+		buf[0] = 0xC0;
+		buf[1] = 0x00;
+		nni_msg_header_append(p->pingmsg, buf, 2);
+	}
+
 	nni_aio_init(&p->send_aio, mqtt_send_cb, p);
 	nni_aio_init(&p->recv_aio, mqtt_recv_cb, p);
 	nni_aio_init(&p->time_aio, mqtt_timer_cb, p);
@@ -296,6 +315,9 @@ mqtt_pipe_fini(void *arg)
 		nni_aio_set_msg(&p->send_aio, NULL);
 		nni_msg_free(msg);
 	}
+
+	if (p->pingmsg)
+		nni_msg_free(p->pingmsg);
 
 	nni_aio_fini(&p->send_aio);
 	nni_aio_fini(&p->recv_aio);
@@ -504,6 +526,29 @@ mqtt_timer_cb(void *arg)
 		return;
 	}
 
+	if (p->pingcnt > 1) {
+		nni_mtx_unlock(&s->mtx);
+		nni_pipe_close(p->pipe);
+		return;
+	}
+
+	// Update left time to send pingreq
+	s->timeleft -= s->retry;
+
+	if (!p->busy && !nni_aio_busy(&p->send_aio) && p->pingmsg &&
+			s->timeleft <= 0) {
+		p->busy = true;
+		s->timeleft = s->keepalive;
+		// send pingreq
+		nni_msg_clone(p->pingmsg);
+		nni_aio_set_msg(&p->send_aio, p->pingmsg);
+		nni_pipe_send(p->pipe, &p->send_aio);
+		p->pingcnt ++;
+		nni_mtx_unlock(&s->mtx);
+		nni_sleep_aio(s->retry, &p->time_aio);
+		return;
+	}
+
 #if defined(NNG_SUPP_SQLITE)
 	if (!p->busy) {
 		nni_mqtt_sqlite_option *sqlite =
@@ -523,6 +568,7 @@ mqtt_timer_cb(void *arg)
 		}
 	}
 #endif
+
 	// start message resending
 	// msg = nni_id_get_min(&p->sent_unack, &pid);
 	// if (msg != NULL) {
@@ -576,7 +622,8 @@ mqtt_send_cb(void *arg)
 	}
 	nni_mtx_lock(&s->mtx);
 
-	p->busy = false;
+	p->busy     = false;
+	s->timeleft = s->keepalive;
 	if (nni_atomic_get_bool(&s->closed) ||
 	    nni_atomic_get_bool(&p->closed)) {
 		// This occurs if the mqtt_pipe_close has been called.
@@ -658,6 +705,9 @@ mqtt_recv_cb(void *arg)
 
 	// schedule another receive
 	nni_pipe_recv(p->pipe, &p->recv_aio);
+
+	// reset ping state
+	p->pingcnt = 0;
 
 	// state transitions
 	switch (packet_type) {
