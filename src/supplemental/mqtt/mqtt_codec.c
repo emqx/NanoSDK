@@ -11,7 +11,7 @@ static void nni_mqtt_msg_append_u32(nni_msg *, uint32_t);
 
 static void nni_mqtt_msg_append_byte_str(nni_msg *, nni_mqtt_buffer *);
 
-static void nni_mqtt_msg_encode_fixed_header(nni_msg *, nni_mqtt_proto_data *);
+static int  nni_mqtt_msg_encode_fixed_header(nni_msg *, nni_mqtt_proto_data *);
 static int  nni_mqtt_msg_encode_connect(nni_msg *);
 static int  nni_mqtt_msg_encode_connack(nni_msg *);
 static int  nni_mqtt_msg_encode_subscribe(nni_msg *);
@@ -730,22 +730,30 @@ nni_mqtt_msg_append_byte_str(nni_msg *msg, nni_mqtt_buffer *str)
 	nni_msg_append(msg, str->buf, str->length);
 }
 
-static void
+static int
 nni_mqtt_msg_encode_fixed_header(nni_msg *msg, nni_mqtt_proto_data *data)
 {
-	uint8_t        rlen[4] = { 0 };
+	uint8_t        *rlen;
+	rlen = nng_alloc(sizeof(uint8_t)*8);
 	struct pos_buf buf     = { .curpos = &rlen[0],
                 .endpos                = &rlen[sizeof(rlen)] };
 
 	nni_msg_header_clear(msg);
 	uint8_t header = *(uint8_t *) &data->fixed_header.common;
 
-	nni_msg_header_append(msg, &header, 1);
+	int rv = nni_msg_header_append(msg, &header, 1);
 
 	int len = write_variable_length_value(
 	    data->fixed_header.remaining_length, &buf);
+
+	if (len == -1) {
+		nng_free(rlen, sizeof(uint8_t)*8);
+		return -1;
+	}
 	data->used_bytes = len;
-	nni_msg_header_append(msg, rlen, len);
+	rv |= nni_msg_header_append(msg, rlen, len);
+	nng_free(rlen, sizeof(uint8_t)*8);
+	return rv;
 }
 
 static int
@@ -1238,6 +1246,9 @@ nni_mqtt_msg_encode_publish(nni_msg *msg)
 	if (mqtt->payload.publish.payload.length > 0) {
 		nni_msg_append(msg, mqtt->payload.publish.payload.buf,
 		    mqtt->payload.publish.payload.length);
+	}
+	if (mqtt->fixed_header.remaining_length != nni_msg_len(msg)) {
+		return MQTT_ERR_PROTOCOL;
 	}
 
 	return MQTT_SUCCESS;
