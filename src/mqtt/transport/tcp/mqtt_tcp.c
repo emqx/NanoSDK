@@ -53,6 +53,7 @@ struct mqtt_tcptran_pipe {
 	nni_aio         *rpaio;
 	nni_msg         *rxmsg;
 	nni_msg         *smsg;
+	nni_msg         *connack;
 	// nni_lmq          rslmq;
 	nni_mtx          mtx;
 	bool             closed;
@@ -906,7 +907,13 @@ mqtt_tcptran_pipe_recv(void *arg, nni_aio *aio)
 		nni_aio_finish_error(aio, rv);
 		return;
 	}
-
+	if (p->connack != NULL) {
+		nni_aio_set_msg(aio, p->connack);
+		p->connack = NULL;
+		nni_mtx_unlock(&p->mtx);
+		nni_aio_finish(aio, 0, nni_msg_len(p->connack));
+		return;
+	}
 	nni_list_append(&p->recvq, aio);
 	if (nni_list_first(&p->recvq) == aio) {
 		mqtt_tcptran_pipe_recv_start(p);
