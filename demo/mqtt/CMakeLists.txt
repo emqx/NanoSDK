@@ -12,6 +12,16 @@ find_package(nng CONFIG REQUIRED)
 
 find_package(Threads)
 
+if (DEBUG)
+  SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
+  if (ASAN)
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
+  endif (ASAN)
+  if (TSAN)
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=thread")
+  endif (TSAN)
+endif (DEBUG)
+
 add_executable(mqtt_client mqtt_client.c)
 target_link_libraries(mqtt_client nng::nng)
 target_link_libraries(mqtt_client ${CMAKE_THREAD_LIBS_INIT})
