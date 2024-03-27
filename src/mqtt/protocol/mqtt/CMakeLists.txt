@@ -11,7 +11,7 @@ nng_directory(mqtt)
 nng_sources_if(
     NNG_PROTO_MQTT_CLIENT
     mqtt_client.c
-    mqttv5_client.c
+    #mqttv5_client.c
     sqlite_handler.c
     sqlite_handler.h
 )

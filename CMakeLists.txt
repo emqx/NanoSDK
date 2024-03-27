@@ -70,6 +70,9 @@ message(STATUS "Configuring for NNG version ${NNG_ABI_VERSION}")
 # gets named based on where it is in the tree.
 set(NNG_TEST_PREFIX nng)
 
+# This flag is equal to CMAKE_BUILD_TYPE=DEBUG
+set(DEBUG 0 CACHE STRING "gdb support")
+
 # Enable access to private APIs for our own use.
 add_definitions(-DNNG_PRIVATE)
 
@@ -326,7 +329,25 @@ set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-v${NNG_PACKAGE_VERSION}")
 add_custom_target(dist COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
 include(CPack)
 
-if (CMAKE_BUILD_TYPE MATCHES "Debug")
+if (BUILD_DEMO)
+  add_subdirectory(demo/async)
+  add_subdirectory(demo/mqtt)
+  add_subdirectory(demo/mqttv5)
+  add_subdirectory(demo/mqtt_async)
+
+  add_subdirectory(demo/rest)
+  add_subdirectory(demo/http_client)
+  add_subdirectory(demo/raw)
+  add_subdirectory(demo/reqrep)
+  add_subdirectory(demo/stream)
+
+  if(NNG_ENABLE_QUIC)
+    add_subdirectory(demo/quic_mqtt)
+    add_subdirectory(demo/quic_mqttv5)
+  endif(NNG_ENABLE_QUIC)
+endif (BUILD_DEMO)
+
+if (CMAKE_BUILD_TYPE MATCHES "Debug" OR DEBUG)
   message("-- MODE [Debug] --")
   SET(CMAKE_BUILD_TYPE "Debug")
   add_definitions(-DDEBUG)

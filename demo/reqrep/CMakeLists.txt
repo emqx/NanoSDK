@@ -7,17 +7,31 @@
 # file was obtained (LICENSE.txt).  A copy of the license may also be
 # found online at https://opensource.org/licenses/MIT.
 
-cmake_minimum_required (VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.13)
 
 project(reqrep)
 
-find_package(nng CONFIG REQUIRED)
+if (BUILD_DEMO)
+else ()
+# Call this from your own project's makefile.
+  find_package(nng CONFIG REQUIRED)
+endif (BUILD_DEMO)
 
 find_package(Threads)
+
+if (DEBUG)
+  SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
+  if (ASAN)
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
+  endif (ASAN)
+  if (TSAN)
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=thread")
+  endif (TSAN)
+endif (DEBUG)
 
 # Uncomment to enable ZeroTier transport
 # find_package(zerotiercore)
 
 add_executable(reqrep reqrep.c)
-target_link_libraries(reqrep nng::nng)
+target_link_libraries(reqrep nng)
 target_compile_definitions(reqrep PRIVATE NNG_ELIDE_DEPRECATED)
