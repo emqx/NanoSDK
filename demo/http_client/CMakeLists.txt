@@ -12,7 +12,12 @@ cmake_minimum_required(VERSION 3.13)
 project(http_client)
 
 # Call this from your own project's makefile.
-find_package(nng CONFIG REQUIRED)
+
+if (BUILD_DEMO)
+else ()
+# Call this from your own project's makefile.
+  find_package(nng CONFIG REQUIRED)
+endif (BUILD_DEMO)
 
 find_package(Threads)
 
@@ -27,5 +32,5 @@ if (DEBUG)
 endif (DEBUG)
 
 add_executable(http_client http_client.c)
-target_link_libraries(http_client nng::nng)
+target_link_libraries(http_client nng)
 target_compile_definitions(http_client PRIVATE NNG_ELIDE_DEPRECATED)

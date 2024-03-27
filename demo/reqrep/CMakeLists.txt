@@ -11,7 +11,11 @@ cmake_minimum_required(VERSION 3.13)
 
 project(reqrep)
 
-find_package(nng CONFIG REQUIRED)
+if (BUILD_DEMO)
+else ()
+# Call this from your own project's makefile.
+  find_package(nng CONFIG REQUIRED)
+endif (BUILD_DEMO)
 
 find_package(Threads)
 
@@ -29,5 +33,5 @@ endif (DEBUG)
 # find_package(zerotiercore)
 
 add_executable(reqrep reqrep.c)
-target_link_libraries(reqrep nng::nng)
+target_link_libraries(reqrep nng)
 target_compile_definitions(reqrep PRIVATE NNG_ELIDE_DEPRECATED)

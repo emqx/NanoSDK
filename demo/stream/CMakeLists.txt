@@ -10,7 +10,11 @@ cmake_minimum_required(VERSION 3.13)
 
 project(stream)
 
-find_package(nng CONFIG REQUIRED)
+if (BUILD_DEMO)
+else ()
+# Call this from your own project's makefile.
+  find_package(nng CONFIG REQUIRED)
+endif (BUILD_DEMO)
 
 if (DEBUG)
   SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
@@ -34,4 +38,4 @@ if (CMAKE_SYSTEM_NAME MATCHES "Windows")
     target_sources(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/platform/windows/server.c)
 endif()
 
-target_link_libraries(stream nng::nng)
+target_link_libraries(stream nng)

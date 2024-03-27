@@ -11,7 +11,11 @@ cmake_minimum_required(VERSION 3.13)
 
 project(rest)
 
-find_package(nng CONFIG REQUIRED)
+if (BUILD_DEMO)
+else ()
+# Call this from your own project's makefile.
+  find_package(nng CONFIG REQUIRED)
+endif (BUILD_DEMO)
 
 find_package(Threads)
 
@@ -26,5 +30,5 @@ if (DEBUG)
 endif (DEBUG)
 
 add_executable(rest-server server.c)
-target_link_libraries(rest-server nng::nng)
+target_link_libraries(rest-server nng)
 target_compile_definitions(rest-server PRIVATE NNG_ELIDE_DEPRECATED)
