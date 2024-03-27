@@ -329,6 +329,18 @@ set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-v${NNG_PACKAGE_VERSION}")
 add_custom_target(dist COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
 include(CPack)
 
+if (BUILD_DEMO)
+  add_subdirectory(demo/async)
+  add_subdirectory(demo/mqtt)
+  add_subdirectory(demo/mqttv5)
+  add_subdirectory(demo/mqtt_async)
+
+  if(NNG_ENABLE_QUIC)
+    add_subdirectory(demo/quic_mqtt)
+    add_subdirectory(demo/quic_mqttv5)
+  endif(NNG_ENABLE_QUIC)
+endif (BUILD_DEMO)
+
 if (CMAKE_BUILD_TYPE MATCHES "Debug" OR DEBUG)
   message("-- MODE [Debug] --")
   SET(CMAKE_BUILD_TYPE "Debug")
