@@ -8,7 +8,12 @@ cmake_minimum_required(VERSION 3.13)
 
 project(mqtt_async)
 
-find_package(nng CONFIG REQUIRED)
+if (BUILD_DEMO)
+else ()
+# Call this from your own project's makefile.
+  find_package(nng CONFIG REQUIRED)
+endif (BUILD_DEMO)
+
 find_package(Threads)
 
 if (DEBUG)
@@ -22,7 +27,7 @@ if (DEBUG)
 endif (DEBUG)
 
 add_executable(mqtt_async mqtt_async.c)
-target_link_libraries(mqtt_async nng::nng)
+target_link_libraries(mqtt_async nng)
 target_link_libraries(mqtt_async ${CMAKE_THREAD_LIBS_INIT})
 
 if(NNG_ENABLE_TLS)

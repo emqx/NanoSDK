@@ -13,7 +13,11 @@ project(raw)
 
 set(PARALLEL 128 CACHE STRING "Parallelism (min 4, max 1000)")
 
-find_package(nng CONFIG REQUIRED)
+if (BUILD_DEMO)
+else ()
+# Call this from your own project's makefile.
+  find_package(nng CONFIG REQUIRED)
+endif (BUILD_DEMO)
 
 find_package(Threads)
 
@@ -28,5 +32,5 @@ if (DEBUG)
 endif (DEBUG)
 
 add_executable(raw raw.c)
-target_link_libraries(raw nng::nng)
+target_link_libraries(raw nng)
 target_compile_definitions(raw PRIVATE NNG_ELIDE_DEPRECATED PARALLEL=${PARALLEL})
