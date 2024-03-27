@@ -394,6 +394,8 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 		}
 		ep->reason_code = nni_mqtt_msg_get_connack_return_code(p->rxmsg);
 	}
+	nni_msg_clone(p->rxmsg);
+	p->connack = p->rxmsg;
 
 mqtt_error:
 	// We are ready now.  We put this in the wait list, and
