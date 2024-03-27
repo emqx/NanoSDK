@@ -467,10 +467,9 @@ mqtt_pipe_start(void *arg)
 
 	if ((c = nni_list_first(&s->send_queue)) != NULL) {
 		nni_list_remove(&s->send_queue, c);
+		nni_pipe_recv(p->pipe, &p->recv_aio);
 		mqtt_send_msg(c->saio, c);
 		c->saio = NULL;
-		nni_pipe_recv(p->pipe, &p->recv_aio);
-		nni_mtx_unlock(&s->mtx);
 		nni_sleep_aio(s->retry, &p->time_aio);
 		return (0);
 	}
