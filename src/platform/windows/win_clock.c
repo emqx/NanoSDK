@@ -1,5 +1,5 @@
 //
-// Copyright 2017 Garrett D'Amore <garrett@damore.org>
+// Copyright 2024 Garrett D'Amore <garrett@damore.org>
 // Copyright 2017 Capitar IT Group BV <info@capitar.com>
 //
 // This software is supplied under the terms of the MIT License, a
@@ -9,6 +9,8 @@
 //
 
 #include "core/nng_impl.h"
+
+#include <time.h>
 
 #ifdef NNG_PLATFORM_WINDOWS
 
@@ -26,6 +28,19 @@ nni_clock(void)
 {
 	// We are limited by the system clock, but that is ok.
 	return (GetTickCount64());
+}
+
+int
+nni_time_get(uint64_t *seconds, uint32_t *nanoseconds)
+{
+	int             rv;
+	struct timespec ts;
+	if (timespec_get(&ts, TIME_UTC) == TIME_UTC) {
+		*seconds     = ts.tv_sec;
+		*nanoseconds = ts.tv_nsec;
+		return (0);
+	}
+	return (nni_win_error(GetLastError()));
 }
 
 void
