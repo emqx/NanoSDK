@@ -209,11 +209,10 @@ extern const char *nuts_garbled_crt;
 
 #define NUTS_ENABLE_LOG(level)                         \
 	do {                                           \
+		nng_log_set_logger(nng_stderr_logger); \
+		nng_log_set_level(level);              \
 	} while (0)
 
-#define NUTS_LOGGING()                            \
-	do {                                      \
-	} while (0)
 #ifdef __cplusplus
 };
 #endif
