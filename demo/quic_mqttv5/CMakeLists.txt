@@ -11,8 +11,11 @@ cmake_minimum_required(VERSION 3.13)
 
 project(quic_clientv5)
 
+if (BUILD_DEMO)
+else ()
 # Call this from your own project's makefile.
-find_package(nng CONFIG REQUIRED)
+  find_package(nng CONFIG REQUIRED)
+endif (BUILD_DEMO)
 
 find_package(Threads)
 find_package(msquic)
@@ -35,7 +38,7 @@ if(OPENSSL_FOUND)
     target_link_libraries(quic_client_v5 OpenSSL::Crypto OpenSSL::SSL)
 endif()
 
-target_link_libraries(quic_client_v5 nng::nng msquic pthread)
+target_link_libraries(quic_client_v5 nng msquic pthread)
 target_compile_definitions(quic_client_v5 PRIVATE NNG_ELIDE_DEPRECATED)
 
 if (NNG_ENABLE_SQLITE)
