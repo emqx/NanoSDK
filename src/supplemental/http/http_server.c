@@ -126,7 +126,8 @@ nni_http_handler_init(
 	h->host           = NULL;
 	h->tree           = false;
 	h->tree_exclusive = false;
-	h->maxbody = 8 * 1024 * 1024; // By default we accept up to 8MB of body
+	h->maxbody =
+	    64 * 1024 * 1024; // By default we accept up to 64MB of body
 	h->getbody = true;
 	*hp        = h;
 	return (0);
@@ -493,6 +494,43 @@ http_sconn_error(http_sconn *sc, uint16_t err)
 	nni_http_write_res(sc->conn, res, sc->txaio);
 }
 
+static void
+http_sconn_neuron_error(http_sconn *sc, uint16_t err)
+{
+	nni_http_res *res;
+
+	if (nni_http_res_alloc(&res) != 0) {
+		http_sconn_close(sc);
+		return;
+	}
+	nni_http_res_set_status(res, err);
+
+	const char *body = "{\"error\":1017}";
+	if ((nni_http_res_copy_data(res, body, strlen(body)) != 0) ||
+	    (nni_http_res_set_header(
+	        res, "Content-Type", "application/json")) != 0 ||
+	    (nng_http_res_set_header(
+	         res, "Access-Control-Allow-Origin", "*") != 0) ||
+	    (nng_http_res_set_header(res, "Access-Control-Allow-Methods",
+	         "POST,GET,PUT,DELETE,OPTIONS") != 0) ||
+	    (nng_http_res_set_header(
+	         res, "Access-Control-Allow-Headers", "*") != 0)) {
+		nni_http_res_free(res);
+		http_sconn_close(sc);
+		return;
+	}
+
+	if (sc->close) {
+		if (nni_http_res_set_header(res, "Connection", "close") != 0) {
+			nni_http_res_free(res);
+			http_sconn_close(sc);
+			return;
+		}
+	}
+	sc->res = res;
+	nni_http_write_res(sc->conn, res, sc->txaio);
+}
+
 int
 nni_http_hijack(nni_http_conn *conn)
 {
@@ -715,9 +753,15 @@ http_sconn_rxdone(void *arg)
 		char *   end;
 
 		len = strtoull(cls, &end, 10);
-		if ((end == NULL) || (*end != '\0') || (len > h->maxbody)) {
+		if ((end == NULL) || (*end != '\0')) {
 			nni_mtx_unlock(&s->mtx);
 			http_sconn_error(sc, NNG_HTTP_STATUS_BAD_REQUEST);
+			return;
+		}
+		if (len > h->maxbody) {
+			nni_mtx_unlock(&s->mtx);
+			http_sconn_neuron_error(
+			    sc, NNG_HTTP_STATUS_BAD_REQUEST);
 			return;
 		}
 		if (len > 0) {
