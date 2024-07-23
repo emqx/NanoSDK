@@ -1,6 +1,3 @@
-[submodule "extern/nng-wolfssl"]
-	path = extern/nng-wolfssl
-	url = https://github.com/staysail/nng-wolfssl
 [submodule "extern/msquic"]
 	path = extern/msquic
 	url = https://github.com/microsoft/msquic.git
