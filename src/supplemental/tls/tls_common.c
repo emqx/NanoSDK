@@ -1518,7 +1518,7 @@ nng_tls_engine_register(const nng_tls_engine *engine)
 	if (engine->version != NNG_TLS_ENGINE_VERSION) {
 		return (NNG_ENOTSUP);
 	}
-	nni_atomic_set_ptr(&tls_engine, (void *)engine);
+	nni_atomic_set_ptr(&tls_engine, (void *) engine);
 	return (0);
 }
 
