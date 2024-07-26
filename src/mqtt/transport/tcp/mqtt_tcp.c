@@ -91,6 +91,7 @@ struct mqtt_tcptran_ep {
 	nni_dialer *         ndialer;
 	void *               property;  // property
 	void *               connmsg;
+	bool                 enable_scram;
 #ifdef SUPP_SCRAM
 	void *               scram_ctx;
 	nni_msg *            authmsg;
@@ -1092,8 +1093,9 @@ mqtt_tcptran_pipe_start(
 		char *pwd = NULL, *username = NULL;
 		char *pwd2 = NULL, *username2 = NULL;
 		int   pwdsz, usernamesz;
-		if (((pwd = (char *)nni_mqtt_msg_get_connect_password(connmsg)) != NULL) &&
-			((username = (char *)nni_mqtt_msg_get_connect_user_name(connmsg)) != NULL)) {
+		if (ep->enable_scram == true &&
+		   ((pwd = (char *)nni_mqtt_msg_get_connect_password(connmsg)) != NULL) &&
+		   ((username = (char *)nni_mqtt_msg_get_connect_user_name(connmsg)) != NULL)) {
 			pwdsz = nni_mqtt_msg_get_connect_password_len(connmsg);
 			usernamesz = nni_mqtt_msg_get_connect_user_name_len(connmsg);
 			pwd2      = strndup(pwd, pwdsz);
@@ -1469,10 +1471,11 @@ mqtt_tcptran_dialer_init(void **dp, nng_url *url, nni_dialer *ndialer)
 	if ((rv = mqtt_tcptran_ep_init(&ep, url, sock)) != 0) {
 		return (rv);
 	}
-	ep->ndialer   = ndialer;
+	ep->ndialer      = ndialer;
+	ep->enable_scram = false;
 #ifdef SUPP_SCRAM
-	ep->scram_ctx = NULL;
-	ep->authmsg   = NULL;
+	ep->scram_ctx    = NULL;
+	ep->authmsg      = NULL;
 #endif
 
 	if ((rv != 0) ||
@@ -1671,6 +1674,26 @@ mqtt_tcptran_ep_set_reconnect_backoff(void *arg, const void *v, size_t sz, nni_o
 }
 
 static int
+mqtt_tcptran_ep_set_enable_scram(void *arg, const void *v, size_t sz, nni_opt_type t)
+{
+	mqtt_tcptran_ep *ep = arg;
+	bool             tmp;
+	int              rv;
+
+	if ((rv = nni_copyin_bool(&tmp, v, sz, t)) == 0) {
+		nni_mtx_lock(&ep->mtx);
+		ep->enable_scram = tmp;
+#ifdef SUPP_SCRAM
+		log_info("Auth SCRAM status: %s", tmp == 1 ? "Enabled":"Disabled");
+#else
+		log_warn("Auth SCRAM Error. Try to compile with NNG_ENABLE_SCRAM");
+#endif
+		nni_mtx_unlock(&ep->mtx);
+	}
+	return (rv);
+}
+
+static int
 mqtt_tcptran_ep_bind(void *arg)
 {
 	mqtt_tcptran_ep *ep = arg;
@@ -1750,6 +1773,10 @@ static const nni_option mqtt_tcptran_ep_opts[] = {
 	{
 	    .o_name = NNG_OPT_URL,
 	    .o_get  = mqtt_tcptran_ep_get_url,
+	},
+	{
+	    .o_name = NNG_OPT_MQTT_ENABLE_SCRAM,
+	    .o_set  = mqtt_tcptran_ep_set_enable_scram,
 	},
 	// terminate list
 	{
