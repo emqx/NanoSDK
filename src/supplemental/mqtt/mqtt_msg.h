@@ -143,6 +143,12 @@ typedef struct mqtt_unsuback_vhdr_t {
 	property *properties;
 } mqtt_unsuback_vhdr;
 
+typedef struct mqtt_auth_vhdr_t {
+	uint8_t   reason_code;
+	// MQTTV5
+	property *properties;
+} mqtt_auth_vhdr;
+
 /*****************************************************************************
  * Union to cover all Variable Header types
  ****************************************************************************/
@@ -159,6 +165,7 @@ union mqtt_variable_header {
 	mqtt_suback_vhdr      suback;
 	mqtt_unsubscribe_vhdr unsubscribe;
 	mqtt_unsuback_vhdr    unsuback;
+	mqtt_auth_vhdr        auth;
 };
 
 /*****************************************************************************
@@ -336,7 +343,9 @@ NNG_DECL void nni_mqtt_msg_set_connect_will_property(nni_msg *, property *);
 NNG_DECL uint8_t     nni_mqtt_msg_get_connect_proto_version(nni_msg *);
 NNG_DECL uint16_t    nni_mqtt_msg_get_connect_keep_alive(nni_msg *);
 NNG_DECL const char *nni_mqtt_msg_get_connect_user_name(nni_msg *);
+NNG_DECL uint32_t    nni_mqtt_msg_get_connect_user_name_len(nni_msg *);
 NNG_DECL const char *nni_mqtt_msg_get_connect_password(nni_msg *);
+NNG_DECL uint32_t    nni_mqtt_msg_get_connect_password_len(nni_msg *);
 NNG_DECL const char *nni_mqtt_msg_get_connect_client_id(nni_msg *);
 NNG_DECL const char *nni_mqtt_msg_get_connect_will_topic(nni_msg *);
 NNG_DECL bool        nni_mqtt_msg_get_connect_will_retain(nni_msg *);
@@ -438,6 +447,12 @@ NNG_DECL void      nni_mqtt_msg_set_unsuback_property(nni_msg *, property *);
 NNG_DECL void nni_mqtt_msg_set_disconnect_reason_code(nng_msg *msg, uint8_t reason_code);
 NNG_DECL property *nni_mqtt_msg_get_disconnect_property(nng_msg *msg);
 NNG_DECL void nni_mqtt_msg_set_disconnect_property(nng_msg *msg, property *prop);
+
+// mqtt auth
+NNG_DECL property *nni_mqtt_msg_get_auth_property(nng_msg *msg);
+NNG_DECL uint8_t nni_mqtt_msg_get_auth_reason_code(nng_msg *msg);
+NNG_DECL void nni_mqtt_msg_set_auth_property(nng_msg *msg, property *prop);
+NNG_DECL void nni_mqtt_msg_set_auth_reason_code(nng_msg *msg, uint8_t reason_code);
 
 NNG_DECL void nni_mqtt_msg_dump(nni_msg *, uint8_t *, uint32_t, bool);
 // mqtt topic create/free
