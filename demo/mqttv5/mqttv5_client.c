@@ -53,6 +53,7 @@ int keepRunning = 1;
 void
 intHandler(int dummy)
 {
+	(void) dummy;
 	keepRunning = 0;
 	fprintf(stderr, "\nclient exit(0).\n");
 	exit(0);
@@ -88,6 +89,8 @@ disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 	// nng_pipe_get_ptr(p, NNG_OPT_MQTT_DISCONNECT_PROPERTY, &prop);
 	// nng_socket_get?
 	printf("%s: disconnected! RC [%d] \n", __FUNCTION__, reason);
+	(void) ev;
+	(void) arg;
 }
 
 static void
@@ -100,6 +103,8 @@ connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 	// property *prop;
 	// nng_pipe_get_ptr(p, NNG_OPT_MQTT_CONNECT_PROPERTY, &prop);
 	printf("%s: connected! RC [%d] \n", __FUNCTION__, reason);
+	(void) ev;
+	(void) arg;
 }
 
 // Connect to the given address.
@@ -216,25 +221,24 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
 	nng_aio *        aio    = client->send_aio;
 	uint32_t         count;
 	uint8_t *        code;
-	uint8_t          type;
 
 	if (msg == NULL)
 		return;
 	switch (nng_mqtt_msg_get_packet_type(msg)) {
 	case NNG_MQTT_SUBACK:
-		code = (reason_code *) nng_mqtt_msg_get_suback_return_codes(
+		code = nng_mqtt_msg_get_suback_return_codes(
 		    msg, &count);
-		printf("SUBACK reason codes are");
-		for (int i = 0; i < count; ++i)
-			printf("%d ", code[i]);
+		printf("SUBACK reason codes are: ");
+		for (int i = 0; i < (int)count; ++i)
+			printf("[%d] ", code[i]);
 		printf("\n");
 		break;
 	case NNG_MQTT_UNSUBACK:
-		code = (reason_code *) nng_mqtt_msg_get_unsuback_return_codes(
+		code = nng_mqtt_msg_get_unsuback_return_codes(
 		    msg, &count);
-		printf("UNSUBACK reason codes are");
-		for (int i = 0; i < count; ++i)
-			printf("%d ", code[i]);
+		printf("UNSUBACK reason codes are: ");
+		for (int i = 0; i < (int)count; ++i)
+			printf("[%d] ", code[i]);
 		printf("\n");
 		break;
 	case NNG_MQTT_PUBACK:
@@ -244,9 +248,10 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
 		printf("Sending in async way is done.\n");
 		break;
 	}
-	printf("aio mqtt result %d \n", nng_aio_result(aio));
+	printf("Aio mqtt result %d \n", nng_aio_result(aio));
 	// printf("suback %d \n", *code);
 	nng_msg_free(msg);
+	(void) arg;
 }
 
 // Publish a message to the given topic and with the given QoS.
@@ -343,7 +348,6 @@ void msg_recv_deal(nng_msg *msg, bool verbose)
 void
 publish_cb(void *args)
 {
-	int                rv;
 	struct pub_params *params = args;
 	do {
 		client_publish(*params->sock, params->topic, params->data,
@@ -377,6 +381,8 @@ sqlite_config(nng_socket *sock, uint8_t proto_ver)
 	// set sqlite option pointer to socket
 	return nng_socket_set_ptr(*sock, NNG_OPT_MQTT_SQLITE, sqlite);
 #else
+	(void) sock;
+	(void) proto_ver;
 	return (0);
 #endif
 }
@@ -432,7 +438,7 @@ main(const int argc, const char **argv)
 		params.interval = interval;
 		params.verbose  = verbose;
 
-		char thread_name[20];
+		// char thread_name[20];
 
 		sqlite_config(params.sock, MQTT_PROTOCOL_VERSION_v5);
 
