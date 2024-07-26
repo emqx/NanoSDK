@@ -340,6 +340,7 @@ if (BUILD_DEMO)
   add_subdirectory(demo/mqtt)
   add_subdirectory(demo/mqttv5)
   add_subdirectory(demo/mqtt_async)
+  add_subdirectory(demo/mqttv5_scram)
 
   add_subdirectory(demo/rest)
   add_subdirectory(demo/http_client)
