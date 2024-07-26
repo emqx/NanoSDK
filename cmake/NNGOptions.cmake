@@ -109,6 +109,12 @@ else ()
     set(NNG_QUIC_LIB none)
 endif ()
 
+option(NNG_ENABLE_SCRAM "Enable SCRAM support." OFF)
+if (NNG_ENABLE_SCRAM)
+    set(SUPP_SCRAM ON)
+endif ()
+
+
 # TLS support.
 
 # Enabling TLS is required to enable support for the TLS transport

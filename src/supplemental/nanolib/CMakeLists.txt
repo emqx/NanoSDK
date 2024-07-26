@@ -6,5 +6,5 @@
 # found online at https://opensource.org/licenses/MIT.
 #
 
-nng_sources(file.c log.c)
-nng_headers(nng/supplemental/nanolib/file.h nng/supplemental/nanolib/log.h)
+nng_sources(file.c log.c base64.c)
+nng_headers(nng/supplemental/nanolib/file.h nng/supplemental/nanolib/log.h nng/supplemental/nanolib/base64.h)

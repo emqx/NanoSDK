@@ -301,12 +301,16 @@ endif ()
 if(NNG_ENABLE_QUIC)
   set(NNG_PROTO_MQTT_QUIC_CLIENT ON)
   add_definitions(-DSUPP_QUIC)
+endif()
+
+if (NNG_ENABLE_SCRAM)
+    add_definitions(-DSUPP_SCRAM)
 endif ()
 
 add_subdirectory(src)
 
 if (NNG_TESTS)
-    add_subdirectory(tests)
+   add_subdirectory(tests)
 endif ()
 
 #  Build the tools
