@@ -305,6 +305,8 @@ endif()
 
 if (NNG_ENABLE_SCRAM)
     add_definitions(-DSUPP_SCRAM)
+	find_package(OpenSSL)
+	target_link_libraries(nng PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 endif ()
 
 add_subdirectory(src)
