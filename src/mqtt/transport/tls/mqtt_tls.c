@@ -387,7 +387,7 @@ mqtts_tcptran_pipe_nego_cb(void *arg)
 					log_error("No auth data property found in AUTH msg");
 					goto mqtt_error;
 				}
-				printf("auth:server_first_msg:%.*s\n",
+				log_debug("auth:server_first_msg:%.*s\n",
 					data->p_value.str.length, (char *)data->p_value.str.buf);
 				char *client_final_msg = scram_handle_server_first_msg(
 					ep->scram_ctx, (char *)data->p_value.str.buf, data->p_value.str.length);
@@ -397,7 +397,7 @@ mqtts_tcptran_pipe_nego_cb(void *arg)
 					log_error("Error in handle scram server_first_msg");
 					goto mqtt_error;
 				}
-				printf("auth:client_final_msg:%s\n", client_final_msg);
+				log_debug("auth:client_final_msg:%s\n", client_final_msg);
 				// TODO 0x19 Re-authenticate
 				// Prepare authmsg with client_final_msg
 				nni_msg *authmsg;
@@ -416,7 +416,7 @@ mqtts_tcptran_pipe_nego_cb(void *arg)
 				if (0 != nni_mqttv5_msg_encode(authmsg)) {
 					ep->reason_code = MQTT_ERR_MALFORMED;
 					rv = MQTT_ERR_PROTOCOL;
-					log_error("Error in encode auth msg with client_final_msg");
+					log_error("Error in encode auth msg with client_final_msg\n");
 					goto mqtt_error;
 				}
 				if (ep->authmsg)
@@ -433,12 +433,9 @@ mqtts_tcptran_pipe_nego_cb(void *arg)
 
 				nni_iov iov[2];
 				int niov = 0;
-				if (nni_msg_header_len(authmsg) > 0) {
-					iov[niov].iov_buf = nni_msg_header(authmsg);
-					iov[niov].iov_len = nni_msg_header_len(authmsg);
-					niov++;
-				}
 				if (nni_msg_len(authmsg) > 0) {
+					nni_msg_insert(authmsg, nni_msg_header(authmsg),
+					    nni_msg_header_len(authmsg));
 					iov[niov].iov_buf = nni_msg_body(authmsg);
 					iov[niov].iov_len = nni_msg_len(authmsg);
 					niov++;
@@ -483,7 +480,7 @@ mqtts_tcptran_pipe_nego_cb(void *arg)
 			data = property_get_value(ep->property, AUTHENTICATION_DATA);
 			if (data && data->p_value.str.buf && ep->scram_ctx) {
 				char *server_final_msg = (char *)data->p_value.str.buf;
-				printf("auth:server_final_msg:%.*s\n",
+				log_debug("auth:server_final_msg:%.*s\n",
 					data->p_value.str.length, server_final_msg);
 				char *result = scram_handle_server_final_msg(
 					ep->scram_ctx, server_final_msg, data->p_value.str.length);
@@ -1075,7 +1072,7 @@ mqtts_tcptran_pipe_start(
 			property_append(prop, prop_auth_data);
 			nni_mqtt_msg_set_connect_property(connmsg, prop);
 			prop = NULL;
-			printf("auth:client_first_msg:%s\n", client_first_msg);
+			log_debug("auth:client_first_msg:%s\n", client_first_msg);
 			//property_free(prop_auth_method);
 			//property_free(prop_auth_data);
 		}
