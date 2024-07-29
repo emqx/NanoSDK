@@ -1,5 +1,5 @@
 //
-// Copyright 2020 Staysail Systems, Inc. <info@staysail.tech>
+// Copyright 2024 Staysail Systems, Inc. <info@staysail.tech>
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -16,6 +16,7 @@ test_tls_config_version(void)
 {
 	nng_tls_config *cfg;
 
+	NUTS_ENABLE_LOG(NNG_LOG_INFO);
 	NUTS_PASS(nng_tls_config_alloc(&cfg, NNG_TLS_MODE_SERVER));
 
 	// Verify that min ver < max ver
@@ -52,8 +53,9 @@ void
 test_tls_conn_refused(void)
 {
 	nng_stream_dialer *dialer;
-	nng_aio *          aio;
+	nng_aio           *aio;
 
+	NUTS_ENABLE_LOG(NNG_LOG_INFO);
 	NUTS_PASS(nng_aio_alloc(&aio, NULL, NULL));
 	nng_aio_set_timeout(aio, 5000); // 5 sec
 
@@ -71,20 +73,21 @@ void
 test_tls_large_message(void)
 {
 	nng_stream_listener *l;
-	nng_stream_dialer *  d;
-	nng_aio *            aio1, *aio2;
-	nng_stream *         s1;
-	nng_stream *         s2;
-	nng_tls_config *     c1;
-	nng_tls_config *     c2;
+	nng_stream_dialer   *d;
+	nng_aio             *aio1, *aio2;
+	nng_stream          *s1;
+	nng_stream          *s2;
+	nng_tls_config      *c1;
+	nng_tls_config      *c2;
 	char                 addr[32];
-	uint8_t *            buf1;
-	uint8_t *            buf2;
+	uint8_t             *buf1;
+	uint8_t             *buf2;
 	size_t               size = 450001;
-	void *               t1;
-	void *               t2;
+	void                *t1;
+	void                *t2;
 	int                  port;
 
+	NUTS_ENABLE_LOG(NNG_LOG_DEBUG);
 	// allocate messages
 	NUTS_ASSERT((buf1 = nng_alloc(size)) != NULL);
 	NUTS_ASSERT((buf2 = nng_alloc(size)) != NULL);
@@ -110,7 +113,7 @@ test_tls_large_message(void)
 	NUTS_TRUE(port > 0);
 	NUTS_TRUE(port < 65536);
 
-	snprintf(addr, sizeof (addr), "tls+tcp://127.0.0.1:%d", port);
+	snprintf(addr, sizeof(addr), "tls+tcp://127.0.0.1:%d", port);
 	NUTS_PASS(nng_stream_dialer_alloc(&d, addr));
 	NUTS_PASS(nng_tls_config_alloc(&c2, NNG_TLS_MODE_CLIENT));
 	NUTS_PASS(nng_tls_config_ca_chain(c2, nuts_server_crt, NULL));
@@ -155,6 +158,8 @@ test_tls_garbled_cert(void)
 	nng_stream_listener *l;
 	nng_tls_config      *c1;
 
+	NUTS_ENABLE_LOG(NNG_LOG_INFO);
+
 	// Allocate the listener first.  We use a wild-card port.
 	NUTS_PASS(nng_stream_listener_alloc(&l, "tls+tcp://127.0.0.1:0"));
 	NUTS_PASS(nng_tls_config_alloc(&c1, NNG_TLS_MODE_SERVER));
@@ -185,6 +190,7 @@ test_tls_psk(void)
 	void                *t2;
 	int                  port;
 
+	NUTS_ENABLE_LOG(NNG_LOG_DEBUG);
 	// allocate messages
 	NUTS_ASSERT((buf1 = nng_alloc(size)) != NULL);
 	NUTS_ASSERT((buf2 = nng_alloc(size)) != NULL);
@@ -270,6 +276,7 @@ test_tls_psk_server_identities(void)
 	char                *identity = "test_identity";
 	uint8_t              key[32];
 
+	NUTS_ENABLE_LOG(NNG_LOG_INFO);
 	// allocate messages
 	NUTS_ASSERT((buf1 = nng_alloc(size)) != NULL);
 	NUTS_ASSERT((buf2 = nng_alloc(size)) != NULL);
@@ -358,6 +365,7 @@ test_tls_psk_bad_identity(void)
 	int                  port;
 	uint8_t              key[32];
 
+	NUTS_ENABLE_LOG(NNG_LOG_INFO);
 	// allocate messages
 	NUTS_ASSERT((buf1 = nng_alloc(size)) != NULL);
 	NUTS_ASSERT((buf2 = nng_alloc(size)) != NULL);
@@ -430,6 +438,8 @@ test_tls_psk_key_too_big(void)
 	nng_tls_config *c1;
 	uint8_t         key[5000];
 
+	NUTS_ENABLE_LOG(NNG_LOG_INFO);
+
 	// Allocate the listener first.  We use a wild-card port.
 	NUTS_PASS(nng_tls_config_alloc(&c1, NNG_TLS_MODE_CLIENT));
 	NUTS_FAIL(
@@ -446,6 +456,8 @@ test_tls_psk_config_busy(void)
 	nng_aio             *aio;
 
 	nng_aio_alloc(&aio, NULL, NULL);
+
+	NUTS_ENABLE_LOG(NNG_LOG_INFO);
 
 	NUTS_PASS(nng_stream_listener_alloc(&l, "tls+tcp://127.0.0.1:0"));
 	NUTS_PASS(nng_tls_config_alloc(&c1, NNG_TLS_MODE_SERVER));
@@ -465,12 +477,7 @@ TEST_LIST = {
 	{ "tls config version", test_tls_config_version },
 	{ "tls conn refused", test_tls_conn_refused },
 	{ "tls large message", test_tls_large_message },
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-=======
 #ifndef NNG_TLS_ENGINE_WOLFSSL // wolfSSL doesn't validate certas until use
->>>>>>> d89d679d6 (TLS: make some tests conditional.)
 	{ "tls garbled cert", test_tls_garbled_cert },
 #endif
 #ifdef NNG_SUPP_TLS_PSK
@@ -479,10 +486,6 @@ TEST_LIST = {
 	{ "tls psk bad identity", test_tls_psk_bad_identity },
 	{ "tls psk key too big", test_tls_psk_key_too_big },
 	{ "tls psk key config busy", test_tls_psk_config_busy },
-<<<<<<< HEAD
->>>>>>> 0aeed90d9 (fixes #1846 Add support for TLS PSK)
-=======
 #endif
->>>>>>> d89d679d6 (TLS: make some tests conditional.)
 	{ NULL, NULL },
 };
