@@ -28,6 +28,7 @@
 //
 
 #include <assert.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,10 +39,13 @@
 #include <nng/mqtt/mqtt_client.h>
 #include <nng/nng.h>
 #include <nng/supplemental/util/platform.h>
+#include <nng/supplemental/tls/tls.h>
 
 // Subcommands
-#define PUBLISH "pub"
-#define SUBSCRIBE "sub"
+#define PUBLISH       "pub"
+#define SUBSCRIBE     "sub"
+#define TLS_PUBLISH   "pubtls"
+#define TLS_SUBSCRIBE "subtls"
 
 void
 fatal(const char *msg, int rv)
@@ -87,9 +91,97 @@ connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 	(void) arg;
 }
 
+void loadfile(const char *path, void **datap, size_t *lenp)
+{
+    FILE * f;
+    size_t total_read      = 0;
+    size_t allocation_size = BUFSIZ;
+    char * fdata;
+    char * realloc_result;
+
+    if ((f = fopen(path, "rb")) == NULL) {
+        fprintf(stderr, "Cannot open file %s: %s", path,
+                strerror(errno));
+        exit(1);
+    }
+
+    if ((fdata = malloc(allocation_size + 1)) == NULL) {
+        fprintf(stderr, "Out of memory.");
+    }
+
+    while (1) {
+        total_read += fread(
+                fdata + total_read, 1, allocation_size - total_read, f);
+        if (ferror(f)) {
+            if (errno == EINTR) {
+                continue;
+            }
+            fprintf(stderr, "Read from %s failed: %s", path,
+                    strerror(errno));
+            exit(1);
+        }
+        if (feof(f)) {
+            break;
+        }
+        if (total_read == allocation_size) {
+            if (allocation_size > SIZE_MAX / 2) {
+                fprintf(stderr, "Out of memory.");
+            }
+            allocation_size *= 2;
+            if ((realloc_result = realloc(
+                    fdata, allocation_size + 1)) == NULL) {
+                free(fdata);
+                fprintf(stderr, "Out of memory.");
+                exit(1);
+            }
+            fdata = realloc_result;
+        }
+    }
+    if (f != stdin) {
+        fclose(f);
+    }
+    fdata[total_read] = '\0';
+    *datap            = fdata;
+    *lenp             = total_read;
+}
+
+int init_dialer_tls(nng_dialer d, const char *cacert, const char *cert,
+        const char *key, const char *pass)
+{
+    nng_tls_config *cfg;
+    int             rv;
+
+    if ((rv = nng_tls_config_alloc(&cfg, NNG_TLS_MODE_CLIENT)) != 0) {
+        return (rv);
+    }
+
+    if (cert != NULL && key != NULL) {
+        nng_tls_config_auth_mode(cfg, NNG_TLS_AUTH_MODE_REQUIRED);
+        if ((rv = nng_tls_config_own_cert(cfg, cert, key, pass)) !=
+                0) {
+            goto out;
+        }
+    } else {
+        nng_tls_config_auth_mode(cfg, NNG_TLS_AUTH_MODE_NONE);
+    }
+
+    if (cacert != NULL) {
+        if ((rv = nng_tls_config_ca_chain(cfg, cacert, NULL)) != 0) {
+            goto out;
+        }
+    }
+
+    rv = nng_dialer_set_ptr(d, NNG_OPT_TLS_CONFIG, cfg);
+
+out:
+    nng_tls_config_free(cfg);
+    return (rv);
+}
+
 // Connect to the given address.
 int
-client_connect(nng_socket *sock, const char *url, bool verbose)
+client_connect(nng_socket *sock, const char *url, bool verbose,
+		int istls, const char *capath, const char *certpath, const char *keypath, const char *pwd)
 {
 	nng_dialer dialer;
 	int        rv;
@@ -111,7 +203,7 @@ client_connect(nng_socket *sock, const char *url, bool verbose)
 	nng_msg *connmsg;
 	nng_mqtt_msg_alloc(&connmsg, 0);
 	nng_mqtt_msg_set_packet_type(connmsg, NNG_MQTT_CONNECT);
-	// To enable SCRAM, version be MQTTv5
+	// To enable SCRAM, version must be MQTTv5
 	nng_mqtt_msg_set_connect_proto_version(connmsg, 5);
 	nng_mqtt_msg_set_connect_keep_alive(connmsg, 600);
 	nng_mqtt_msg_set_connect_user_name(connmsg, "admin");
@@ -143,6 +235,38 @@ client_connect(nng_socket *sock, const char *url, bool verbose)
 		nng_mqtt_msg_dump(connmsg, buff, sizeof(buff), true);
 		printf("%s\n", buff);
 	}
+
+	// Init tls dialer
+    if(istls)
+    {
+		char *ca; size_t calen;
+		char *cert; size_t certlen;
+		char *key; size_t keylen;
+		if (capath)
+			loadfile(capath, (void**)&ca, &calen);
+		if (certpath)
+			loadfile(certpath, (void**)&cert, &certlen);
+		if (keypath)
+			loadfile(keypath, (void**)&key, &keylen);
+		if (capath && calen == 0) {
+            printf("init_dialer_tls: CA is unavailable");
+            return -1;
+		}
+		if (certpath && certlen == 0) {
+            printf("init_dialer_tls: Cert is unavailable");
+            return -1;
+		}
+		if (keypath && keylen == 0) {
+            printf("init_dialer_tls: Key is unavailable");
+            return -1;
+		}
+
+        if ((rv = init_dialer_tls(dialer, ca, cert, key, pwd)) != 0)
+        {
+            printf("init_dialer_tls: %s", nng_strerror(rv));
+            return -1;
+        }
+    }
 
 	printf("Connecting to server ...\n");
 	nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, connmsg);
@@ -352,11 +476,47 @@ main(const int argc, const char **argv)
 	const char *exe = argv[0];
 
 	const char *cmd;
+	int   istls = 0;
+	const char  *ca = NULL, *cert = NULL, *key = NULL, *pwd = NULL;
 
 	if (5 == argc && 0 == strcmp(argv[1], SUBSCRIBE)) {
 		cmd = SUBSCRIBE;
 	} else if (6 <= argc && 0 == strcmp(argv[1], PUBLISH)) {
 		cmd = PUBLISH;
+	} else if (7 == argc && 0 == strcmp(argv[1], TLS_PUBLISH)) {
+		cmd = TLS_PUBLISH;
+		istls = 1;
+		ca = argv[6];
+	} else if (9 == argc && 0 == strcmp(argv[1], TLS_PUBLISH)) {
+		cmd = TLS_PUBLISH;
+		istls = 1;
+		ca = argv[6];
+		cert = argv[7];
+		key = argv[8];
+	} else if (10 == argc && 0 == strcmp(argv[1], TLS_PUBLISH)) {
+		cmd = TLS_PUBLISH;
+		istls = 1;
+		ca = argv[6];
+		cert = argv[7];
+		key = argv[8];
+		pwd = argv[9];
+	} else if (6 == argc && 0 == strcmp(argv[1], TLS_SUBSCRIBE)) {
+		cmd = TLS_SUBSCRIBE;
+		istls = 1;
+		ca = argv[5];
+	} else if (8 == argc && 0 == strcmp(argv[1], TLS_SUBSCRIBE)) {
+		cmd = TLS_SUBSCRIBE;
+		istls = 1;
+		ca = argv[5];
+		cert = argv[6];
+		key = argv[7];
+	} else if (9 == argc && 0 == strcmp(argv[1], TLS_SUBSCRIBE)) {
+		cmd = TLS_SUBSCRIBE;
+		istls = 1;
+		ca = argv[5];
+		cert = argv[6];
+		key = argv[7];
+		pwd = argv[8];
 	} else {
 		goto error;
 	}
@@ -370,7 +530,7 @@ main(const int argc, const char **argv)
 
 	nng_duration retry = 10000;
 	nng_socket_set_ms(sock, NNG_OPT_MQTT_RETRY_INTERVAL, retry);
-	client_connect(&sock, url, verbose);
+	client_connect(&sock, url, verbose, istls, ca, cert, key, pwd);
 	nng_msleep(1000);
 
 	signal(SIGINT, intHandler);
@@ -471,7 +631,25 @@ main(const int argc, const char **argv)
 error:
 	fprintf(stderr,
 	    "Usage: %s %s <URL> <QOS> <TOPIC> <data> <interval> <parallel>\n"
-	    "       %s %s <URL> <QOS> <TOPIC>\n",
-	    exe, PUBLISH, exe, SUBSCRIBE);
+	    "       %s %s <URL> <QOS> <TOPIC>\n"
+	    "       %s %s <URL> <QOS> <TOPIC> <data> <CA>\n"
+	    "       %s %s <URL> <QOS> <TOPIC> <data> <CA> <CERT> <KEY>\n"
+	    "       %s %s <URL> <QOS> <TOPIC> <data> <CA> <CERT> <KEY> <KEY_PASSWORD>\n"
+	    "       %s %s <URL> <QOS> <TOPIC> <CA>\n"
+	    "       %s %s <URL> <QOS> <TOPIC> <CA> <CERT> <KEY>\n"
+	    "       %s %s <URL> <QOS> <TOPIC> <CA> <CERT> <KEY> <KEY_PASSWORD>\n"
+	    "Example: %s %s 'mqtt-tcp://127.0.0.1:1883' 1 topic\n"
+	    "         %s %s 'tls+mqtt-tcp://127.0.0.1:8883' 1 topic /etc/cert/ca.pem\n",
+	    exe, PUBLISH,
+	    exe, SUBSCRIBE,
+	    exe, TLS_PUBLISH,
+	    exe, TLS_PUBLISH,
+	    exe, TLS_PUBLISH,
+	    exe, TLS_SUBSCRIBE,
+	    exe, TLS_SUBSCRIBE,
+	    exe, TLS_SUBSCRIBE,
+	    exe, SUBSCRIBE,
+	    exe, TLS_SUBSCRIBE
+		);
 	return 1;
 }
