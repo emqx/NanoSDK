@@ -17,9 +17,14 @@
 #ifndef NNG_TESTING_NUTS_H
 #define NNG_TESTING_NUTS_H
 
+#include <nng/nng.h>
+
 // Call nng_fini during test finalization -- this avoids leak warnings.
 extern void nng_fini(void);
 #define TEST_FINI nng_fini()
+#define TEST_INIT                                 \
+	do {                                      \
+	} while (0)
 #include "acutest.h"
 
 #include <stdbool.h>
@@ -27,7 +32,6 @@ extern void nng_fini(void);
 #include <string.h>
 
 // The following headers are provided for test code convenience.
-#include <nng/nng.h>
 #include <nng/protocol/bus0/bus.h>
 #include <nng/protocol/pair0/pair.h>
 #include <nng/protocol/pair1/pair.h>
@@ -100,6 +104,7 @@ extern const char *nuts_server_key;
 extern const char *nuts_server_crt;
 extern const char *nuts_client_key;
 extern const char *nuts_client_crt;
+extern const char *nuts_garbled_crt;
 
 // NUTS_SUCCESS tests for NNG success.  It reports the failure if it
 // did not.
@@ -202,6 +207,13 @@ extern const char *nuts_client_crt;
 
 #define NUTS_PROTO(x, y) (((x) << 4u) | (y))
 
+#define NUTS_ENABLE_LOG(level)                         \
+	do {                                           \
+	} while (0)
+
+#define NUTS_LOGGING()                            \
+	do {                                      \
+	} while (0)
 #ifdef __cplusplus
 };
 #endif
