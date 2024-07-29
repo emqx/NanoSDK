@@ -441,6 +441,7 @@ error:
 		ep->useraio = NULL;
 		nni_aio_finish_error(uaio, rv);
 	}
+	nni_list_remove(&ep->negopipes, p);
 	nni_mtx_unlock(&ep->mtx);
 	mqtts_tcptran_pipe_reap(p);
 }
