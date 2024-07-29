@@ -485,8 +485,6 @@ config_psk_cb(void *arg, mbedtls_ssl_context *ssl,
 			    ssl, psk->key, psk->keylen));
 		}
 	}
-	nng_log_warn(
-	    "NNG-TLS-PSK-NO-IDENTITY", "TLS client PSK identity not found");
 	return (MBEDTLS_ERR_SSL_UNKNOWN_IDENTITY);
 }
 
@@ -517,8 +515,6 @@ config_psk(nng_tls_engine_config *cfg, const char *identity,
 		         (const unsigned char *) identity,
 		         strlen(identity))) != 0) {
 			psk_free(newpsk);
-			tls_log_err("NNG-TLS-PSK-FAIL",
-			    "Failed to configure PSK identity", rv);
 			return (tls_mk_err(rv));
 		}
 	}
