@@ -448,7 +448,8 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 			}
 #endif
 			property *prop = nni_mqtt_msg_get_connack_property(p->rxmsg);
-			property_dup((property **)&ep->property, prop);
+			if (property_dup((property **) &ep->property, prop) != 0)
+				goto mqtt_error;
 			property_data *data;
 			data = property_get_value(ep->property, RECEIVE_MAXIMUM);
 			if (data) {
