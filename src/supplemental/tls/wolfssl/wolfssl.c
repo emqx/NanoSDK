@@ -666,19 +666,14 @@ wolf_logging_cb(const int level, const char *msg)
 {
 	switch (level) {
 	case ERROR_LOG:
-		nng_log_err("NNG-WOLFSSL", msg);
 		break;
 	case INFO_LOG:
-		nng_log_info("NNG-WOLFSSL", msg);
 		break;
 	case ENTER_LOG:
-		nng_log_debug("NNG-WOLFSSL-ENTER", msg);
 		break;
 	case LEAVE_LOG:
-		nng_log_debug("NNG-WOLFSSL-ENTER", msg);
 		break;
 	case OTHER_LOG:
-		nng_log_debug("NNG-WOLFSSL", msg);
 		break;
 	}
 }
