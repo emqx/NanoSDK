@@ -68,6 +68,7 @@ static const unsigned char base64de[] = {
 	    49,  50,  51, 255, 255, 255, 255, 255
 };
 
+// TODO replace it with nni_base64_decode
 unsigned int
 base64_encode(const unsigned char *in, unsigned int inlen, char *out)
 {
