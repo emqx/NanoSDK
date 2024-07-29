@@ -203,12 +203,6 @@ extern const char *nuts_client_crt;
 
 #define NUTS_PROTO(x, y) (((x) << 4u) | (y))
 
-#define NUTS_ENABLE_LOG(level)                         \
-	do {                                           \
-		nng_log_set_logger(nng_stderr_logger); \
-		nng_log_set_level(level);              \
-	} while (0)
-
 #ifdef __cplusplus
 };
 #endif
