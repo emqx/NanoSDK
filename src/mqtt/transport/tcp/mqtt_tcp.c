@@ -1089,9 +1089,12 @@ mqtt_tcptran_pipe_start(
 		rv = nni_mqtt_msg_encode(connmsg);
 	else if (mqtt_version == MQTT_PROTOCOL_VERSION_v5) {
 		property *prop = nni_mqtt_msg_get_connect_property(connmsg);
+		property_data *data;
+		data = property_get_value(prop, MAXIMUM_PACKET_SIZE);
+		if (data)
+			p->rcvmax = data->p_value.u32;
+
 #ifdef SUPP_SCRAM
-		if (prop == NULL)
-			prop = mqtt_property_alloc();
 		char *pwd = NULL, *username = NULL;
 		char *pwd2 = NULL, *username2 = NULL;
 		int   pwdsz, usernamesz;
@@ -1115,11 +1118,12 @@ mqtt_tcptran_pipe_start(
 			char *client_first_msg     = scram_client_first_msg(ep->scram_ctx, username2);
 			property *prop_auth_data   = property_set_value_str(
 				AUTHENTICATION_DATA, client_first_msg, strlen(client_first_msg), true);
+			if (prop == NULL)
+				prop = mqtt_property_alloc();
 			property_append(prop, prop_auth_method);
 			property_append(prop, prop_auth_data);
 			nni_mqtt_msg_set_connect_property(connmsg, prop);
-			prop = NULL;
-			log_info("auth:client_first_msg:%s", client_first_msg);
+			log_debug("auth:client_first_msg:%s", client_first_msg);
 			//property_free(prop_auth_method);
 			//property_free(prop_auth_data);
 		}
@@ -1127,15 +1131,7 @@ mqtt_tcptran_pipe_start(
 			nng_free(pwd2, 0);
 		if (username2)
 			nng_free(username2, 0);
-		if (prop) {
-			mqtt_property_free(prop);
-			prop = NULL;
-		}
 #endif
-		property_data *data;
-		data = property_get_value(prop, MAXIMUM_PACKET_SIZE);
-		if (data)
-			p->rcvmax = data->p_value.u32;
 		rv = nni_mqttv5_msg_encode(connmsg);
 	} else {
 		nni_plat_printf("Warning. MQTT protocol version is not specificed.\n");
