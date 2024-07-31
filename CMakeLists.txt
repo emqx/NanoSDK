@@ -348,6 +348,7 @@ if (BUILD_DEMO)
   add_subdirectory(demo/raw)
   add_subdirectory(demo/reqrep)
   add_subdirectory(demo/stream)
+  add_subdirectory(demo/multiurls_switch)
 
   if(NNG_ENABLE_QUIC)
     add_subdirectory(demo/quic_mqtt)
