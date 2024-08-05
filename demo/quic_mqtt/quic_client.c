@@ -61,7 +61,7 @@ conf_quic config_user = {
 	},
 	.multi_stream = false,
 	.qos_first  = false,
-	.qkeepalive = 30,
+	.qkeepalive = 10,
 	.qconnect_timeout = 60,
 	.qdiscon_timeout = 30,
 	.qidle_timeout = 30,
@@ -84,7 +84,7 @@ mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
 
 		nng_mqtt_msg_set_connect_proto_version(msg, 4);
-		nng_mqtt_msg_set_connect_keep_alive(msg, 30);
+		nng_mqtt_msg_set_connect_keep_alive(msg, 10);
 		nng_mqtt_msg_set_connect_clean_session(msg, true);
 	} else if (type == SUB) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_SUBSCRIBE);

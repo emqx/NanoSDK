@@ -61,7 +61,7 @@ conf_quic config_user = {
 	},
 	.multi_stream = false,
 	.qos_first  = false,
-	.qkeepalive = 30,
+	.qkeepalive = 10,
 	.qconnect_timeout = 60,
 	.qdiscon_timeout = 30,
 	.qidle_timeout = 30,
@@ -145,7 +145,7 @@ compose_connect()
 	nng_mqtt_msg_set_connect_property(msg, p);
 
 	nng_mqtt_msg_set_connect_proto_version(msg, MQTT_PROTOCOL_VERSION_v5);
-	nng_mqtt_msg_set_connect_keep_alive(msg, 30);
+	nng_mqtt_msg_set_connect_keep_alive(msg, 10);
 	nng_mqtt_msg_set_connect_clean_session(msg, true);
 
 	return msg;
