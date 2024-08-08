@@ -23,6 +23,11 @@
 #include "nng/nng.h"
 #include "nng/supplemental/util/platform.h"
 
+// For example. There are 3 urls.
+// When round robin is true.
+// The order of connecting will be 0 (server unavailable) -> 1 (connected and then disconnected) -> 2 -> 0.
+// When round robin is false.
+// The order of connecting will be 0 (server unavailable) -> 1 (connected and then disconnected) -> 0.
 #define ROUND_ROBIN true
 
 void
