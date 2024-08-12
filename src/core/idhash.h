@@ -1,5 +1,5 @@
 //
-// Copyright 2023 Staysail Systems, Inc. <info@staysail.tech>
+// Copyright 2024 Staysail Systems, Inc. <info@staysail.tech>
 // Copyright 2018 Capitar IT Group BV <info@capitar.com>
 //
 // This software is supplied under the terms of the MIT License, a
@@ -54,9 +54,7 @@ extern int   nni_id_alloc(nni_id_map *, uint64_t *, void *);
 extern int   nni_id_alloc32(nni_id_map *, uint32_t *, void *);
 extern int   nni_id_remove(nni_id_map *, uint64_t);
 extern void  nni_id_map_sys_fini(void);
-// NanoSDK usage
-extern void  nni_id_map_foreach(nni_id_map *, nni_idhash_cb);
-
+extern bool  nni_id_visit(nni_id_map *, uint64_t *, void **, uint32_t *);
 
 #define NNI_ID_MAP_INITIALIZER(min, max, flags)            \
 	{                                                  \
@@ -67,5 +65,5 @@ extern void  nni_id_map_foreach(nni_id_map *, nni_idhash_cb);
 // NanoSDK
 extern void *nni_id_get_min(nni_id_map *m, uint16_t *pid);
 extern void  nni_id_msgfree_cb(nni_msg *msg);
-
+extern void  nni_id_map_foreach(nni_id_map *, nni_idhash_cb);
 #endif // CORE_IDHASH_H
