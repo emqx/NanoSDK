@@ -309,7 +309,7 @@ if (NNG_ENABLE_SCRAM)
     find_package(OpenSSL)
     if (NNG_ENABLE_QUIC)
     else ()
-        target_link_libraries(nng PRIVATE OpenSSL::SSL OpenSSL:Crypto)
+        target_link_libraries(nng PRIVATE OpenSSL::SSL OpenSSL::Crypto)
     endif (NNG_ENABLE_QUIC)
 
     add_definitions(-DSUPP_SCRAM)
