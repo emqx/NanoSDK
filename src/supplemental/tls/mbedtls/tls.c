@@ -512,10 +512,14 @@ config_psk_cb(void *arg, mbedtls_ssl_context *ssl,
 	NNI_LIST_FOREACH (&cfg->psks, psk) {
 		if (id_len == strlen(psk->identity) &&
 		    (memcmp(identity, psk->identity, id_len) == 0)) {
+			nng_log_debug("NNG-TLS-PSK-IDENTITY",
+			    "TLS client using PSK identity %s", psk->identity);
 			return (mbedtls_ssl_set_hs_psk(
 			    ssl, psk->key, psk->keylen));
 		}
 	}
+	nng_log_warn(
+	    "NNG-TLS-PSK-NO-IDENTITY", "TLS client PSK identity not found");
 	return (MBEDTLS_ERR_SSL_UNKNOWN_IDENTITY);
 }
 
@@ -546,6 +550,8 @@ config_psk(nng_tls_engine_config *cfg, const char *identity,
 		         (const unsigned char *) identity,
 		         strlen(identity))) != 0) {
 			psk_free(newpsk);
+			tls_log_err("Nano-TLS-PSK-FAIL",
+			    "Failed to configure PSK identity", rv);
 			return (tls_mk_err(rv));
 		}
 	}
@@ -594,7 +600,7 @@ config_ca_chain(nng_tls_engine_config *cfg, const char *certs, const char *crl)
 	pem = (const uint8_t *) certs;
 	len = strlen(certs) + 1;
 	if ((rv = mbedtls_x509_crt_parse(&cfg->ca_certs, pem, len)) != 0) {
-		tls_log_err("NNG-TLS-CA-FAIL",
+		tls_log_err("Nano-TLS-CA-FAIL",
 		    "Failed to parse CA certificate(s)", rv);
 		return (tls_mk_err(rv));
 	}
@@ -602,7 +608,7 @@ config_ca_chain(nng_tls_engine_config *cfg, const char *certs, const char *crl)
 		pem = (const uint8_t *) crl;
 		len = strlen(crl) + 1;
 		if ((rv = mbedtls_x509_crl_parse(&cfg->crl, pem, len)) != 0) {
-			tls_log_err("NNG-TLS-CRL-FAIL",
+			tls_log_err("Nano-TLS-CRL-FAIL",
 			    "Failed to parse revocation list", rv);
 			return (tls_mk_err(rv));
 		}
