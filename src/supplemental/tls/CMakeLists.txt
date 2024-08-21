@@ -30,6 +30,7 @@ endif ()
 
 add_subdirectory(mbedtls)
 add_subdirectory(wolfssl)
+add_subdirectory(openssl)
 
 nng_sources(tls_common.c)
 nng_sources(tls_api.h)
