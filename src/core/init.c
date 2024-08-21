@@ -47,7 +47,7 @@ nni_init_helper(void)
 
 	nni_inited = true;
 	nng_log_notice(
-	    "NNG-INIT", "NNG library version %s initialized", nng_version());
+	    "NanoSDK-INIT", "NanoSDK library version %s initialized", nng_version());
 
 	return (0);
 }
@@ -58,7 +58,7 @@ nni_init(void)
 	int rv;
 	if ((rv = nni_plat_init(nni_init_helper)) != 0) {
 		nng_log_err("NNG-INIT",
-		    "NNG library initialization failed: %s", nng_strerror(rv));
+		    "NanoSDK library initialization failed: %s", nng_strerror(rv));
 	}
 	return (rv);
 }
