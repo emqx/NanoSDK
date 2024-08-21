@@ -4,8 +4,8 @@
 #include <string.h>
 
 #include <openssl/evp.h>
-#include <openssl/hmac.h>
-#include <openssl/sha.h>
+#include <openssl/x509.h>
+#include <openssl/bio.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
@@ -163,6 +163,54 @@ static int
 open_config_ca_chain(
     nng_tls_engine_config *cfg, const char *certs, const char *crl)
 {
+	size_t len;
+	int    rv;
+
+	// Certs and CRL are in PEM data, with terminating NUL byte.
+	len = strlen(certs);
+
+	BIO *bio = BIO_new_mem_buf(certs, len);
+	if (!bio) {
+		fprintf(stderr, "Failed to create BIO\n");
+		return (NNG_ENOMEM);
+	}
+
+	X509 *cert = PEM_read_bio_X509(bio, NULL, 0, NULL);
+	if (!cert) {
+		fprintf(stderr, "Failed to load certificate from buffer\n");
+		BIO_free(bio);
+		return (NNG_ECRYPTO);
+	}
+
+	if (SSL_CTX_use_certificate(cfg->ctx, cert) <= 0) {
+		fprintf(stderr, "Failed to set certificate in SSL_CTX\n");
+		X509_free(cert);
+		BIO_free(bio);
+		return (NNG_ECRYPTO);
+	}
+
+	/* FIXME Should this be done???
+	X509_STORE *store = SSL_CTX_get_cert_store(ctx);
+    if (!X509_STORE_add_cert(store, cert)) {
+	fprintf(stderr, "Failed to add certificate to store\n");
+    }
+	*/
+
+	if (crl == NULL) {
+		return (0);
+	}
+
+#ifdef NNG_OPENSSL_HAVE_CRL
+	/* TODO
+	len = strlen(crl);
+	rv  = wolfSSL_CTX_LoadCRLBuffer(
+	    cfg->ctx, (void *) crl, len, SSL_FILETYPE_PEM);
+	if (rv != SSL_SUCCESS) {
+	        return (NNG_ECRYPTO);
+	}
+	*/
+#endif
+
 	return (0);
 }
 
