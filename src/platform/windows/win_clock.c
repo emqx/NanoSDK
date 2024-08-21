@@ -14,15 +14,6 @@
 
 #ifdef NNG_PLATFORM_WINDOWS
 
-// return standard timestamp in milliseconds
-nni_time
-nni_timestamp(void)
-{
-	SYSTEMTIME t;
-	GetSystemTime(&t);
-	return (nni_time) (time(NULL) * 1000 + t.wMilliseconds);
-}
-
 nni_time
 nni_clock(void)
 {
@@ -33,7 +24,6 @@ nni_clock(void)
 int
 nni_time_get(uint64_t *seconds, uint32_t *nanoseconds)
 {
-	int             rv;
 	struct timespec ts;
 	if (timespec_get(&ts, TIME_UTC) == TIME_UTC) {
 		*seconds     = ts.tv_sec;
