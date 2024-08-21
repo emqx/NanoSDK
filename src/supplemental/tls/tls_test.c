@@ -86,11 +86,7 @@ test_tls_large_message(void)
 	void                *t2;
 	int                  port;
 
-<<<<<<< HEAD
-	NUTS_ENABLE_LOG(NNG_LOG_DEBUG);
-=======
 	NUTS_ENABLE_LOG(NNG_LOG_INFO);
->>>>>>> b1aaa6069 (fixes #1588 TLS should log errors)
 	// allocate messages
 	NUTS_ASSERT((buf1 = nng_alloc(size)) != NULL);
 	NUTS_ASSERT((buf2 = nng_alloc(size)) != NULL);
