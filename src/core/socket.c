@@ -12,6 +12,7 @@
 #include "core/pipe.h"
 #include "list.h"
 #include "nng/nng.h"
+#include "nng/supplemental/tls/tls.h"
 #include "sockimpl.h"
 
 #include <stdio.h>
