@@ -8,6 +8,7 @@
 //
 
 #include "nng/nng.h"
+#include "nng/supplemental/tls/tls.h"
 #include <nuts.h>
 
 void
@@ -86,7 +87,7 @@ test_tls_large_message(void)
 	void                *t2;
 	int                  port;
 
-	NUTS_ENABLE_LOG(NNG_LOG_INFO);
+	NUTS_ENABLE_LOG(NNG_LOG_DEBUG);
 	// allocate messages
 	NUTS_ASSERT((buf1 = nng_alloc(size)) != NULL);
 	NUTS_ASSERT((buf2 = nng_alloc(size)) != NULL);
@@ -477,6 +478,15 @@ TEST_LIST = {
 	{ "tls config version", test_tls_config_version },
 	{ "tls conn refused", test_tls_conn_refused },
 	{ "tls large message", test_tls_large_message },
+#ifndef NNG_TLS_ENGINE_WOLFSSL // wolfSSL doesn't validate certas until use
 	{ "tls garbled cert", test_tls_garbled_cert },
+#endif
+#ifdef NNG_SUPP_TLS_PSK
+	{ "tls psk", test_tls_psk },
+	{ "tls psk server identities", test_tls_psk_server_identities },
+	{ "tls psk bad identity", test_tls_psk_bad_identity },
+	{ "tls psk key too big", test_tls_psk_key_too_big },
+	{ "tls psk key config busy", test_tls_psk_config_busy },
+#endif
 	{ NULL, NULL },
 };
