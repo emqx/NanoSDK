@@ -75,11 +75,41 @@ open_conn_verified(nng_tls_engine_conn *ec)
 static void
 open_config_fini(nng_tls_engine_config *cfg)
 {
+	SSL_CTX_free(cfg->ctx);
+	if (cfg->server_name != NULL) {
+		nng_strfree(cfg->server_name);
+	}
+	if (cfg->pass != NULL) {
+		nng_strfree(cfg->pass);
+	}
 }
 
 static int
 open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 {
+	int               auth_mode;
+	int               nng_auth;
+	const SSL_METHOD *method;
+
+	cfg->mode = mode;
+	// TODO NNI_LIST_INIT(&cfg->psks, psk, node);
+	if (mode == NNG_TLS_MODE_SERVER) {
+		method    = SSLv23_server_method();
+		auth_mode = SSL_VERIFY_NONE;
+		nng_auth  = NNG_TLS_AUTH_MODE_NONE;
+	} else {
+		method    = SSLv23_client_method();
+		auth_mode = SSL_VERIFY_PEER;
+		nng_auth  = NNG_TLS_AUTH_MODE_REQUIRED;
+	}
+
+	cfg->ctx = SSL_CTX_new(method);
+	if (cfg->ctx == NULL) {
+		return (NNG_ENOMEM);
+	}
+	// Set max/min version TODO
+
+	cfg->auth_mode = nng_auth;
 	return (0);
 }
 
@@ -171,10 +201,10 @@ int
 nng_tls_engine_init_open(void)
 {
 	int rv;
-	rv = SSL_load_error_strings();
+	SSL_load_error_strings();
 	rv = OpenSSL_add_ssl_algorithms();
 	switch (rv) {
-	case 0:
+	case 1:
 		break;
 	default:
 		// Best guess...
