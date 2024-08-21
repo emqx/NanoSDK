@@ -116,6 +116,15 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 static int
 open_config_server(nng_tls_engine_config *cfg, const char *name)
 {
+	char *dup;
+	if ((dup = nng_strdup(name)) == NULL) {
+		return (NNG_ENOMEM);
+	}
+	if (cfg->server_name) {
+		nng_strfree(cfg->server_name);
+	}
+	cfg->server_name = dup;
+	return (0);
 }
 
 static int
@@ -132,7 +141,22 @@ open_config_psk(nng_tls_engine_config *cfg, const char *identity,
 static int
 open_config_auth_mode(nng_tls_engine_config *cfg, nng_tls_auth_mode mode)
 {
+	cfg->auth_mode = mode;
+	// XXX: REMOVE ME
 	return (0);
+	switch (mode) {
+	case NNG_TLS_AUTH_MODE_NONE:
+		SSL_CTX_set_verify(cfg->ctx, SSL_VERIFY_NONE, NULL);
+		return (0);
+	case NNG_TLS_AUTH_MODE_OPTIONAL:
+		SSL_CTX_set_verify(cfg->ctx, SSL_VERIFY_PEER, NULL);
+		return (0);
+	case NNG_TLS_AUTH_MODE_REQUIRED:
+		SSL_CTX_set_verify(cfg->ctx,
+		    SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+		return (0);
+	}
+	return (NNG_EINVAL);
 }
 
 static int
