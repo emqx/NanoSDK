@@ -34,17 +34,34 @@ struct nng_tls_engine_config {
 static void
 open_conn_fini(nng_tls_engine_conn *ec)
 {
+	SSL_free(ec->ssl);
 }
 
 static int
 open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 {
+	ec->tls = tls;
+	if ((ex->ssl = SSL_new(cfg->ctx)) == NULL) {
+		return (NNG_ENOMEM); // most likely
+	}
+	if (cfg->server_name != NULL) {
+		/*
+		if (wolfSSL_check_domain_name(ec->ssl, cfg->server_name) !=
+		    WOLFSSL_SUCCESS) {
+			wolfSSL_free(ec->ssl);
+			ec->ssl = NULL;
+			return (NNG_ENOMEM);
+		}
+		*/
+	}
+
 	return (0);
 }
 
 static void
 open_conn_close(nng_tls_engine_conn *ec)
 {
+	SSL_shutdown(ec->ssl);
 }
 
 static int
@@ -304,6 +321,12 @@ static int
 open_config_version(nng_tls_engine_config *cfg, nng_tls_version min_ver,
     nng_tls_version max_ver)
 {
+	if ((min_ver > max_ver) || (max_ver > NNG_TLS_1_3)) {
+		return (NNG_ENOTSUP);
+	}
+	// TODO
+	(void) cfg;
+
 	return (0);
 }
 
