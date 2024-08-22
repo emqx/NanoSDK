@@ -41,7 +41,7 @@ static int
 open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 {
 	ec->tls = tls;
-	if ((ex->ssl = SSL_new(cfg->ctx)) == NULL) {
+	if ((ec->ssl = SSL_new(cfg->ctx)) == NULL) {
 		return (NNG_ENOMEM); // most likely
 	}
 	if (cfg->server_name != NULL) {
@@ -67,12 +67,29 @@ open_conn_close(nng_tls_engine_conn *ec)
 static int
 open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 {
+	int rv;
+	if ((rv = SSL_read(ec->ssl, buf, (int) *szp)) < 0) {
+		rv = SSL_get_error(ec->ssl, rv);
+		fprintf(stderr, "error in recv %d\n", rv);
+		// TODO return codes according openssl documents
+		return (NNG_ECRYPTO);
+	}
+	*szp = (size_t) rv;
 	return (0);
 }
 
 static int
 open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 {
+	int rv;
+
+	if ((rv = SSL_write(ec->ssl, buf, (int) (*szp))) <= 0) {
+		rv = SSL_get_error(ec->ssl, rv);
+		fprintf(stderr, "error in recv %d\n", rv);
+		// TODO return codes according openssl documents
+		return (NNG_ECRYPTO);
+	}
+	*szp = (size_t) rv;
 	return (0);
 }
 
