@@ -218,7 +218,21 @@ open_config_ca_chain(
 static int
 open_get_password(char *passwd, int size, int rw, void *ctx)
 {
-	return 0;
+	// password is *not* NUL terminated in wolf
+	nng_tls_engine_config *cfg = ctx;
+	size_t                 len;
+
+	(void) rw;
+
+	if (cfg->pass == NULL) {
+		return (0);
+	}
+	len = strlen(cfg->pass); // Our "ctx" is really the password.
+	if (len > (size_t) size) {
+		len = size;
+	}
+	memcpy(passwd, cfg->pass, len);
+	return (len);
 }
 #endif
 
@@ -226,6 +240,63 @@ static int
 open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
     const char *key, const char *pass)
 {
+	int len;
+
+#if NNG_OPENSSL_HAVE_PASSWORD
+	char *dup = NULL;
+	if (pass != NULL) {
+		if ((dup = nng_strdup(pass)) == NULL) {
+			return (NNG_ENOMEM);
+		}
+	}
+	if (cfg->pass != NULL) {
+		nng_strfree(cfg->pass);
+	}
+	cfg->pass = dup;
+	SSL_CTX_set_default_passwd_cb_userdata(cfg->ctx, cfg);
+	SSL_CTX_set_default_passwd_cb(cfg->ctx, open_get_password);
+#else
+	(void) pass;
+#endif
+
+	len = strlen(cert);
+	BIO *biocert = BIO_new_mem_buf(cert, len);
+	if (!biocert) {
+		fprintf(stderr, "Failed to create BIO\n");
+		return (NNG_ENOMEM);
+	}
+	X509 *xcert = PEM_read_bio_X509(biocert, NULL, 0, NULL);
+	if (!xcert) {
+		fprintf(stderr, "Failed to load certificate from buffer\n");
+		BIO_free(biocert);
+		return (NNG_ECRYPTO);
+	}
+	if (SSL_CTX_use_certificate(cfg->ctx, xcert) <= 0) {
+		fprintf(stderr, "Failed to set certificate in SSL_CTX\n");
+		X509_free(xcert);
+		BIO_free(biocert);
+		return (NNG_EINVAL);
+	}
+
+	len = strlen(key);
+	BIO *biokey = BIO_new_mem_buf(key, len);
+	if (!biokey) {
+		fprintf(stderr, "Failed to create BIO\n");
+		return (NNG_ENOMEM);
+	}
+	EVP_PKEY *pkey = PEM_read_bio_PrivateKey(biokey, NULL, NULL, NULL);
+	if (!pkey) {
+		fprintf(stderr, "Failed to load certificate from buffer\n");
+		BIO_free(biokey);
+		return (NNG_ECRYPTO);
+	}
+	if (SSL_CTX_use_PrivateKey(cfg->ctx, pkey) <= 0) {
+		fprintf(stderr, "Failed to set certificate in SSL_CTX\n");
+		EVP_PKEY_free(pkey);
+		BIO_free(biokey);
+		return (NNG_EINVAL);
+	}
+
 	return 0;
 }
 
