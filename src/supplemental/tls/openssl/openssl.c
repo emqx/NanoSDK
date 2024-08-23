@@ -38,12 +38,89 @@ open_conn_fini(nng_tls_engine_conn *ec)
 }
 
 static int
+open_net_read(BIO *b, char *buf, int len) {
+	void  *ctx = BIO_get_data(b);
+
+	size_t sz = len;
+	int    rv;
+
+	rv = nng_tls_engine_recv(ctx, (uint8_t *) buf, &sz);
+	switch (rv) {
+	case 0:
+		return ((int) sz);
+	case NNG_EAGAIN:
+		return (SSL_ERROR_WANT_READ);
+		// return (WOLFSSL_CBIO_ERR_WANT_READ);
+	case NNG_ECLOSED:
+		return (SSL_ERROR_WANT_CONNECT);
+		// return (WOLFSSL_CBIO_ERR_CONN_CLOSE);
+	case NNG_ECONNSHUT:
+		return (SSL_ERROR_WANT_CONNECT);
+		// return (WOLFSSL_CBIO_ERR_CONN_RST);
+	default:
+		return (SSL_ERROR_WANT_CONNECT);
+		// return (WOLFSSL_CBIO_ERR_GENERAL);
+	}
+}
+
+static int
+open_net_write(BIO *b, const char *buf, int len) {
+	void  *ctx = BIO_get_data(b);
+	size_t sz = len;
+	int    rv;
+
+	rv = nng_tls_engine_send(ctx, (const uint8_t *) buf, &sz);
+	switch (rv) {
+	case 0:
+		return ((int) sz);
+
+	case NNG_EAGAIN:
+		return (SSL_ERROR_WANT_WRITE);
+		// return (WOLFSSL_CBIO_ERR_WANT_WRITE);
+	case NNG_ECLOSED:
+		return (SSL_ERROR_WANT_CONNECT);
+		// return (WOLFSSL_CBIO_ERR_CONN_CLOSE);
+	case NNG_ECONNSHUT:
+		return (SSL_ERROR_WANT_CONNECT);
+		// return (WOLFSSL_CBIO_ERR_CONN_RST);
+	default:
+		return (SSL_ERROR_WANT_CONNECT);
+		// return (WOLFSSL_CBIO_ERR_GENERAL);
+	}
+}
+
+static int
+rwbio_create(BIO *b) {
+	BIO_set_init(b, 1);
+	return 1;
+}
+
+static int
+rwbio_destroy(BIO *b) {
+	return b == NULL ? 0 : 1;
+}
+
+BIO_METHOD *rwbio_method() {
+	BIO_METHOD *m = BIO_meth_new(BIO_TYPE_SOURCE_SINK, "OpenSSLrwbio");
+	BIO_meth_set_write(m, open_net_write);
+	BIO_meth_set_read(m, open_net_read);
+	BIO_meth_set_create(m, rwbio_create);
+	BIO_meth_set_destroy(m, rwbio_destroy);
+    return m;
+}
+
+static int
 open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 {
 	ec->tls = tls;
 	if ((ec->ssl = SSL_new(cfg->ctx)) == NULL) {
 		return (NNG_ENOMEM); // most likely
 	}
+
+	BIO *rwbio = BIO_new(rwbio_method());
+	BIO_set_data(rwbio, ec->tls);
+	SSL_set_bio(ec->ssl, rwbio, rwbio);
+
 	if (cfg->server_name != NULL) {
 		/*
 		if (wolfSSL_check_domain_name(ec->ssl, cfg->server_name) !=
