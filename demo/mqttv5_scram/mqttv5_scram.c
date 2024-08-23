@@ -37,6 +37,7 @@
 #include <time.h>
 
 #include <nng/mqtt/mqtt_client.h>
+#include <nng/mqtt/mqtt_paho.h>
 #include <nng/nng.h>
 #include <nng/supplemental/util/platform.h>
 #include <nng/supplemental/tls/tls.h>
@@ -479,6 +480,33 @@ main(const int argc, const char **argv)
 	int   istls = 0;
 	const char  *ca = NULL, *cert = NULL, *key = NULL, *pwd = NULL;
 
+
+
+	MQTTAsync_createOptions create_opts = MQTTAsync_createOptions_initializer;
+
+	// MQTTAsync_create(&g_client, pcUrl, g_pcClientId, MQTTCLIENT_PERSISTENCE_NONE, NULL);
+	MQTTAsync client;
+	// MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer;
+
+// 	MQTTAsync_message pubmsg = MQTTAsync_message_initializer;
+// 	MQTTAsync_responseOptions pub_opts = MQTTAsync_responseOptions_initializer;
+
+// 	int rc;
+// MQTTAsync_SSLOptions ssl_opts = MQTTAsync_SSLOptions_initializer;
+
+// 	if ((rc = MQTTAsync_create(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL)) != MQTTASYNC_SUCCESS)
+// 	{
+// 		printf("Failed to create client object, return code %d\n", rc);
+// 		exit(EXIT_FAILURE);
+// 	}
+
+// 	if ((rc = MQTTAsync_setCallbacks(client, NULL, connlost, messageArrived, NULL)) != MQTTASYNC_SUCCESS)
+// 	{
+// 		printf("Failed to set callback, return code %d\n", rc);
+// 		exit(EXIT_FAILURE);
+// 	}
+
+	return;
 	if (5 == argc && 0 == strcmp(argv[1], SUBSCRIBE)) {
 		cmd = SUBSCRIBE;
 	} else if (6 <= argc && 0 == strcmp(argv[1], PUBLISH)) {

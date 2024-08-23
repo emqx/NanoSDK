@@ -1018,6 +1018,9 @@ nng_mqtt_disconnect(nng_socket *sock, uint8_t reason_code, property *pl)
 	return (rv);
 }
 
+/* Paho style compatible API */
+
+
 #if defined(NNG_SUPP_SQLITE)
 
 void

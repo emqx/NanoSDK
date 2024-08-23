@@ -318,6 +318,7 @@ endif ()
 #  Build the tools
 
 add_subdirectory(docs/man)
+add_subdirectory(demo/mqttv5_scram)
 
 set(CPACK_PACKAGE_NAME ${PROJECT_NAME})
 set(CPACK_PACKAGE_VERSION ${NNG_PACKAGE_VERSION})
