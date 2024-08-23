@@ -96,12 +96,21 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 static int
 open_conn_handshake(nng_tls_engine_conn *ec)
 {
+	int rv;
+
+	rv = SSL_do_handshake(ec->ssl);
+	// TODO more rv handle
+	if (rv != 0) {
+		fprintf("openssl do handshake failed rv%d\n", rv);
+		return (NNG_ECRYPTO);
+	}
 	return (0);
 }
 
 static bool
 open_conn_verified(nng_tls_engine_conn *ec)
 {
+	return (X509_V_OK == SSL_get_verify_result(ec->ssl));
 }
 
 /************************* SSL Configuration ***********************/
