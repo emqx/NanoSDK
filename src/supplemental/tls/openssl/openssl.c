@@ -101,7 +101,7 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 	rv = SSL_do_handshake(ec->ssl);
 	// TODO more rv handle
 	if (rv != 0) {
-		fprintf("openssl do handshake failed rv%d\n", rv);
+		fprintf(stderr, "openssl do handshake failed rv%d\n", rv);
 		return (NNG_ECRYPTO);
 	}
 	return (0);
@@ -110,7 +110,9 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 static bool
 open_conn_verified(nng_tls_engine_conn *ec)
 {
-	return (X509_V_OK == SSL_get_verify_result(ec->ssl));
+	long rv = SSL_get_verify_result(ec->ssl);
+	fprintf(stderr, "verified result: %ld\n", rv);
+	return (X509_V_OK == rv);
 }
 
 /************************* SSL Configuration ***********************/
@@ -207,7 +209,6 @@ open_config_ca_chain(
     nng_tls_engine_config *cfg, const char *certs, const char *crl)
 {
 	size_t len;
-	int    rv;
 
 	// Certs and CRL are in PEM data, with terminating NUL byte.
 	len = strlen(certs);
