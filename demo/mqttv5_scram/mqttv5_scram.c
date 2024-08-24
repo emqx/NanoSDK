@@ -48,6 +48,8 @@
 #define TLS_PUBLISH   "pubtls"
 #define TLS_SUBSCRIBE "subtls"
 
+#define ADDRESS     "mqtt-tcp://mqtt.eclipse.org:1883"
+#define CLIENTID    "SCRAM"
 void
 fatal(const char *msg, int rv)
 {
@@ -482,29 +484,26 @@ main(const int argc, const char **argv)
 
 
 
-	MQTTAsync_createOptions create_opts = MQTTAsync_createOptions_initializer;
-
-	// MQTTAsync_create(&g_client, pcUrl, g_pcClientId, MQTTCLIENT_PERSISTENCE_NONE, NULL);
 	MQTTAsync client;
-	// MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer;
-
-// 	MQTTAsync_message pubmsg = MQTTAsync_message_initializer;
-// 	MQTTAsync_responseOptions pub_opts = MQTTAsync_responseOptions_initializer;
-
-// 	int rc;
-// MQTTAsync_SSLOptions ssl_opts = MQTTAsync_SSLOptions_initializer;
-
-// 	if ((rc = MQTTAsync_create(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL)) != MQTTASYNC_SUCCESS)
-// 	{
-// 		printf("Failed to create client object, return code %d\n", rc);
-// 		exit(EXIT_FAILURE);
-// 	}
-
-// 	if ((rc = MQTTAsync_setCallbacks(client, NULL, connlost, messageArrived, NULL)) != MQTTASYNC_SUCCESS)
-// 	{
-// 		printf("Failed to set callback, return code %d\n", rc);
-// 		exit(EXIT_FAILURE);
-// 	}
+	MQTTAsync_createOptions create_opts = MQTTAsync_createOptions_initializer;
+	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer;
+	MQTTAsync_disconnectOptions disc_opts = MQTTAsync_disconnectOptions_initializer;
+	int rc;
+	int ch;
+	rc = MQTTAsync_createWithOptions(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL, &create_opts);
+	if (rc != MQTTASYNC_SUCCESS)
+	{
+		printf("Failed to create client, return code %d\n", rc);
+		rc = EXIT_FAILURE;
+		return;
+	}
+// MQTTAsync_setCallbacks(g_client, NULL, connlost, msgarrvd, delivered);
+	if ((rc = MQTTAsync_setCallbacks(client, client, connlost, msgarrvd, NULL)) != MQTTASYNC_SUCCESS)
+	{
+		printf("Failed to set callbacks, return code %d\n", rc);
+		rc = EXIT_FAILURE;
+		return;
+	}
 
 	return;
 	if (5 == argc && 0 == strcmp(argv[1], SUBSCRIBE)) {

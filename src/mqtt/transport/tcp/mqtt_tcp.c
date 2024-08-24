@@ -360,6 +360,7 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 			if (rv != 0)
 				goto mqtt_error;
 			property_free(ep->property);
+			ep->property = NULL;
 #ifdef SUPP_SCRAM
 			if (ep->scram_ctx &&
 				nni_mqtt_msg_get_packet_type(p->rxmsg) == NNG_MQTT_AUTH) {
@@ -450,66 +451,67 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 			property *prop = nni_mqtt_msg_get_connack_property(p->rxmsg);
 			if (property_dup((property **) &ep->property, prop) != 0)
 				goto mqtt_error;
-			property_data *data;
-			data = property_get_value(ep->property, RECEIVE_MAXIMUM);
-			if (data) {
-				if (data->p_value.u16 == 0) {
-					rv = MQTT_ERR_PROTOCOL;
-					ep->reason_code = rv;
-					goto mqtt_error;
-				} else {
-					p->sndmax = data->p_value.u16;
+			if (ep->property != NULL) {
+				property_data *data;
+				data = property_get_value(ep->property, RECEIVE_MAXIMUM);
+				if (data) {
+					if (data->p_value.u16 == 0) {
+						rv = MQTT_ERR_PROTOCOL;
+						ep->reason_code = rv;
+						goto mqtt_error;
+					} else {
+						p->sndmax = data->p_value.u16;
+					}
 				}
-			}
-			data = property_get_value(ep->property, MAXIMUM_PACKET_SIZE);
-			if (data) {
-				if (data->p_value.u32 == 0) {
-					rv = MQTT_ERR_PROTOCOL;
-					ep->reason_code = rv;
-					goto mqtt_error;
-				} else {
-					p->packmax = data->p_value.u32;
-					log_info("Set max packet size as %ld", p->packmax);
+				data = property_get_value(ep->property, MAXIMUM_PACKET_SIZE);
+				if (data) {
+					if (data->p_value.u32 == 0) {
+						rv = MQTT_ERR_PROTOCOL;
+						ep->reason_code = rv;
+						goto mqtt_error;
+					} else {
+						p->packmax = data->p_value.u32;
+						log_info("Set max packet size as %ld", p->packmax);
+					}
 				}
-			}
-			data = property_get_value(ep->property, PUBLISH_MAXIMUM_QOS);
-			if (data) {
-				p->qosmax = data->p_value.u8;
-			}
-#ifdef SUPP_SCRAM
-			data = property_get_value(ep->property, AUTHENTICATION_DATA);
-			if (data && data->p_value.str.buf && ep->scram_ctx) {
-				char *server_final_msg = (char *)data->p_value.str.buf;
-				log_debug("auth:server_final_msg:%.*s",
-					data->p_value.str.length, server_final_msg);
-				char *result = scram_handle_server_final_msg(
-					ep->scram_ctx, server_final_msg, data->p_value.str.length);
-				if (result == NULL) {
+				data = property_get_value(ep->property, PUBLISH_MAXIMUM_QOS);
+				if (data) {
+					p->qosmax = data->p_value.u8;
+				}
+	#ifdef SUPP_SCRAM
+				data = property_get_value(ep->property, AUTHENTICATION_DATA);
+				if (data && data->p_value.str.buf && ep->scram_ctx) {
+					char *server_final_msg = (char *)data->p_value.str.buf;
+					log_debug("auth:server_final_msg:%.*s",
+						data->p_value.str.length, server_final_msg);
+					char *result = scram_handle_server_final_msg(
+						ep->scram_ctx, server_final_msg, data->p_value.str.length);
+					if (result == NULL) {
+						log_error("Enhanced Authentication failed");
+						rv = MQTT_ERR_PROTOCOL;
+						ep->reason_code = rv;
+						// Failed so closed the connection
+						goto error;
+					} else {
+						log_info("Enhanced Authentication Passed");
+					}
+				} else if (ep->scram_ctx) {
+					// We want a authenticate response. but not found
 					log_error("Enhanced Authentication failed");
 					rv = MQTT_ERR_PROTOCOL;
 					ep->reason_code = rv;
-					// Failed so closed the connection
 					goto error;
 				} else {
-					log_info("Enhanced Authentication Passed");
+					// No more action
 				}
-			} else if (ep->scram_ctx) {
-				// We want a authenticate response. but not found
-				log_error("Enhanced Authentication failed");
-				rv = MQTT_ERR_PROTOCOL;
-				ep->reason_code = rv;
-				goto error;
-			} else {
-				// No more action
+	#endif
+
+				// TODO move CONNACK to protocol layer
+				// data = property_get_value(ep->property, SERVER_KEEP_ALIVE);
+				// if (data) {
+				// 	p->keepalive = data->p_value.u16;
+				// }
 			}
-#endif
-
-			// TODO move CONNACK to protocol layer
-			// data = property_get_value(ep->property, SERVER_KEEP_ALIVE);
-			// if (data) {
-			// 	p->keepalive = data->p_value.u16;
-			// }
-
 		} else {
 			if ((rv = nni_mqtt_msg_decode(p->rxmsg)) != MQTT_SUCCESS) {
 				ep->reason_code = rv;
