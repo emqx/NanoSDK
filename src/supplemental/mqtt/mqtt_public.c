@@ -2,6 +2,7 @@
 #include "core/nng_impl.h"
 #include <string.h>
 #include "mqtt_qos_db.h"
+#include "mqtt_nano_paho.h"
 
 int
 nng_mqtt_msg_proto_data_alloc(nng_msg *msg)
@@ -805,6 +806,7 @@ mqtt_property_append(property *prop_list, property *last)
 static void
 nng_mqtt_client_send_cb(void* arg)
 {
+	int rv;
 	nng_mqtt_client *client = (nng_mqtt_client *) arg;
 	nng_aio *        aio    = client->send_aio;
 	nng_msg *        msg    = nng_aio_get_msg(aio);
@@ -812,8 +814,10 @@ nng_mqtt_client_send_cb(void* arg)
 
 	nni_lmq * lmq = (nni_lmq *)client->msgq;
 
-	if (msg == NULL || nng_aio_result(aio) != 0) {
+	rv = nng_aio_result(aio);
+	if (msg == NULL ||  rv != 0) {
 		client->send_cb(client, NULL, client->obj);
+		nng_log_warn("Send aio error", "result %d", rv);
 		return;
 	}
 
@@ -840,6 +844,41 @@ nng_mqtt_client_recv_cb(void* arg)
 	client->recv_cb(client, msg, client->obj);
 
 	return;
+}
+
+/**
+ * ATTENTION: This API is for Paho user only
+ * 
+ * 	Alloc an nng_mqtt_client object with paho async style callbacks
+ * 	Return NULL if failed
+ * */
+nng_mqtt_client *
+nng_mqtt_paho_client_alloc(nng_socket sock, nng_mqtt_send_cb send_cb, nng_mqtt_recv_cb recv_cb, void *async)
+{
+	nng_mqtt_client *client = NNI_ALLOC_STRUCT(client);
+	client->sock            = sock;
+	client->async           = true;
+	client->send_cb         = NULL;
+	client->recv_cb         = NULL;
+	client->msgq            = NULL;
+	client->obj             = async;
+
+	if (send_cb != NULL) {
+		client->send_cb = send_cb;
+	}
+	if (recv_cb != NULL) {
+		client->recv_cb = recv_cb;
+	}
+	// replace nng_mqtt_client_send_cb for lmq
+	if (send_cb != NULL)
+		nng_aio_alloc(&client->send_aio, nng_mqtt_client_send_cb, client);
+	if (recv_cb != NULL)
+		nng_aio_alloc(&client->recv_aio, nng_mqtt_client_recv_cb, client);
+	if ((client->msgq = nng_alloc(sizeof(nni_lmq))) == NULL) {
+		return NULL;
+	}
+	nni_lmq_init((nni_lmq *)client->msgq, NNG_MAX_SEND_LMQ);
+	return client;
 }
 
 /**

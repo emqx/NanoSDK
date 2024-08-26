@@ -27,194 +27,197 @@ extern "C" {
 */
 
 /**
-  * This <i>persistence_type</i> value specifies the default file system-based 
-  * persistence mechanism (see MQTTClient_create()).
-  */
+ * This <i>persistence_type</i> value specifies the default file system-based
+ * persistence mechanism (see MQTTClient_create()).
+ */
 #define MQTTCLIENT_PERSISTENCE_DEFAULT 0
 /**
-  * This <i>persistence_type</i> value specifies a memory-based 
-  * persistence mechanism (see MQTTClient_create()).
-  */
+ * This <i>persistence_type</i> value specifies a memory-based
+ * persistence mechanism (see MQTTClient_create()).
+ */
 #define MQTTCLIENT_PERSISTENCE_NONE 1
 /**
-  * This <i>persistence_type</i> value specifies an application-specific 
-  * persistence mechanism (see MQTTClient_create()).
-  */
+ * This <i>persistence_type</i> value specifies an application-specific
+ * persistence mechanism (see MQTTClient_create()).
+ */
 #define MQTTCLIENT_PERSISTENCE_USER 2
 
-/** 
-  * Application-specific persistence functions must return this error code if 
-  * there is a problem executing the function. 
-  */
+/**
+ * Application-specific persistence functions must return this error code if
+ * there is a problem executing the function.
+ */
 #define MQTTCLIENT_PERSISTENCE_ERROR -2
 
 /**
-  * @brief Initialize the persistent store.
-  * 
-  * Either open the existing persistent store for this client ID or create a new
-  * one if one doesn't exist. If the persistent store is already open, return 
-  * without taking any action.
-  *
-  * An application can use the same client identifier to connect to many
-  * different servers. The <i>clientid</i> in conjunction with the 
-  * <i>serverURI</i> uniquely identifies the persistence store required.
-  *
-  * @param handle The address of a pointer to a handle for this persistence 
-  * implementation. This function must set handle to a valid reference to the 
-  * persistence following a successful return. 
-  * The handle pointer is passed as an argument to all the other
-  * persistence functions. It may include the context parameter and/or any other
-  * data for use by the persistence functions.
-  * @param clientID The client identifier for which the persistent store should 
-  * be opened.
-  * @param serverURI The connection string specified when the MQTT client was
-  * created (see MQTTClient_create()).
-  * @param context A pointer to any data required to initialize the persistent
-  * store (see ::MQTTClient_persistence).
-  * @return Return 0 if the function completes successfully, otherwise return
-  * ::MQTTCLIENT_PERSISTENCE_ERROR.
-  */
-typedef int (*Persistence_open)(void** handle, const char* clientID, const char* serverURI, void* context);
+ * @brief Initialize the persistent store.
+ *
+ * Either open the existing persistent store for this client ID or create a new
+ * one if one doesn't exist. If the persistent store is already open, return
+ * without taking any action.
+ *
+ * An application can use the same client identifier to connect to many
+ * different servers. The <i>clientid</i> in conjunction with the
+ * <i>serverURI</i> uniquely identifies the persistence store required.
+ *
+ * @param handle The address of a pointer to a handle for this persistence
+ * implementation. This function must set handle to a valid reference to the
+ * persistence following a successful return.
+ * The handle pointer is passed as an argument to all the other
+ * persistence functions. It may include the context parameter and/or any other
+ * data for use by the persistence functions.
+ * @param clientID The client identifier for which the persistent store should
+ * be opened.
+ * @param serverURI The connection string specified when the MQTT client was
+ * created (see MQTTClient_create()).
+ * @param context A pointer to any data required to initialize the persistent
+ * store (see ::MQTTClient_persistence).
+ * @return Return 0 if the function completes successfully, otherwise return
+ * ::MQTTCLIENT_PERSISTENCE_ERROR.
+ */
+typedef int (*Persistence_open)(
+    void **handle, const char *clientID, const char *serverURI, void *context);
 
 /**
-  * @brief Close the persistent store referred to by the handle.
-  *
-  * @param handle The handle pointer from a successful call to 
-  * Persistence_open().
-  * @return Return 0 if the function completes successfully, otherwise return
-  * ::MQTTCLIENT_PERSISTENCE_ERROR.
-  */
-typedef int (*Persistence_close)(void* handle); 
+ * @brief Close the persistent store referred to by the handle.
+ *
+ * @param handle The handle pointer from a successful call to
+ * Persistence_open().
+ * @return Return 0 if the function completes successfully, otherwise return
+ * ::MQTTCLIENT_PERSISTENCE_ERROR.
+ */
+typedef int (*Persistence_close)(void *handle);
 
 /**
-  * @brief Put the specified data into the persistent store.
-  *
-  * @param handle The handle pointer from a successful call to 
-  * Persistence_open().
-  * @param key A string used as the key for the data to be put in the store. The
-  * key is later used to retrieve data from the store with Persistence_get().
-  * @param bufcount The number of buffers to write to the persistence store.
-  * @param buffers An array of pointers to the data buffers associated with 
-  * this <i>key</i>.
-  * @param buflens An array of lengths of the data buffers. <i>buflen[n]</i> 
-  * gives the length of <i>buffer[n]</i>.
-  * @return Return 0 if the function completes successfully, otherwise return
-  * ::MQTTCLIENT_PERSISTENCE_ERROR.
-  */
-typedef int (*Persistence_put)(void* handle, char* key, int bufcount, char* buffers[], int buflens[]);
+ * @brief Put the specified data into the persistent store.
+ *
+ * @param handle The handle pointer from a successful call to
+ * Persistence_open().
+ * @param key A string used as the key for the data to be put in the store. The
+ * key is later used to retrieve data from the store with Persistence_get().
+ * @param bufcount The number of buffers to write to the persistence store.
+ * @param buffers An array of pointers to the data buffers associated with
+ * this <i>key</i>.
+ * @param buflens An array of lengths of the data buffers. <i>buflen[n]</i>
+ * gives the length of <i>buffer[n]</i>.
+ * @return Return 0 if the function completes successfully, otherwise return
+ * ::MQTTCLIENT_PERSISTENCE_ERROR.
+ */
+typedef int (*Persistence_put)(
+    void *handle, char *key, int bufcount, char *buffers[], int buflens[]);
 
 /**
-  * @brief Retrieve the specified data from the persistent store. 
-  *
-  * @param handle The handle pointer from a successful call to 
-  * Persistence_open().
-  * @param key A string that is the key for the data to be retrieved. This is 
-  * the same key used to save the data to the store with Persistence_put().
-  * @param buffer The address of a pointer to a buffer. This function sets the
-  * pointer to point at the retrieved data, if successful.
-  * @param buflen The address of an int that is set to the length of 
-  * <i>buffer</i> by this function if successful.
-  * @return Return 0 if the function completes successfully, otherwise return
-  * ::MQTTCLIENT_PERSISTENCE_ERROR.
-  */
-typedef int (*Persistence_get)(void* handle, char* key, char** buffer, int* buflen);
+ * @brief Retrieve the specified data from the persistent store.
+ *
+ * @param handle The handle pointer from a successful call to
+ * Persistence_open().
+ * @param key A string that is the key for the data to be retrieved. This is
+ * the same key used to save the data to the store with Persistence_put().
+ * @param buffer The address of a pointer to a buffer. This function sets the
+ * pointer to point at the retrieved data, if successful.
+ * @param buflen The address of an int that is set to the length of
+ * <i>buffer</i> by this function if successful.
+ * @return Return 0 if the function completes successfully, otherwise return
+ * ::MQTTCLIENT_PERSISTENCE_ERROR.
+ */
+typedef int (*Persistence_get)(
+    void *handle, char *key, char **buffer, int *buflen);
 
 /**
-  * @brief Remove the data for the specified key from the store.
-  *
-  * @param handle The handle pointer from a successful call to 
-  * Persistence_open().
-  * @param key A string that is the key for the data to be removed from the
-  * store. This is the same key used to save the data to the store with 
-  * Persistence_put().
-  * @return Return 0 if the function completes successfully, otherwise return
-  * ::MQTTCLIENT_PERSISTENCE_ERROR.
-  */
-typedef int (*Persistence_remove)(void* handle, char* key);
+ * @brief Remove the data for the specified key from the store.
+ *
+ * @param handle The handle pointer from a successful call to
+ * Persistence_open().
+ * @param key A string that is the key for the data to be removed from the
+ * store. This is the same key used to save the data to the store with
+ * Persistence_put().
+ * @return Return 0 if the function completes successfully, otherwise return
+ * ::MQTTCLIENT_PERSISTENCE_ERROR.
+ */
+typedef int (*Persistence_remove)(void *handle, char *key);
 
 /**
-  * @brief Returns the keys in this persistent data store.
-  *
-  * @param handle The handle pointer from a successful call to 
-  * Persistence_open().
-  * @param keys The address of a pointer to pointers to strings. Assuming
-  * successful execution, this function allocates memory to hold the returned
-  * keys (strings used to store the data with Persistence_put()). It also 
-  * allocates memory to hold an array of pointers to these strings. <i>keys</i>
-  * is set to point to the array of pointers to strings.
-  * @param nkeys A pointer to the number of keys in this persistent data store. 
-  * This function sets the number of keys, if successful.
-  * @return Return 0 if the function completes successfully, otherwise return
-  * ::MQTTCLIENT_PERSISTENCE_ERROR.
-  */
-typedef int (*Persistence_keys)(void* handle, char*** keys, int* nkeys);
+ * @brief Returns the keys in this persistent data store.
+ *
+ * @param handle The handle pointer from a successful call to
+ * Persistence_open().
+ * @param keys The address of a pointer to pointers to strings. Assuming
+ * successful execution, this function allocates memory to hold the returned
+ * keys (strings used to store the data with Persistence_put()). It also
+ * allocates memory to hold an array of pointers to these strings. <i>keys</i>
+ * is set to point to the array of pointers to strings.
+ * @param nkeys A pointer to the number of keys in this persistent data store.
+ * This function sets the number of keys, if successful.
+ * @return Return 0 if the function completes successfully, otherwise return
+ * ::MQTTCLIENT_PERSISTENCE_ERROR.
+ */
+typedef int (*Persistence_keys)(void *handle, char ***keys, int *nkeys);
 
 /**
-  * @brief Clears the persistence store, so that it no longer contains any 
-  * persisted data.
-  *
-  * @param handle The handle pointer from a successful call to 
-  * Persistence_open().
-  * @return Return 0 if the function completes successfully, otherwise return
-  * ::MQTTCLIENT_PERSISTENCE_ERROR.
-  */
-typedef int (*Persistence_clear)(void* handle);
+ * @brief Clears the persistence store, so that it no longer contains any
+ * persisted data.
+ *
+ * @param handle The handle pointer from a successful call to
+ * Persistence_open().
+ * @return Return 0 if the function completes successfully, otherwise return
+ * ::MQTTCLIENT_PERSISTENCE_ERROR.
+ */
+typedef int (*Persistence_clear)(void *handle);
 
 /**
-  * @brief Returns whether any data has been persisted using the specified key.
-  *
-  * @param handle The handle pointer from a successful call to 
-  * Persistence_open().
-  * @param key The string to be tested for existence in the store.
-  * @return Return 0 if the key was found in the store, otherwise return
-  * ::MQTTCLIENT_PERSISTENCE_ERROR.
-  */
-typedef int (*Persistence_containskey)(void* handle, char* key);
+ * @brief Returns whether any data has been persisted using the specified key.
+ *
+ * @param handle The handle pointer from a successful call to
+ * Persistence_open().
+ * @param key The string to be tested for existence in the store.
+ * @return Return 0 if the key was found in the store, otherwise return
+ * ::MQTTCLIENT_PERSISTENCE_ERROR.
+ */
+typedef int (*Persistence_containskey)(void *handle, char *key);
 
 /**
-  * @brief A structure containing the function pointers to a persistence 
-  * implementation and the context or state that will be shared across all 
-  * the persistence functions.
-  */
+ * @brief A structure containing the function pointers to a persistence
+ * implementation and the context or state that will be shared across all
+ * the persistence functions.
+ */
 typedef struct {
-  /** 
-    * A pointer to any data required to initialize the persistent store.
-    */
-	void* context;
-  /** 
-    * A function pointer to an implementation of Persistence_open().
-    */
+	/**
+	 * A pointer to any data required to initialize the persistent store.
+	 */
+	void *context;
+	/**
+	 * A function pointer to an implementation of Persistence_open().
+	 */
 	Persistence_open popen;
-  /** 
-    * A function pointer to an implementation of Persistence_close().
-    */
+	/**
+	 * A function pointer to an implementation of Persistence_close().
+	 */
 	Persistence_close pclose;
-  /**
-    * A function pointer to an implementation of Persistence_put().
-    */
+	/**
+	 * A function pointer to an implementation of Persistence_put().
+	 */
 	Persistence_put pput;
-  /** 
-    * A function pointer to an implementation of Persistence_get().
-    */
+	/**
+	 * A function pointer to an implementation of Persistence_get().
+	 */
 	Persistence_get pget;
-  /** 
-    * A function pointer to an implementation of Persistence_remove().
-    */
+	/**
+	 * A function pointer to an implementation of Persistence_remove().
+	 */
 	Persistence_remove premove;
-  /** 
-    * A function pointer to an implementation of Persistence_keys().
-    */
+	/**
+	 * A function pointer to an implementation of Persistence_keys().
+	 */
 	Persistence_keys pkeys;
-  /** 
-    * A function pointer to an implementation of Persistence_clear().
-    */
+	/**
+	 * A function pointer to an implementation of Persistence_clear().
+	 */
 	Persistence_clear pclear;
-  /** 
-    * A function pointer to an implementation of Persistence_containskey().
-    */
+	/**
+	 * A function pointer to an implementation of
+	 * Persistence_containskey().
+	 */
 	Persistence_containskey pcontainskey;
 } MQTTClient_persistence;
-
 
 /**
  * A callback which is invoked just before a write to persistence.  This can be
@@ -225,8 +228,8 @@ typedef struct {
  * @param buflens An array of lengths of the data buffers.
  * @return Return 0 if the function completes successfully, otherwise non 0.
  */
-typedef int MQTTPersistence_beforeWrite(void* context, int bufcount, char* buffers[], int buflens[]);
-
+typedef int MQTTPersistence_beforeWrite(
+    void *context, int bufcount, char *buffers[], int buflens[]);
 
 /**
  * A callback which is invoked just after a read from persistence.  This can be
@@ -236,7 +239,8 @@ typedef int MQTTPersistence_beforeWrite(void* context, int bufcount, char* buffe
  * @param buflen The address of an int that is the length of the buffer.
  * @return Return 0 if the function completes successfully, otherwise non 0.
  */
-typedef int MQTTPersistence_afterRead(void* context, char** buffer, int* buflen);
+typedef int MQTTPersistence_afterRead(
+    void *context, char **buffer, int *buflen);
 
 #endif
 
@@ -349,7 +353,30 @@ typedef int MQTTPersistence_afterRead(void* context, char** buffer, int* buflen)
  */
 #define MQTT_BAD_SUBSCRIBE 0x80
 
-#define MQTTProperties_initializer {0, 0, 0, NULL}
+#define MQTTAsync_willOptions_initializer                    \
+	{                                                    \
+		{ 'M', 'Q', 'T', 'W' }, 1, NULL, NULL, 0, 0, \
+		{                                            \
+			0, NULL                              \
+		}                                            \
+	}
+
+#define MQTT_SSL_VERSION_DEFAULT 0
+#define MQTT_SSL_VERSION_TLS_1_0 1
+#define MQTT_SSL_VERSION_TLS_1_1 2
+#define MQTT_SSL_VERSION_TLS_1_2 3
+#define MQTTProperties_initializer { 0, 0, 0, NULL }
+
+#define MQTTSubscribe_options_initializer { {'M', 'Q', 'S', 'O'}, 0, 0, 0, 0 }
+
+#define MQTTAsync_responseOptions_initializer                      \
+	{ { 'M', 'Q', 'T', 'R' }, 1, NULL, NULL, 0, 0, NULL, NULL, \
+		MQTTProperties_initializer,                        \
+		MQTTSubscribe_options_initializer, 0, NULL }
+
+/** A synonym for responseOptions to better reflect its usage since MQTT 5.0 */
+typedef struct MQTTAsync_responseOptions MQTTAsync_callOptions;
+#define MQTTAsync_callOptions_initializer MQTTAsync_responseOptions_initializer
 
 #define MQTTAsync_connectOptions_initializer                                \
 	{ { 'M', 'Q', 'T', 'C' }, 8, 60, 1, 65535, NULL, NULL, NULL, 30, 0, \
@@ -383,7 +410,10 @@ typedef int MQTTPersistence_afterRead(void* context, char** buffer, int* buflen)
 	{ { 'M', 'Q', 'T', 'D' }, 1, 0, NULL, NULL, NULL,                 \
 		MQTTProperties_initializer, MQTTREASONCODE_SUCCESS, NULL, \
 		NULL }
-
+#define MQTTAsync_SSLOptions_initializer                                      \
+	{ { 'M', 'Q', 'T', 'S' }, 5, NULL, NULL, NULL, NULL, NULL, NULL,      \
+		NULL, 1, MQTT_SSL_VERSION_DEFAULT, 0, NULL, NULL, NULL, NULL, \
+		NULL, 0, NULL, 0 }
 /**
  * The data for a length delimited string
  */
@@ -1281,133 +1311,278 @@ typedef struct {
 	const char *httpsProxy;
 } MQTTAsync_connectOptions;
 
+#define MQTTAsync_message_initializer                     \
+	{ { 'M', 'Q', 'T', 'M' }, 1, 0, NULL, 0, 0, 0, 0, \
+		MQTTProperties_initializer }
+
+/**
+ * This is a callback function. The client application
+ * must provide an implementation of this function to enable asynchronous
+ * receipt of messages. The function is registered with the client library by
+ * passing it as an argument to MQTTAsync_setCallbacks(). It is
+ * called by the client library when a new message that matches a client
+ * subscription has been received from the server. This function is executed on
+ * a separate thread to the one on which the client application is running.
+ *
+ * <b>Note:</b> Neither MQTTAsync_create() nor MQTTAsync_destroy() should be
+ * called within this callback.
+ * @param context A pointer to the <i>context</i> value originally passed to
+ * MQTTAsync_setCallbacks(), which contains any application-specific context.
+ * @param topicName The topic associated with the received message.
+ * @param topicLen The length of the topic if there are one
+ * more NULL characters embedded in <i>topicName</i>, otherwise <i>topicLen</i>
+ * is 0. If <i>topicLen</i> is 0, the value returned by
+ * <i>strlen(topicName)</i> can be trusted. If <i>topicLen</i> is greater than
+ * 0, the full topic name can be retrieved by accessing <i>topicName</i> as a
+ * byte array of length <i>topicLen</i>.
+ * @param message The MQTTAsync_message structure for the received message.
+ * This structure contains the message payload and attributes.
+ * @return This function must return 0 or 1 indicating whether or not
+ * the message has been safely received by the client application. <br>
+ * Returning 1 indicates that the message has been successfully handled.
+ * To free the message storage, ::MQTTAsync_freeMessage must be called.
+ * To free the topic name storage, ::MQTTAsync_free must be called.<br>
+ * Returning 0 indicates that there was a problem. In this
+ * case, the client library will reinvoke MQTTAsync_messageArrived() to
+ * attempt to deliver the message to the application again.
+ * Do not free the message and topic storage when returning 0, otherwise
+ * the redelivery will fail.
+ */
+typedef int MQTTAsync_messageArrived(
+    void *context, char *topicName, int topicLen, MQTTAsync_message *message);
+
+/**
+ * This is a callback function. The client application
+ * must provide an implementation of this function to enable asynchronous
+ * notification of delivery of messages to the server. The function is
+ * registered with the client library by passing it as an argument to
+ * MQTTAsync_setCallbacks(). It is called by the client library after the
+ * client application has published a message to the server. It indicates that
+ * the necessary handshaking and acknowledgements for the requested quality of
+ * service (see MQTTAsync_message.qos) have been completed. This function is
+ * executed on a separate thread to the one on which the client application is
+ * running.
+ *
+ * <b>Note:</b> Neither MQTTAsync_create() nor MQTTAsync_destroy() should be
+ * called within this callback.
+ * @param context A pointer to the <i>context</i> value originally passed to
+ * MQTTAsync_setCallbacks(), which contains any application-specific context.
+ * @param token The ::MQTTAsync_token associated with
+ * the published message. Applications can check that all messages have been
+ * correctly published by matching the tokens returned from calls to
+ * MQTTAsync_send() and MQTTAsync_sendMessage() with the tokens passed
+ * to this callback.
+ */
+typedef void MQTTAsync_deliveryComplete(void *context, MQTTAsync_token token);
+
+/**
+ * This is a callback function. The client application
+ * must provide an implementation of this function to enable asynchronous
+ * notification of the loss of connection to the server. The function is
+ * registered with the client library by passing it as an argument to
+ * MQTTAsync_setCallbacks(). It is called by the client library if the client
+ * loses its connection to the server. The client application must take
+ * appropriate action, such as trying to reconnect or reporting the problem.
+ * This function is executed on a separate thread to the one on which the
+ * client application is running.
+ *
+ * <b>Note:</b> Neither MQTTAsync_create() nor MQTTAsync_destroy() should be
+ * called within this callback.
+ * @param context A pointer to the <i>context</i> value originally passed to
+ * MQTTAsync_setCallbacks(), which contains any application-specific context.
+ * @param cause The reason for the disconnection.
+ * Currently, <i>cause</i> is always set to NULL.
+ */
+typedef void MQTTAsync_connectionLost(void *context, char *cause);
+
+/**
+ * This is a callback function, which will be called when the client
+ * library successfully connects.  This is superfluous when the connection
+ * is made in response to a MQTTAsync_connect call, because the onSuccess
+ * callback can be used.  It is intended for use when automatic reconnect
+ * is enabled, so that when a reconnection attempt succeeds in the background,
+ * the application is notified and can take any required actions.
+ *
+ * <b>Note:</b> Neither MQTTAsync_create() nor MQTTAsync_destroy() should be
+ * called within this callback.
+ * @param context A pointer to the <i>context</i> value originally passed to
+ * MQTTAsync_setCallbacks(), which contains any application-specific context.
+ * @param cause The reason for the disconnection.
+ * Currently, <i>cause</i> is always set to NULL.
+ */
+typedef void MQTTAsync_connected(void *context, char *cause);
+
+/**
+ * This is a callback function, which will be called when the client
+ * library receives a disconnect packet.
+ *
+ * <b>Note:</b> Neither MQTTAsync_create() nor MQTTAsync_destroy() should be
+ * called within this callback.
+ * @param context A pointer to the <i>context</i> value originally passed to
+ * MQTTAsync_setCallbacks(), which contains any application-specific context.
+ * @param properties the properties in the disconnect packet.
+ * @param properties the reason code from the disconnect packet
+ * Currently, <i>cause</i> is always set to NULL.
+ */
+typedef void MQTTAsync_disconnected(void *context, MQTTProperties *properties,
+    enum MQTTReasonCodes reasonCode);
+
+/** Structure to define call options.  For MQTT 5.0 there is input data as well
+ * as that describing the response method.  So there is now also a synonym
+ * ::MQTTAsync_callOptions to better reflect the use.  This responseOptions
+ * name is kept for backward compatibility.
+ */
+typedef struct MQTTAsync_responseOptions {
+	/** The eyecatcher for this structure.  Must be MQTR */
+	char struct_id[4];
+	/** The version number of this structure.  Must be 0 or 1
+	 *   if 0, no MQTTV5 options */
+	int struct_version;
+	/**
+	 * A pointer to a callback function to be called if the API call
+	 * successfully completes.  Can be set to NULL, in which case no
+	 * indication of successful completion will be received.
+	 */
+	MQTTAsync_onSuccess *onSuccess;
+	/**
+	 * A pointer to a callback function to be called if the API call fails.
+	 * Can be set to NULL, in which case no indication of unsuccessful
+	 * completion will be received.
+	 */
+	MQTTAsync_onFailure *onFailure;
+	/**
+	 * A pointer to any application-specific context. The
+	 * the <i>context</i> pointer is passed to success or failure callback
+	 * functions to provide access to the context information in the
+	 * callback.
+	 */
+	void *context;
+	/**
+	 * A token is returned from the call.  It can be used to track
+	 * the state of this request, both in the callbacks and in future calls
+	 * such as ::MQTTAsync_waitForCompletion.
+	 */
+	MQTTAsync_token token;
+	/**
+	 * A pointer to a callback function to be called if the API call
+	 * successfully completes.  Can be set to NULL, in which case no
+	 * indication of successful completion will be received.
+	 */
+	MQTTAsync_onSuccess5 *onSuccess5;
+	/**
+	 * A pointer to a callback function to be called if the API call
+	 * successfully completes.  Can be set to NULL, in which case no
+	 * indication of successful completion will be received.
+	 */
+	MQTTAsync_onFailure5 *onFailure5;
+	/**
+	 * MQTT V5 input properties
+	 */
+	MQTTProperties properties;
+	/*
+	 * MQTT V5 subscribe options, when used with subscribe only.
+	 */
+	// MQTTSubscribe_options subscribeOptions;
+	/*
+	 * MQTT V5 subscribe option count, when used with subscribeMany only.
+	 * The number of entries in the subscribe_options_list array.
+	 */
+	int subscribeOptionsCount;
+	/*
+	 * MQTT V5 subscribe option array, when used with subscribeMany only.
+	 */
+	// MQTTSubscribe_options *subscribeOptionsList;
+} MQTTAsync_responseOptions;
+
+/** The MQTT V5 subscribe options, apart from QoS which existed before V5. */
+typedef struct MQTTSubscribe_options
+{
+	/** The eyecatcher for this structure. Must be MQSO. */
+	char struct_id[4];
+	/** The version number of this structure.  Must be 0.
+	 */
+	int struct_version;
+	/** To not receive our own publications, set to 1.
+	 *  0 is the original MQTT behaviour - all messages matching the subscription are received.
+	 */
+	unsigned char noLocal;
+	/** To keep the retain flag as on the original publish message, set to 1.
+	 *  If 0, defaults to the original MQTT behaviour where the retain flag is only set on
+	 *  publications sent by a broker if in response to a subscribe request.
+	 */
+	unsigned char retainAsPublished;
+	/** 0 - send retained messages at the time of the subscribe (original MQTT behaviour)
+	 *  1 - send retained messages on subscribe only if the subscription is new
+	 *  2 - do not send retained messages at all
+	 */
+	unsigned char retainHandling;
+} MQTTSubscribe_options;
+
+
+/**
+ * This function sets the global callback functions for a specific client.
+ * If your client application doesn't use a particular callback, set the
+ * relevant parameter to NULL. Any necessary message acknowledgements and
+ * status communications are handled in the background without any intervention
+ * from the client application.  If you do not set a messageArrived callback
+ * function, you will not be notified of the receipt of any messages as a
+ * result of a subscription.
+ *
+ * <b>Note:</b> The MQTT client must be disconnected when this function is
+ * called.
+ * @param handle A valid client handle from a successful call to
+ * MQTTAsync_create().
+ * @param context A pointer to any application-specific context. The
+ * the <i>context</i> pointer is passed to each of the callback functions to
+ * provide access to the context information in the callback.
+ * @param cl A pointer to an MQTTAsync_connectionLost() callback
+ * function. You can set this to NULL if your application doesn't handle
+ * disconnections.
+ * @param ma A pointer to an MQTTAsync_messageArrived() callback
+ * function.  If this callback is not set, an error will be returned.
+ * You must set this callback because otherwise there would be
+ * no way to deliver any incoming messages.
+ * @param dc A pointer to an MQTTAsync_deliveryComplete() callback
+ * function. You can set this to NULL if you do not want to check
+ * for successful delivery.
+ * @return ::MQTTASYNC_SUCCESS if the callbacks were correctly set,
+ * ::MQTTASYNC_FAILURE if an error occurred.
+ */
+NNG_DECL int MQTTAsync_setCallbacks(MQTTAsync handle, void *context,
+    MQTTAsync_connectionLost *cl, MQTTAsync_messageArrived *ma,
+    MQTTAsync_deliveryComplete *dc);
+
 // typedef nng_mqtt_msg_format_t nng_mqtt_msg_format_s;
+/**
+ * This function attempts to connect a previously-created client (see
+ * MQTTAsync_create()) to an MQTT server using the specified options. If you
+ * want to enable asynchronous message and status notifications, you must call
+ * MQTTAsync_setCallbacks() prior to MQTTAsync_connect().
+ * @param handle A valid client handle from a successful call to
+ * MQTTAsync_create().
+ * @param options A pointer to a valid MQTTAsync_connectOptions
+ * structure.
+ * @return ::MQTTASYNC_SUCCESS if the client connect request was accepted.
+ * If the client was unable to connect to the server, an error code is
+ * returned via the onFailure callback, if set.
+ * Error codes greater than 0 are returned by the MQTT protocol:<br><br>
+ * <b>1</b>: Connection refused: Unacceptable protocol version<br>
+ * <b>2</b>: Connection refused: Identifier rejected<br>
+ * <b>3</b>: Connection refused: Server unavailable<br>
+ * <b>4</b>: Connection refused: Bad user name or password<br>
+ * <b>5</b>: Connection refused: Not authorized<br>
+ * <b>6-255</b>: Reserved for future use<br>
+ */
+NNG_DECL int MQTTAsync_connect(
+    MQTTAsync handle, const MQTTAsync_connectOptions *options);
 
-NNG_DECL int MQTTAsync_create(MQTTAsync *handle, const char *serverURI, const char *clientId,
-					 int persistence_type, void *persistence_context);
-NNG_DECL int
-MQTTAsync_createWithOptions(MQTTAsync *handle, const char *serverURI,
-    const char *clientId, int persistence_type, void *persistence_context,
-    MQTTAsync_createOptions *options);
-NNG_DECL int
-MQTTAsync_create(MQTTAsync *handle, const char *serverURI,
+NNG_DECL int MQTTAsync_create(MQTTAsync *handle, const char *serverURI,
     const char *clientId, int persistence_type, void *persistence_context);
-
-#define MQTTAsync_message_initializer                                        \
-  {                                                                          \
-    {'M', 'Q', 'T', 'M'}, 1, 0, NULL, 0, 0, 0, 0, MQTTProperties_initializer \
-  }
-
-  /**
-   * This is a callback function. The client application
-   * must provide an implementation of this function to enable asynchronous
-   * receipt of messages. The function is registered with the client library by
-   * passing it as an argument to MQTTAsync_setCallbacks(). It is
-   * called by the client library when a new message that matches a client
-   * subscription has been received from the server. This function is executed on
-   * a separate thread to the one on which the client application is running.
-   *
-   * <b>Note:</b> Neither MQTTAsync_create() nor MQTTAsync_destroy() should be
-   * called within this callback.
-   * @param context A pointer to the <i>context</i> value originally passed to
-   * MQTTAsync_setCallbacks(), which contains any application-specific context.
-   * @param topicName The topic associated with the received message.
-   * @param topicLen The length of the topic if there are one
-   * more NULL characters embedded in <i>topicName</i>, otherwise <i>topicLen</i>
-   * is 0. If <i>topicLen</i> is 0, the value returned by <i>strlen(topicName)</i>
-   * can be trusted. If <i>topicLen</i> is greater than 0, the full topic name
-   * can be retrieved by accessing <i>topicName</i> as a byte array of length
-   * <i>topicLen</i>.
-   * @param message The MQTTAsync_message structure for the received message.
-   * This structure contains the message payload and attributes.
-   * @return This function must return 0 or 1 indicating whether or not
-   * the message has been safely received by the client application. <br>
-   * Returning 1 indicates that the message has been successfully handled.
-   * To free the message storage, ::MQTTAsync_freeMessage must be called.
-   * To free the topic name storage, ::MQTTAsync_free must be called.<br>
-   * Returning 0 indicates that there was a problem. In this
-   * case, the client library will reinvoke MQTTAsync_messageArrived() to
-   * attempt to deliver the message to the application again.
-   * Do not free the message and topic storage when returning 0, otherwise
-   * the redelivery will fail.
-   */
-  typedef int MQTTAsync_messageArrived(void *context, char *topicName, int topicLen, MQTTAsync_message *message);
-
-  /**
-   * This is a callback function. The client application
-   * must provide an implementation of this function to enable asynchronous
-   * notification of delivery of messages to the server. The function is
-   * registered with the client library by passing it as an argument to MQTTAsync_setCallbacks().
-   * It is called by the client library after the client application has
-   * published a message to the server. It indicates that the necessary
-   * handshaking and acknowledgements for the requested quality of service (see
-   * MQTTAsync_message.qos) have been completed. This function is executed on a
-   * separate thread to the one on which the client application is running.
-   *
-   * <b>Note:</b> Neither MQTTAsync_create() nor MQTTAsync_destroy() should be
-   * called within this callback.
-   * @param context A pointer to the <i>context</i> value originally passed to
-   * MQTTAsync_setCallbacks(), which contains any application-specific context.
-   * @param token The ::MQTTAsync_token associated with
-   * the published message. Applications can check that all messages have been
-   * correctly published by matching the tokens returned from calls to
-   * MQTTAsync_send() and MQTTAsync_sendMessage() with the tokens passed
-   * to this callback.
-   */
-  typedef void MQTTAsync_deliveryComplete(void *context, MQTTAsync_token token);
-
-  /**
-   * This is a callback function. The client application
-   * must provide an implementation of this function to enable asynchronous
-   * notification of the loss of connection to the server. The function is
-   * registered with the client library by passing it as an argument to
-   * MQTTAsync_setCallbacks(). It is called by the client library if the client
-   * loses its connection to the server. The client application must take
-   * appropriate action, such as trying to reconnect or reporting the problem.
-   * This function is executed on a separate thread to the one on which the
-   * client application is running.
-   *
-   * <b>Note:</b> Neither MQTTAsync_create() nor MQTTAsync_destroy() should be
-   * called within this callback.
-   * @param context A pointer to the <i>context</i> value originally passed to
-   * MQTTAsync_setCallbacks(), which contains any application-specific context.
-   * @param cause The reason for the disconnection.
-   * Currently, <i>cause</i> is always set to NULL.
-   */
-  typedef void MQTTAsync_connectionLost(void *context, char *cause);
-
-  /**
-   * This is a callback function, which will be called when the client
-   * library successfully connects.  This is superfluous when the connection
-   * is made in response to a MQTTAsync_connect call, because the onSuccess
-   * callback can be used.  It is intended for use when automatic reconnect
-   * is enabled, so that when a reconnection attempt succeeds in the background,
-   * the application is notified and can take any required actions.
-   *
-   * <b>Note:</b> Neither MQTTAsync_create() nor MQTTAsync_destroy() should be
-   * called within this callback.
-   * @param context A pointer to the <i>context</i> value originally passed to
-   * MQTTAsync_setCallbacks(), which contains any application-specific context.
-   * @param cause The reason for the disconnection.
-   * Currently, <i>cause</i> is always set to NULL.
-   */
-  typedef void MQTTAsync_connected(void *context, char *cause);
-
-  /**
-   * This is a callback function, which will be called when the client
-   * library receives a disconnect packet.
-   *
-   * <b>Note:</b> Neither MQTTAsync_create() nor MQTTAsync_destroy() should be
-   * called within this callback.
-   * @param context A pointer to the <i>context</i> value originally passed to
-   * MQTTAsync_setCallbacks(), which contains any application-specific context.
-   * @param properties the properties in the disconnect packet.
-   * @param properties the reason code from the disconnect packet
-   * Currently, <i>cause</i> is always set to NULL.
-   */
-  typedef void MQTTAsync_disconnected(void *context, MQTTProperties *properties,
-                                      enum MQTTReasonCodes reasonCode);
-
+NNG_DECL int MQTTAsync_createWithOptions(MQTTAsync *handle,
+    const char *serverURI, const char *clientId, int persistence_type,
+    void *persistence_context, MQTTAsync_createOptions *options);
+NNG_DECL int MQTTAsync_create(MQTTAsync *handle, const char *serverURI,
+    const char *clientId, int persistence_type, void *persistence_context);
 
 #ifdef __cplusplus
 }

@@ -438,6 +438,8 @@ NNG_DECL void        nng_mqtt_msg_set_publish_dup(nng_msg *, bool);
 NNG_DECL bool        nng_mqtt_msg_get_publish_dup(nng_msg *);
 NNG_DECL int         nng_mqtt_msg_set_publish_topic(nng_msg *, const char *);
 NNG_DECL const char *nng_mqtt_msg_get_publish_topic(nng_msg *, uint32_t *);
+NNG_DECL uint16_t    nng_mqtt_msg_get_publish_packet_id(nng_msg *msg);
+
 NNG_DECL void        nng_mqtt_msg_set_publish_payload(nng_msg *, uint8_t *, uint32_t);
 NNG_DECL uint8_t    *nng_mqtt_msg_get_publish_payload(nng_msg *, uint32_t *);
 NNG_DECL property   *nng_mqtt_msg_get_publish_property(nng_msg *);
@@ -556,7 +558,7 @@ struct nng_mqtt_client{
 	nng_mqtt_recv_cb *recv_cb;
 };
 
-
+NNG_DECL nng_mqtt_client *nng_mqtt_paho_client_alloc(nng_socket, nng_mqtt_send_cb, nng_mqtt_recv_cb, void *obj);
 NNG_DECL nng_mqtt_client *nng_mqtt_client_alloc(nng_socket, nng_mqtt_send_cb, nng_mqtt_recv_cb, bool);
 NNG_DECL void nng_mqtt_client_free(nng_mqtt_client*, bool);
 NNG_DECL int nng_mqtt_subscribe(nng_socket, nng_mqtt_topic_qos *, size_t, property *);
