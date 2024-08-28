@@ -843,8 +843,6 @@ nng_mqtt_client_recv_cb(void* arg)
 	}
 	nng_recv_aio(client->sock, client->recv_aio);
 	client->recv_cb(client, msg, client->obj);
-	nng_log_warn("RECV", "GOT!!!!!!!!!!!!!!!!!");
-
 	return;
 }
 
@@ -880,6 +878,7 @@ nng_mqtt_paho_client_alloc(nng_socket sock, nng_mqtt_send_cb send_cb, nng_mqtt_r
 		return NULL;
 	}
 	nni_lmq_init((nni_lmq *)client->msgq, NNG_MAX_SEND_LMQ);
+	nng_recv_aio(client->sock, client->recv_aio);
 	return client;
 }
 
@@ -1031,8 +1030,6 @@ nng_mqtt_subscribe_async(nng_mqtt_client *client, nng_mqtt_topic_qos *sbs, size_
 	nng_aio_set_msg(client->send_aio, submsg);
 	if (client->send_cb != NULL)
 		nng_send_aio(client->sock, client->send_aio);
-	if (client->recv_cb != NULL)
-		nng_recv_aio(client->sock, client->recv_aio);
 
 	return 0;
 }
