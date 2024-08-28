@@ -371,6 +371,7 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 	}
 	// Set max/min version TODO
 
+	SSL_CTX_set_verify(cfg->ctx, auth_mode, NULL);
 	//SSL_CTX_set_mode(cfg->ctx, SSL_MODE_AUTO_RETRY);
 	//SSL_CTX_set_options(cfg->ctx, SSL_OP_ALL|SSL_OP_NO_SSLv2|SSL_OP_NO_SSLv3);
 
@@ -581,6 +582,14 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 		return (NNG_ECRYPTO);
 	}
 
+	if (xcert)
+		X509_free(xcert);
+	if (biocert)
+		BIO_free(biocert);
+	if (pkey)
+		EVP_PKEY_free(pkey);
+	if (biokey)
+		BIO_free(biokey);
 	fprintf(stderr, "[%s] end\n", __FUNCTION__);
 
 	return 0;
