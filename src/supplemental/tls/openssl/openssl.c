@@ -199,14 +199,18 @@ static int
 open_conn_handshake(nng_tls_engine_conn *ec)
 {
 	int rv;
-	int cnt = 0;
+	int cnt = 10;
 	fprintf(stderr, "[%s] start\n", __FUNCTION__);
+#ifdef OPEN_DEBUG
+	print_trace();
+#endif
 	if (ec->running == 1)
-		return 0;
+		//return 0;
+		return NNG_EAGAIN;
 	ec->running = 1;
 
 	// TODO more rv handle
-	while (true) {
+	while (cnt != 0) {
 		rv = SSL_do_handshake(ec->ssl);
 		if (rv != 0)
 			rv = SSL_get_error(ec->ssl, rv);
@@ -240,7 +244,7 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 			rv = 0;
 			break;
 		}
-		nng_msleep(1000);
+		nng_msleep(200);
 		rv = NNG_EAGAIN;
 
 		// return (NNG_ECRYPTO);
