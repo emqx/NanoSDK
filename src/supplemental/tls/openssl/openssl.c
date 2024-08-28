@@ -22,6 +22,7 @@ struct nng_tls_engine_conn {
 	char     rbuf[4096];
 	char     wbuf[4096];
 	int      running;
+	int      ok;
 };
 
 struct nng_tls_engine_config {
@@ -103,6 +104,7 @@ open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 {
 	fprintf(stderr, "[%s] start\n", __FUNCTION__);
 	ec->running = 0;
+	ec->ok = 0;
 	ec->tls = tls;
 	if ((ec->ssl = SSL_new(cfg->ctx)) == NULL) {
 		fprintf(stderr, "[%s] error in new SSL connection\n", __FUNCTION__);
@@ -146,6 +148,8 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 	int rv;
 	int cnt = 10;
 	fprintf(stderr, "[%s] start\n", __FUNCTION__);
+	if (ec->ok == 1)
+		return 0;
 #ifdef OPEN_DEBUG
 	print_trace();
 #endif
@@ -187,6 +191,7 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 			}
 		} else {
 			rv = 0;
+			ec->ok = 1;
 			break;
 		}
 		nng_msleep(200);
@@ -211,8 +216,10 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 	}
 
 	rv = open_net_read(ec->tls, ec->wbuf, ensz);
-	if (rv == 0 - SSL_ERROR_WANT_READ || rv == 0 - SSL_ERROR_WANT_WRITE)
-		return (NNG_EAGAIN);
+	if (rv == 0 - SSL_ERROR_WANT_READ || rv == 0 - SSL_ERROR_WANT_WRITE) {
+		rv = NNG_EAGAIN;
+		goto readopenssl;
+	}
 	else if (rv < 0)
 		return (NNG_ECLOSED);
 
@@ -224,6 +231,7 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 			return (NNG_ECRYPTO);
 	}
 
+readopenssl:
 	if ((rv = SSL_read(ec->ssl, buf, (int) *szp)) < 0) {
 		rv = SSL_get_error(ec->ssl, rv);
 		fprintf(stderr, "result in recv %d\n", rv);
@@ -237,6 +245,7 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 	fprintf(stderr, "recv buffer (%ld): ", *szp);
 	for (size_t i=0; i<*szp; ++i) fprintf(stderr, "%x ", buf[i]);
 	fprintf(stderr, "\n");
+	nng_msleep(200);
 
 	fprintf(stderr, "[%s] end\n", __FUNCTION__);
 	// *szp = (size_t) rv;
