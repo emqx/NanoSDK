@@ -98,35 +98,6 @@ open_net_write(void *ctx, const char *buf, int len) {
 	}
 }
 
-/*
-static int
-rwbio_create(BIO *b) {
-	BIO_set_init(b, 1);
-	return 1;
-}
-
-static int
-rwbio_destroy(BIO *b) {
-	return b == NULL ? 0 : 1;
-}
-
-BIO_METHOD *rwbio_method() {
-	fprintf(stderr, "[%s] start\n", __FUNCTION__);
-	int rv;
-	BIO_METHOD *m = BIO_meth_new(BIO_TYPE_SOURCE_SINK, "OpenSSLrwbio");
-	if (!m) goto error;
-	if ((rv = BIO_meth_set_write(m, open_net_write)) != 1) goto error;
-	if ((rv = BIO_meth_set_read(m, open_net_read)) != 1) goto error;
-	if ((rv = BIO_meth_set_create(m, rwbio_create)) != 1) goto error;
-	if ((rv = BIO_meth_set_destroy(m, rwbio_destroy)) != 1) goto error;
-	fprintf(stderr, "[%s] end1\n", __FUNCTION__);
-	return m;
-error:
-	fprintf(stderr, "[%s] end2 rv%d\n", __FUNCTION__, rv);
-    return NULL;
-}
-*/
-
 static int
 open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 {
@@ -144,13 +115,6 @@ open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 	else
 		SSL_set_accept_state(ec->ssl);
 
-	/*
-	BIO_METHOD *m = rwbio_method();
-	BIO *rwbio = BIO_new(m);
-	BIO_set_data(rwbio, ec->tls);
-	SSL_set_bio(ec->ssl, rwbio, rwbio);
-	BIO_meth_free(m);
-	*/
 	ec->rbio = BIO_new(BIO_s_mem());
 	ec->wbio = BIO_new(BIO_s_mem());
 	if (!ec->rbio || !ec->wbio) {
@@ -161,26 +125,7 @@ open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 
 	if (cfg->server_name != NULL) {
 		SSL_set_tlsext_host_name(ec->ssl, cfg->server_name);
-		/*
-		if (wolfSSL_check_domain_name(ec->ssl, cfg->server_name) !=
-		    WOLFSSL_SUCCESS) {
-			wolfSSL_free(ec->ssl);
-			ec->ssl = NULL;
-			return (NNG_ENOMEM);
-		}
-		*/
 	}
-	/*
-	int rv = SSL_do_handshake(ec->ssl);
-	if (rv != 1) {
-		fprintf(stderr, "[%s] rv%d!!!!!!!!!!!!\n", __FUNCTION__, rv);
-		rv = SSL_get_error(ec->ssl, rv);
-		fprintf(stderr, "[%s] error code%d!!!!!!!!!!!!\n", __FUNCTION__, rv);
-	}
-	if (!SSL_is_init_finished(ec->ssl)) {
-		fprintf(stderr, "[%s] Still Not Ready!!!!!!!!!!!!\n", __FUNCTION__);
-	}
-	*/
 	open_conn_handshake(ec);
 	fprintf(stderr, "[%s] end\n", __FUNCTION__);
 
@@ -246,8 +191,6 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 		}
 		nng_msleep(200);
 		rv = NNG_EAGAIN;
-
-		// return (NNG_ECRYPTO);
 	}
 	fprintf(stderr, "[%s] end\n", __FUNCTION__);
 	ec->running = 0;
@@ -264,8 +207,6 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 	// Am I ready?
 	if (!SSL_is_init_finished(ec->ssl)) {
 		fprintf(stderr, "[%s] Not Ready !!!!!!!!!!!!\n", __FUNCTION__);
-		//fprintf(stderr, "[%s] Not Ready so handshake!!!!!!!!!!!!\n", __FUNCTION__);
-		//open_conn_handshake(ec);
 		return (NNG_EAGAIN);
 	}
 
@@ -310,17 +251,8 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 
 	// Am I ready?
 	if (!SSL_is_init_finished(ec->ssl)) {
-		//fprintf(stderr, "[%s] Not Ready so handshake!!!!!!!!!!!!\n", __FUNCTION__);
-		//open_conn_handshake(ec);
 		fprintf(stderr, "[%s] Not Ready !!!!!!!!!!!!\n", __FUNCTION__);
 		return (NNG_EAGAIN);
-		/*
-		rv = SSL_do_handshake(ec->ssl);
-		if (rv < 0)
-			rv = SSL_get_error(ec->ssl, rv);
-		fprintf(stderr, "[%s] end Not Ready %d!!!!!!!!!!!!\n", __FUNCTION__, rv);
-		// return (NNG_EAGAIN);
-		*/
 	}
 
 	fprintf(stderr, "send buffer (%ld): ", *szp);
