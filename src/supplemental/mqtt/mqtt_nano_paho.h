@@ -19,6 +19,13 @@ extern "C" {
 
 #define PAHO_MEMORY_ERROR -99
 
+enum msgTypes
+{
+	CONNECT = 1, CONNACK, PUBLISH, PUBACK, PUBREC, PUBREL,
+	PUBCOMP, SUBSCRIBE, SUBACK, UNSUBSCRIBE, UNSUBACK,
+	PINGREQ, PINGRESP, DISCONNECT, AUTH
+};
+
 #define MQTTAsync_successData5_initializer                                          \
   {                                                                                 \
     {'M', 'Q', 'S', 'D'}, 0, 0, MQTTREASONCODE_SUCCESS, MQTTProperties_initializer, \

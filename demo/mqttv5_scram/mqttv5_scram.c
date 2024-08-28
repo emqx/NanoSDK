@@ -608,7 +608,8 @@ main(const int argc, const char **argv)
 	nng_socket sock;
 
 	const char *exe = argv[0];
-
+	int rc;
+	int ch;
 	const char *cmd;
 	int   istls = 0;
 	const char  *ca = NULL, *cert = NULL, *key = NULL, *pwd = NULL;
@@ -620,8 +621,7 @@ main(const int argc, const char **argv)
 	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer;
 	MQTTAsync_disconnectOptions disc_opts = MQTTAsync_disconnectOptions_initializer;
 	MQTTAsync_responseOptions pub_opts = MQTTAsync_responseOptions_initializer;
-	int rc;
-	int ch;
+
 	rc = MQTTAsync_createWithOptions(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL, &create_opts);
 	if (rc != MQTTASYNC_SUCCESS)
 	{
@@ -674,21 +674,18 @@ main(const int argc, const char **argv)
 
 	MQTTAsync_responseOptions opts = MQTTAsync_responseOptions_initializer;
 	MQTTAsync_sendMessage(client, "msg", &pubmsg, &pub_opts);
+	nng_msleep(3600); // neither pause() nor sleep() portable
 
 	disc_opts.onSuccess = onDisconnect;
 	disc_opts.onFailure = onDisconnectFailure;
-	// if ((rc = MQTTAsync_disconnect(client, &disc_opts)) != MQTTASYNC_SUCCESS)
-	// {
-	// 	printf("Failed to start disconnect, return code %d\n", rc);
-	// 	rc = EXIT_FAILURE;
-	// 	goto destroy_exit;
-	// }
-	for (;;) {
-		nng_msleep(
-			3600000); // neither pause() nor sleep() portable
+	if ((MQTTAsync_disconnect(client, &disc_opts)) != MQTTASYNC_SUCCESS)
+	{
+		printf("Failed to start disconnect, return code %d\n", rc);
+		rc = EXIT_FAILURE;
+		goto destroy_exit;
 	}
 destroy_exit:
-	// MQTTAsync_destroy(&client);
+	MQTTAsync_destroy(&client);
 exit:
 	return;
 	if (5 == argc && 0 == strcmp(argv[1], SUBSCRIBE)) {

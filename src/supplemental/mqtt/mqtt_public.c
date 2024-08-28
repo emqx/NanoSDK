@@ -930,9 +930,13 @@ void nng_mqtt_client_free(nng_mqtt_client *client, bool is_async)
 	nni_aio_close(client->send_aio);
 	if (client) {
 		if (is_async) {
+			nni_aio_close(client->recv_aio);
+			nni_aio_stop(client->send_aio);
+			nni_aio_stop(client->recv_aio);
 			nng_aio_free(client->send_aio);
 			nni_lmq_fini((nni_lmq *) client->msgq);
 			nng_free(client->msgq, sizeof(nni_lmq));
+			nng_aio_free(client->recv_aio);
 		}
 		NNI_FREE_STRUCT(client);
 	}
@@ -1068,11 +1072,11 @@ nng_mqtt_disconnect(nng_socket *sock, uint8_t reason_code, property *pl)
 	}
 
 	if ((rv = nng_sendmsg(*sock, disconnmsg, 0)) != 0) {
-		nng_msg_free(disconnmsg);
+		nng_log_warn("Disconnect", "sending disconnect failed");
 	}
-
-	nng_close(*sock);
-
+	// we only send a disconnect packet to remote
+	// and wait for a passive socket close
+	// however nanosdk will reconnect again.
 	return (rv);
 }
 

@@ -477,6 +477,7 @@ connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 	// nng_pipe_get_ptr(p, NNG_OPT_MQTT_CONNECT_PROPERTY, &prop);
 	printf("%s: connected! RC [%d] \n", __FUNCTION__, reason);
     nng_log_warn("Connected!", "This is also fine");
+    m->shouldBeConnected = 1;
     if (m->connect.onSuccess) {
         MQTTAsync_successData data;
         memset(&data, '\0', sizeof(data));
@@ -522,6 +523,7 @@ disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 	// nng_pipe_get_ptr(p, NNG_OPT_MQTT_DISCONNECT_PROPERTY, &prop);
 	// nng_socket_get?
 	printf("%s: disconnected! RC [%d] \n", __FUNCTION__, reason);
+    m->shouldBeConnected = 0;
 	(void) ev;
     if (m->cl)
     {
@@ -913,7 +915,7 @@ int MQTTAsync_send(MQTTAsync handle, const char *destinationName, int payloadlen
 		m->publish.context = response->context;
 		response->token = m->publish.token;
 		if (m->MQTTVersion >= MQTTVERSION_5) {
-             nng_log_warn("Paho", "Publish property with PAHO API is not support");
+            nng_log_warn("Paho", "Publish property with PAHO API is not support");
 			// pub->command.properties = MQTTProperties_copy(&response->properties);
             // MQTTProperties_free(&response->properties);
         }
@@ -961,4 +963,56 @@ int MQTTAsync_sendMessage(MQTTAsync handle, const char *destinationName, const M
 						message->qos, message->retained, response);
 exit:
 	return rc;
+}
+
+int MQTTAsync_disconnect(MQTTAsync handle, const MQTTAsync_disconnectOptions *options)
+{
+    MQTTAsyncs *m = handle;
+    nng_mqtt_client *client = m->nanosdk_client;
+	int rc = MQTTASYNC_SUCCESS;
+
+	if (options != NULL && (strncmp(options->struct_id, "MQTD", 4) != 0 || options->struct_version < 0 || options->struct_version > 1))
+		return MQTTASYNC_BAD_STRUCTURE;
+	if (m == NULL)
+	{
+		return MQTTASYNC_FAILURE;
+	}
+    if (m->shouldBeConnected == 0)
+	{
+		return MQTTASYNC_DISCONNECTED;
+	}
+    if (options)
+	{
+		m->disconnect.onSuccess = options->onSuccess;
+		m->disconnect.onFailure = options->onFailure;
+		m->disconnect.onSuccess5 = options->onSuccess5;
+		m->disconnect.onFailure5 = options->onFailure5;
+		m->disconnect.context = options->context;
+		m->disconnect.details.dis.timeout = options->timeout;
+		if (m->MQTTVersion >= MQTTVERSION_5 && options->struct_version >= 1)
+		{
+            nng_log_warn("Paho", "Disconnect property with PAHO API is not support");
+			// dis->command.properties = MQTTProperties_copy(&options->properties);
+			// dis->command.details.dis.reasonCode = options->reasonCode;
+		}
+	}
+	m->disconnect.type = DISCONNECT;
+	m->disconnect.details.dis.internal = 0; // ???
+    nng_mqtt_disconnect(client, options->reasonCode, NULL);
+    m->shouldBeConnected = 0;
+}
+
+void MQTTAsync_destroy(MQTTAsync *handle)
+{
+	MQTTAsyncs *m = *handle;
+    nng_socket *sock = m->sock;
+    if (m->shouldBeConnected = 1)
+        nng_mqtt_disconnect(m->sock, MQTTREASONCODE_NORMAL_DISCONNECTION, NULL);
+    nng_close(*sock);
+
+    // free objects
+    nng_mqtt_client_free(m->nanosdk_client, true);
+    nng_free(m->sock, sizeof(nng_socket));
+    nng_free(m->dialer, sizeof(nng_dialer));
+    nng_free(m, sizeof(MQTTAsyncs));
 }

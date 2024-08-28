@@ -1725,6 +1725,45 @@ NNG_DECL int MQTTAsync_setConnected(
  */
 NNG_DECL int MQTTAsync_reconnect(MQTTAsync handle);
 
+/**
+ * This function attempts to disconnect the client from the MQTT
+ * server. In order to allow the client time to complete handling of messages
+ * that are in-flight when this function is called, a timeout period is
+ * specified. When the timeout period has expired, the client disconnects even
+ * if there are still outstanding message acknowledgements.
+ * The next time the client connects to the same server, any QoS 1 or 2
+ * messages which have not completed will be retried depending on the
+ * cleansession settings for both the previous and the new connection (see
+ * MQTTAsync_connectOptions.cleansession and MQTTAsync_connect()).
+ * @param handle A valid client handle from a successful call to
+ * MQTTAsync_create().
+ * @param options The client delays disconnection for up to this time (in
+ * milliseconds) in order to allow in-flight message transfers to complete.
+ * @return ::MQTTASYNC_SUCCESS if the client successfully disconnects from
+ * the server. An error code is returned if the client was unable to disconnect
+ * from the server
+ */
+NNG_DECL int MQTTAsync_disconnect(
+    MQTTAsync handle, const MQTTAsync_disconnectOptions *options);
+
+/**
+ * This function allows the client application to test whether or not a
+ * client is currently connected to the MQTT server.
+ * @param handle A valid client handle from a successful call to
+ * MQTTAsync_create().
+ * @return Boolean true if the client is connected, otherwise false.
+ */
+NNG_DECL int MQTTAsync_isConnected(MQTTAsync handle);
+
+/**
+ * This function frees the memory allocated to an MQTT client (see
+ * MQTTAsync_create()). It should be called when the client is no longer
+ * required.
+ * @param handle A pointer to the handle referring to the ::MQTTAsync
+ * structure to be freed.
+ */
+NNG_DECL void MQTTAsync_destroy(MQTTAsync *handle);
+
 #ifdef __cplusplus
 }
 #endif
