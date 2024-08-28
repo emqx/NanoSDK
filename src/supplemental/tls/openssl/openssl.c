@@ -446,28 +446,20 @@ open_config_ca_chain(
 		return (NNG_ENOMEM);
 	}
 
-	X509 *cert = PEM_read_bio_X509(bio, NULL, 0, NULL);
-	if (!cert) {
-		fprintf(stderr, "Failed to load certificate from buffer\n");
-		BIO_free(bio);
-		return (NNG_ECRYPTO);
-	}
+	X509 *cert = NULL;
+	X509_STORE *store = SSL_CTX_get_cert_store(cfg->ctx);
 
-	if (SSL_CTX_use_certificate(cfg->ctx, cert) <= 0) {
-		fprintf(stderr, "Failed to set certificate in SSL_CTX\n");
+	while ((cert = PEM_read_bio_X509(bio, NULL, 0, NULL)) != NULL) {
+		if (X509_STORE_add_cert(store, cert) == 0) {
+			fprintf(stderr, "Failed to add certificate to store\n");
+			X509_free(cert);
+			BIO_free(bio);
+			return (NNG_ECRYPTO);
+		}
 		X509_free(cert);
-		BIO_free(bio);
-		return (NNG_ECRYPTO);
 	}
 
 	BIO_free(bio);
-
-	/* FIXME Should this be done???
-	X509_STORE *store = SSL_CTX_get_cert_store(ctx);
-    if (!X509_STORE_add_cert(store, cert)) {
-	fprintf(stderr, "Failed to add certificate to store\n");
-    }
-	*/
 
 	if (crl == NULL) {
 	fprintf(stderr, "[%s] end1\n", __FUNCTION__);
