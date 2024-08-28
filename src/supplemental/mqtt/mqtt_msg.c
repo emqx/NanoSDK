@@ -898,7 +898,7 @@ void
 nni_mqtt_topic_qos_array_set(nni_mqtt_topic_qos *topic_qos, size_t index,
     const char *topic_name, uint32_t len, uint8_t qos, uint8_t nl, uint8_t rap, uint8_t rh)
 {
-	topic_qos[index].topic.buf       = (uint8_t *) nni_alloc(len * sizeof(uint8_t));
+	topic_qos[index].topic.buf       = (uint8_t *) nni_zalloc(len * sizeof(uint8_t));
 	memcpy(topic_qos[index].topic.buf, topic_name, len);
 	topic_qos[index].topic.length    = len;
 	topic_qos[index].qos             = qos;

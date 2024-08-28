@@ -1,13 +1,179 @@
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+
 #include "mqtt_nano_paho.h"
 #include "core/nng_impl.h"
 #include "supplemental/mqtt/mqtt_msg.h"
 #include "mqtt_qos_db.h"
-#include <string.h>
 
 #define URI_TCP "tcp://"
 #define URI_WS "ws://"
 #define URI_WSS "wss://"
 #define URI_SSL "ssl://"
+
+static const char* UTF8_char_validate(int len, const char* data);
+
+/**
+ * Validate a single UTF-8 character
+ * @param len the length of the string in "data"
+ * @param data the bytes to check for a valid UTF-8 char
+ * @return pointer to the start of the next UTF-8 character in "data"
+ */
+static const char* UTF8_char_validate(int len, const char* data)
+{
+	int good = 0;
+	int charlen = 2;
+	int i, j;
+	const char *rc = NULL;
+
+	if (data == NULL)
+		goto exit;	/* don't have data, can't continue */
+
+	/* first work out how many bytes this char is encoded in */
+	if ((data[0] & 128) == 0)
+		charlen = 1;
+	else if ((data[0] & 0xF0) == 0xF0)
+		charlen = 4;
+	else if ((data[0] & 0xE0) == 0xE0)
+		charlen = 3;
+
+	if (charlen > len)
+		goto exit;	/* not enough characters in the string we were given */
+
+	for (i = 0; i < ARRAY_SIZE(valid_ranges); ++i)
+	{ /* just has to match one of these rows */
+		if (valid_ranges[i].len == charlen)
+		{
+			good = 1;
+			for (j = 0; j < charlen; ++j)
+			{
+				if (data[j] < valid_ranges[i].bytes[j].lower ||
+						data[j] > valid_ranges[i].bytes[j].upper)
+				{
+					good = 0;  /* failed the check */
+					break;
+				}
+			}
+			if (good)
+				break;
+		}
+	}
+
+	if (good)
+		rc = data + charlen;
+	exit:
+	return rc;
+}
+
+/**
+ * Validate a length-delimited string has only UTF-8 characters
+ * @param len the length of the string in "data"
+ * @param data the bytes to check for valid UTF-8 characters
+ * @return 1 (true) if the string has only UTF-8 characters, 0 (false) otherwise
+ */
+int UTF8_validate(int len, const char* data)
+{
+	const char* curdata = NULL;
+	int rc = 0;
+
+	if (len == 0 || data == NULL)
+	{
+		rc = 1;
+		goto exit;
+	}
+	curdata = UTF8_char_validate(len, data);
+	while (curdata && (curdata < data + len))
+		curdata = UTF8_char_validate((int)(data + len - curdata), curdata);
+
+	rc = curdata != NULL;
+exit:
+	return rc;
+}
+
+/**
+ * Validate a null-terminated string has only UTF-8 characters
+ * @param string the string to check for valid UTF-8 characters
+ * @return 1 (true) if the string has only UTF-8 characters, 0 (false) otherwise
+ */
+int UTF8_validateString(const char* string)
+{
+	int rc = 0;
+
+	if (string != NULL)
+	{
+		rc = UTF8_validate((int)strlen(string), string);
+	}
+	return rc;
+}
+
+void MQTTAsync_free(void *memory)
+{
+	free(memory);
+}
+
+void MQTTAsync_freeMessage(MQTTAsync_message **message)
+{
+	MQTTProperties_free(&(*message)->properties);
+	free((*message)->payload);
+	free(*message);
+	*message = NULL;
+}
+
+int
+MQTTProperty_getType(enum MQTTPropertyCodes value)
+{
+	int i, rc = -1;
+
+	for (i = 0; i < ARRAY_SIZE(namesToTypes); ++i) {
+		if (namesToTypes[i].name == value) {
+			rc = namesToTypes[i].type;
+			break;
+		}
+	}
+	return rc;
+}
+
+const char *
+MQTTPropertyName(enum MQTTPropertyCodes value)
+{
+	int         i      = 0;
+	const char *result = NULL;
+
+	for (i = 0; i < ARRAY_SIZE(nameToString); ++i) {
+		if (nameToString[i].value == value) {
+			result = nameToString[i].name;
+			break;
+		}
+	}
+	return result;
+}
+
+void
+MQTTProperties_free(MQTTProperties *props)
+{
+	int i = 0;
+
+	if (props == NULL)
+		return;
+	for (i = 0; i < props->count; ++i) {
+		int id   = props->array[i].identifier;
+		int type = MQTTProperty_getType(id);
+
+		switch (type) {
+		case MQTTPROPERTY_TYPE_BINARY_DATA:
+		case MQTTPROPERTY_TYPE_UTF_8_ENCODED_STRING:
+		case MQTTPROPERTY_TYPE_UTF_8_STRING_PAIR:
+			free(props->array[i].value.data.data);
+			if (type == MQTTPROPERTY_TYPE_UTF_8_STRING_PAIR)
+				free(props->array[i].value.value.data);
+			break;
+		}
+	}
+	if (props->array)
+		free(props->array);
+	memset(props, '\0', sizeof(MQTTProperties)); /* zero all fields */
+}
 
 static
 MQTTAsync_message* prepare_paho_msg(nng_msg *msg)
@@ -43,22 +209,6 @@ MQTTAsync_message* prepare_paho_msg(nng_msg *msg)
 	// if (publish->MQTTVersion >= MQTTVERSION_5)
 	// 	mm->properties = MQTTProperties_copy(&publish->properties);
     return mm;
-
-// 	if (rc == 0) /* if message was not delivered, queue it up */
-// 	{
-// 		qEntry *qe = malloc(sizeof(qEntry));
-
-// 		if (!qe)
-// 			goto exit;
-// 		qe->msg = mm;
-// 		qe->topicName = publish->topic;
-// 		qe->topicLen = publish->topiclen;
-// 		ListAppend(client->messageQueue, qe, sizeof(qe) + sizeof(mm) + mm->payloadlen + strlen(qe->topicName) + 1);
-// #if !defined(NO_PERSISTENCE)
-// 		if (client->persistence)
-// 			MQTTPersistence_persistQueueEntry(client, (MQTTPersistence_qEntry *)qe);
-// #endif
-// 	}
 exit:
     return NULL;
 }
@@ -78,7 +228,11 @@ recv_callback(nng_mqtt_client *client, nng_msg *msg, void *arg)
         nng_msg *pmsg = msg;
         uint32_t len;
         MQTTAsync_message *mm = prepare_paho_msg(msg);
-        handle->ma(handle->maContext, nng_mqtt_msg_get_publish_topic(msg, &len), len, mm);
+        const char *buf = nng_mqtt_msg_get_publish_topic(msg, &len);
+        char *topic = nni_alloc(len);
+        memcpy(topic, buf, len);
+        // need to copy topic only
+        handle->ma(handle->maContext, topic, len, mm);
 		break;
 	case NNG_MQTT_DISCONNECT:
 		break;
@@ -86,7 +240,7 @@ recv_callback(nng_mqtt_client *client, nng_msg *msg, void *arg)
 		printf("Sending in async way is done.\n");
 		break;
 	}
-	printf("Aio mqtt result %d \n", nng_aio_result(aio));
+	nng_log_warn("test", "aio mqtt result %d \n", nng_aio_result(aio));
 	nng_msg_free(msg);
 }
 
@@ -97,10 +251,44 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
 	uint8_t *        code;
     MQTTAsyncs *handle  = arg;
 
-	if (msg == NULL)
-		return;
+	if (msg == NULL) {
+        nng_log_info("publish", "NULL msg");
+        return;
+
+                // if (command->command.onSuccess)
+				// {
+				// 	MQTTAsync_successData data;
+
+				// 	data.token = command->command.token;
+				// 	data.alt.pub.destinationName = command->command.details.pub.destinationName;
+				// 	data.alt.pub.message.payload = command->command.details.pub.payload;
+				// 	data.alt.pub.message.payloadlen = command->command.details.pub.payloadlen;
+				// 	data.alt.pub.message.qos = command->command.details.pub.qos;
+				// 	data.alt.pub.message.retained = command->command.details.pub.retained;
+				// 	Log(TRACE_MIN, -1, "Calling publish success for client %s", command->client->c->clientID);
+				// 	(*(command->command.onSuccess))(command->command.context, &data);
+				// }
+				// else if (command->command.onSuccess5)
+				// {
+				// 	MQTTAsync_successData5 data = MQTTAsync_successData5_initializer;
+
+				// 	data.token = command->command.token;
+				// 	data.alt.pub.destinationName = command->command.details.pub.destinationName;
+				// 	data.alt.pub.message.payload = command->command.details.pub.payload;
+				// 	data.alt.pub.message.payloadlen = command->command.details.pub.payloadlen;
+				// 	data.alt.pub.message.qos = command->command.details.pub.qos;
+				// 	data.alt.pub.message.retained = command->command.details.pub.retained;
+				// 	data.properties = command->command.properties;
+				// 	Log(TRACE_MIN, -1, "Calling publish success for client %s", command->client->c->clientID);
+				// 	(*(command->command.onSuccess5))(command->command.context, &data);
+				// }
+    }
+
 	switch (nng_mqtt_msg_get_packet_type(msg)) {
-	case NNG_MQTT_SUBACK:
+	case NNG_MQTT_PUBLISH:
+        // nng_msg_free(msg);
+        break;
+    case NNG_MQTT_SUBACK:
 		code = nng_mqtt_msg_get_suback_return_codes(
 		    msg, &count);
 		printf("SUBACK reason codes are: ");
@@ -118,17 +306,18 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
 		break;
 	case NNG_MQTT_PUBACK:
 		printf("PUBACK");
-        handle->dc(handle->dcContext, NULL);
+        if (handle->dc)
+            handle->dc(handle->dcContext, NULL);
 		break;
 	case NNG_MQTT_PUBCOMP:
-		handle->dc(handle->dcContext, NULL);
+        if (handle->dc)
+		    handle->dc(handle->dcContext, NULL);
 		break;
 	default:
 		printf("Sending in async way is done.\n");
 		break;
 	}
 	printf("Aio mqtt result %d \n", nng_aio_result(aio));
-	// printf("suback %d \n", *code);
 	nng_msg_free(msg);
 }
 
@@ -236,6 +425,7 @@ MQTTAsync_createWithOptions(MQTTAsync *handle, const char *serverURI,
 	}
     memset(m, '\0', sizeof(MQTTAsyncs));
     *handle = m;
+    m->MQTTVersion = options->MQTTVersion;
     m->sock   = (nng_socket *) nng_alloc(sizeof(nng_socket));
     if (options && options->MQTTVersion == MQTTVERSION_5) {
         if ((rc = nng_mqttv5_client_open(m->sock)) != 0) {
@@ -286,37 +476,39 @@ connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 	// property *prop;
 	// nng_pipe_get_ptr(p, NNG_OPT_MQTT_CONNECT_PROPERTY, &prop);
 	printf("%s: connected! RC [%d] \n", __FUNCTION__, reason);
-    if (m->connect.onSuccess)
-        {
-            MQTTAsync_successData data;
-            memset(&data, '\0', sizeof(data));
-            if ((m->serverURIcount > 0) && (m->connect.details.conn.currentURI < m->serverURIcount))
-                data.alt.connect.serverURI = m->serverURIs[m->connect.details.conn.currentURI];
-            else
-                data.alt.connect.serverURI = m->serverURI;
-            data.alt.connect.MQTTVersion = m->connect.details.conn.MQTTVersion;
-            // data.alt.connect.sessionPresent = sessionPresent;
-            (*(m->connect.onSuccess))(m->connect.context, &data);
-            /* Null out callback pointers so they aren't accidentally called again */
-            m->connect.onSuccess = NULL;
-            m->connect.onFailure = NULL;
-        }
-        else if (m->connect.onSuccess5)
-        {
-            MQTTAsync_successData5 data = MQTTAsync_successData5_initializer;
-            if (m->serverURIcount > 0)
-                data.alt.connect.serverURI = m->serverURIs[m->connect.details.conn.currentURI];
-            else
-                data.alt.connect.serverURI = m->serverURI;
-            data.alt.connect.MQTTVersion = m->connect.details.conn.MQTTVersion;
-            // data.alt.connect.sessionPresent = sessionPresent;
-            // data.properties = connack->properties;
-            // data.reasonCode = connack->rc;
-            (*(m->connect.onSuccess5))(m->connect.context, &data);
-            /* Null out callback pointers so they aren't accidentally called again */
-            m->connect.onSuccess5 = NULL;
-            m->connect.onFailure5 = NULL;
-        }
+    nng_log_warn("Connected!", "This is also fine");
+    if (m->connect.onSuccess) {
+        MQTTAsync_successData data;
+        memset(&data, '\0', sizeof(data));
+        if ((m->serverURIcount > 0) && (m->connect.details.conn.currentURI < m->serverURIcount))
+            data.alt.connect.serverURI = m->serverURIs[m->connect.details.conn.currentURI];
+        else
+            data.alt.connect.serverURI = m->serverURI;
+        data.alt.connect.MQTTVersion = m->connect.details.conn.MQTTVersion;
+        // data.alt.connect.sessionPresent = sessionPresent;
+        (*(m->connect.onSuccess))(m->connect.context, &data);
+        /* Null out callback pointers so they aren't accidentally called again */
+        m->connect.onSuccess = NULL;
+        m->connect.onFailure = NULL;
+    } else if (m->connect.onSuccess5) {
+        MQTTAsync_successData5 data = MQTTAsync_successData5_initializer;
+        if (m->serverURIcount > 0)
+            data.alt.connect.serverURI = m->serverURIs[m->connect.details.conn.currentURI];
+        else
+            data.alt.connect.serverURI = m->serverURI;
+        data.alt.connect.MQTTVersion = m->connect.details.conn.MQTTVersion;
+        data.reasonCode = reason;
+        // data.alt.connect.sessionPresent = sessionPresent;
+        // data.properties = connack->properties;
+        // data.reasonCode = connack->rc;
+        (*(m->connect.onSuccess5))(m->connect.context, &data);
+        /* Null out callback pointers so they aren't accidentally called again */
+        m->connect.onSuccess5 = NULL;
+        m->connect.onFailure5 = NULL;
+    }
+    if (m->connected) {
+	    (*(m->connected))(m->connected_context, reason);
+    }
 }
 
 static void
@@ -331,7 +523,10 @@ disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 	// nng_socket_get?
 	printf("%s: disconnected! RC [%d] \n", __FUNCTION__, reason);
 	(void) ev;
-    m->cl(m->clContext, "fucku");
+    if (m->cl)
+    {
+        m->cl(m->clContext, NULL);
+    }
 }
 
 int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
@@ -374,9 +569,21 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
         goto exit;
 	nng_mqtt_msg_set_connect_keep_alive(
 	    connmsg, (uint16_t) options->keepAliveInterval);
+    if (options->username)
+	    nng_mqtt_msg_set_connect_user_name(connmsg, options->username);
+	if (options->password)
+        nng_mqtt_msg_set_connect_password(connmsg, options->password);
+	else if (options->struct_version >= 5 && options->binarypwd.data) {
+        char *passwd = nni_zalloc(options->binarypwd.len + 1);
+        memcpy((void *)passwd, options->binarypwd.data, options->binarypwd.len);
+		nng_mqtt_msg_set_connect_password(connmsg, passwd);
+        nni_free(passwd, options->binarypwd.len + 1);
+	}
+    if (options->retryInterval > 0) {
+        nng_duration retryInterval = options->retryInterval * 1000;
+	    nng_socket_set_ms(*m->sock, NNG_OPT_MQTT_RETRY_INTERVAL, retryInterval);
+    }
 
-	nng_mqtt_msg_set_connect_user_name(connmsg, options->username);
-	nng_mqtt_msg_set_connect_password(connmsg, options->password);
 	if (options->will) /* check validity of will options structure */
 	{
 		if (strncmp(options->will->struct_id, "MQTW", 4) != 0 || (options->will->struct_version != 0 && options->will->struct_version != 1))
@@ -440,8 +647,25 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 		m->connect.onSuccess5 = options->onSuccess5;
 		m->connect.onFailure5 = options->onFailure5;
 	}
-	m->connect.context = options->context;
+	m->connect.context = options->context;  // We need to convey async handle to next cb
+    m->connect.context = m;
 	m->connectTimeout = options->connectTimeout;
+
+    nng_mqtt_msg_set_connect_clean_session(connmsg, options->cleansession);
+
+	if (options->maxInflight > 0) {
+        nni_lmq_resize((nni_lmq *)m->nanosdk_client->msgq, (size_t)options->maxInflight);
+    }
+	if (options->struct_version >= 4)
+	{
+        nng_duration duration = (nng_duration) options->maxRetryInterval * 1000;
+	    nng_dialer_set(*m->dialer, NNG_OPT_MQTT_RECONNECT_BACKOFF_MAX, &duration, sizeof(nng_duration));
+	}
+	if (options->struct_version >= 8)
+	{
+		if (options->httpProxy || options->httpsProxy)
+            nng_log_warn("we dont support paho http proxy!", "");
+	}
 
     if (options->will && (options->will->struct_version == 0 || options->will->struct_version == 1)) {
 		if (options->will->message || (options->will->struct_version == 1 && options->will->payload.data)) {
@@ -461,20 +685,89 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 			// no will msg is set
 		}
 	}
+#ifdef OPENSSL
+    if (options->struct_version != 0 && options->ssl)
+	{
+		if ((m->c->sslopts = malloc(sizeof(MQTTClient_SSLOptions))) == NULL)
+		{
+			rc = PAHO_MEMORY_ERROR;
+			goto exit;
+		}
+		memset(m->c->sslopts, '\0', sizeof(MQTTClient_SSLOptions));
+		m->c->sslopts->struct_version = options->ssl->struct_version;
+		if (options->ssl->trustStore)
+			m->c->sslopts->trustStore = MQTTStrdup(options->ssl->trustStore);
+		if (options->ssl->keyStore)
+			m->c->sslopts->keyStore = MQTTStrdup(options->ssl->keyStore);
+		if (options->ssl->privateKey)
+			m->c->sslopts->privateKey = MQTTStrdup(options->ssl->privateKey);
+		if (options->ssl->dprivateKey)
+			m->c->sslopts->dprivateKey = MQTTStrdup(options->ssl->dprivateKey);
+		if (options->ssl->dkeyStore)
+			m->c->sslopts->dkeyStore = MQTTStrdup(options->ssl->dkeyStore);
+		if (options->ssl->privateKeyPassword)
+			m->c->sslopts->privateKeyPassword = MQTTStrdup(options->ssl->privateKeyPassword);
+		if (options->ssl->enabledCipherSuites)
+			m->c->sslopts->enabledCipherSuites = MQTTStrdup(options->ssl->enabledCipherSuites);
+		m->c->sslopts->enableServerCertAuth = options->ssl->enableServerCertAuth;
+		if (m->c->sslopts->struct_version >= 1)
+			m->c->sslopts->sslVersion = options->ssl->sslVersion;
+		if (m->c->sslopts->struct_version >= 2)
+		{
+			m->c->sslopts->verify = options->ssl->verify;
+			if (options->ssl->CApath)
+				m->c->sslopts->CApath = MQTTStrdup(options->ssl->CApath);
+		}
+		if (m->c->sslopts->struct_version >= 3)
+		{
+			m->c->sslopts->ssl_error_cb = options->ssl->ssl_error_cb;
+			m->c->sslopts->ssl_error_context = options->ssl->ssl_error_context;
+		}
+		if (m->c->sslopts->struct_version >= 4)
+		{
+			m->c->sslopts->ssl_psk_cb = options->ssl->ssl_psk_cb;
+			m->c->sslopts->ssl_psk_context = options->ssl->ssl_psk_context;
+			m->c->sslopts->disableDefaultTrustStore = options->ssl->disableDefaultTrustStore;
+		}
+		if (m->c->sslopts->struct_version >= 5)
+		{
+			m->c->sslopts->protos = options->ssl->protos;
+			m->c->sslopts->protos_len = options->ssl->protos_len;
+		}
+	}
+#else
+	// if (options->struct_version != 0 && options->ssl)
+	// {
+	// 	rc = MQTTASYNC_SSL_NOT_SUPPORTED;
+	// 	goto exit;
+	// }
+#endif
+    if (m->connectProps)
+	{
+		MQTTProperties_free(m->connectProps);
+		nni_free(m->connectProps, sizeof(m->connectProps));
+		m->connectProps = NULL;
+        nng_log_warn("paho property is not support!", "");
+	}
+	if (m->willProps)
+	{   // MQTTProperties_copy
+		MQTTProperties_free(m->willProps);
+		nni_free(m->willProps, sizeof(m->willProps));
+		m->willProps = NULL;
+        nng_log_warn("paho property is not support!", "");
+	}
+    // property * p = mqtt_property_alloc();
+	// property *p1 = mqtt_property_set_value_u32(MAXIMUM_PACKET_SIZE, 120);
+	// property *p2 = mqtt_property_set_value_u16(TOPIC_ALIAS_MAXIMUM, 65535);
+	// mqtt_property_append(p, p1);
+	// mqtt_property_append(p, p2);
+	// nng_mqtt_msg_set_connect_property(connmsg, p);
 
-	nng_mqtt_msg_set_connect_clean_session(connmsg, true);
-    property * p = mqtt_property_alloc();
-	property *p1 = mqtt_property_set_value_u32(MAXIMUM_PACKET_SIZE, 120);
-	property *p2 = mqtt_property_set_value_u16(TOPIC_ALIAS_MAXIMUM, 65535);
-	mqtt_property_append(p, p1);
-	mqtt_property_append(p, p2);
-	nng_mqtt_msg_set_connect_property(connmsg, p);
-
-	property *will_prop = mqtt_property_alloc();
-	property *will_up   = mqtt_property_set_value_strpair(USER_PROPERTY,
-            "user", strlen("user"), "pass", strlen("pass"), true);
-	mqtt_property_append(will_prop, will_up);
-	nng_mqtt_msg_set_connect_will_property(connmsg, will_prop);
+	// property *will_prop = mqtt_property_alloc();
+	// property *will_up   = mqtt_property_set_value_strpair(USER_PROPERTY,
+    //         "user", strlen("user"), "pass", strlen("pass"), true);
+	// mqtt_property_append(will_prop, will_up);
+	// nng_mqtt_msg_set_connect_will_property(connmsg, will_prop);
 	nng_mqtt_set_connect_cb(*sock, connect_cb, m);
 	nng_mqtt_set_disconnect_cb(*sock, disconnect_cb, m);
 	nng_dialer_set_ptr(*dialer, NNG_OPT_MQTT_CONNMSG, connmsg);
@@ -483,4 +776,189 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 exit:
     nng_msg_free(connmsg);
 	return MQTTASYNC_BAD_PROTOCOL;
+}
+
+int MQTTAsync_subscribeMany(MQTTAsync handle, int count, char *const *topic, const int *qos, MQTTAsync_responseOptions *response)
+{
+	MQTTAsyncs *m = handle;
+    nng_mqtt_client *client = m->nanosdk_client;
+	int i = 0;
+	int rc = MQTTASYNC_SUCCESS;
+
+    if (count ==0 || topic == NULL) {
+        return MQTTASYNC_FAILURE;
+    }
+    if (m->MQTTVersion >= MQTTVERSION_5 && count > 1 && (count != response->subscribeOptionsCount && response->subscribeOptionsCount != 0))
+		rc = MQTTASYNC_BAD_MQTT_OPTION;
+	else if (response)
+	{
+		if (m->MQTTVersion >= MQTTVERSION_5)
+		{
+			if (response->struct_version == 0 || response->onFailure || response->onSuccess)
+				rc = MQTTASYNC_BAD_MQTT_OPTION;
+		}
+		else if (m->MQTTVersion < MQTTVERSION_5)
+		{
+			if (response->struct_version >= 1 && (response->onFailure5 || response->onSuccess5))
+				rc = MQTTASYNC_BAD_MQTT_OPTION;
+		}
+	}
+	if (rc != MQTTASYNC_SUCCESS)
+		return rc;
+
+	nng_mqtt_topic_qos *topic_qos =
+	    nng_mqtt_topic_qos_array_create((size_t)count);
+    		nng_mqtt_topic_qos subscriptions[] = {
+			{
+			    .qos   = 1,
+			    .topic = {
+					.buf    = "12345",
+			        .length = 5,
+				},
+				.nolocal         = 1,
+				.rap             = 1,
+				.retain_handling = 0,
+			},
+		};
+	for (size_t i = 0; i < count; ++i) {
+		nng_mqtt_topic_qos_array_set(topic_qos, i,
+		    topic[i], strlen(topic[i]), qos[i], 1, 1, 0);
+		nng_log_info("Performing subscription",
+		    "Bridge client subscribed topic %s (qos %d rap %d rh %d).",
+		    topic[i], qos[i], 1, 1);
+	}
+
+	if (response) {
+		m->subscribe.onSuccess  = response->onSuccess;
+		m->subscribe.onFailure  = response->onFailure;
+		m->subscribe.onSuccess5 = response->onSuccess5;
+		m->subscribe.onFailure5 = response->onFailure5;
+		m->subscribe.context    = response->context;
+		response->token         = m->subscribe.token; // msg id
+		if (m->MQTTVersion >= MQTTVERSION_5) {
+			// if (response->properties) {
+				nng_log_warn("Incompatible paho API!",
+				    "preopertuy of paho is not support");
+				// MQTTProperties_free(response->properties);
+			// }
+		}
+	}
+	nng_mqtt_subscribe_async(client, topic_qos, count, NULL);
+	return rc;
+}
+
+int MQTTAsync_subscribe(MQTTAsync handle, const char *topic, int qos, MQTTAsync_responseOptions *response)
+{
+	int rc = 0;
+	rc = MQTTAsync_subscribeMany(handle, 1, (char *const *)(&topic), &qos, response);
+	return rc;
+}
+
+int MQTTAsync_setConnected(MQTTAsync handle, void *context, MQTTAsync_connected *connected)
+{
+	int rc = MQTTASYNC_SUCCESS;
+	MQTTAsyncs *m = handle;
+
+	if (m == NULL)
+		rc = MQTTASYNC_FAILURE;
+	else
+	{
+        if (context == NULL)
+            m->connected_context = m;
+        else
+		    m->connected_context = context;
+		m->connected = connected;
+	}
+
+	return rc;
+}
+
+int MQTTAsync_unsubscribeMany(MQTTAsync handle, int count, char *const *topic, MQTTAsync_responseOptions *response)
+{
+    return MQTTASYNC_FAILURE;
+}
+
+
+int MQTTAsync_send(MQTTAsync handle, const char *destinationName, int payloadlen, const void *payload,
+				   int qos, int retained, MQTTAsync_responseOptions *response)
+{
+	int rc = MQTTASYNC_SUCCESS;
+	MQTTAsyncs *m = handle;
+	nng_mqtt_client *client = m->nanosdk_client;
+
+	if (m == NULL)
+		return MQTTASYNC_FAILURE;
+	if (!UTF8_validateString(destinationName))
+		rc = MQTTASYNC_BAD_UTF8_STRING;
+	else if (qos < 0 || qos > 2)
+		rc = MQTTASYNC_BAD_QOS;
+	if (response)
+	{
+		if (m->MQTTVersion >= MQTTVERSION_5)
+		{
+			if (response->struct_version == 0 || response->onFailure || response->onSuccess)
+				rc = MQTTASYNC_BAD_MQTT_OPTION;
+		}
+		else if (m->MQTTVersion < MQTTVERSION_5)
+		{
+			if (response->struct_version >= 1 && (response->onFailure5 || response->onSuccess5))
+				rc = MQTTASYNC_BAD_MQTT_OPTION;
+		}
+	}
+    if (response) {
+		m->publish.onSuccess = response->onSuccess;
+		m->publish.onFailure = response->onFailure;
+		m->publish.onSuccess5 = response->onSuccess5;
+		m->publish.onFailure5 = response->onFailure5;
+		m->publish.context = response->context;
+		response->token = m->publish.token;
+		if (m->MQTTVersion >= MQTTVERSION_5) {
+             nng_log_warn("Paho", "Publish property with PAHO API is not support");
+			// pub->command.properties = MQTTProperties_copy(&response->properties);
+            // MQTTProperties_free(&response->properties);
+        }
+	}
+	if (rc != MQTTASYNC_SUCCESS)
+		goto exit;
+
+    nng_msg *pubmsg;
+	nng_mqtt_msg_alloc(&pubmsg, 0);
+	nng_mqtt_msg_set_packet_type(pubmsg, NNG_MQTT_PUBLISH);
+	nng_mqtt_msg_set_publish_dup(pubmsg, 0);
+	nng_mqtt_msg_set_publish_qos(pubmsg, qos);
+	nng_mqtt_msg_set_publish_retain(pubmsg, retained);
+	nng_mqtt_msg_set_publish_payload(
+	    pubmsg, (uint8_t *) payload, payloadlen);
+	nng_mqtt_msg_set_publish_topic(pubmsg, destinationName);
+    if (nng_mqtt_publish_async(client, pubmsg) < 0)
+        rc = MQTTASYNC_FAILURE;
+exit:
+	return rc;
+}
+
+int MQTTAsync_sendMessage(MQTTAsync handle, const char *destinationName, const MQTTAsync_message *message,
+						  MQTTAsync_responseOptions *response)
+{
+	int rc = MQTTASYNC_SUCCESS;
+	MQTTAsyncs *m = handle;
+
+	if (message == NULL)
+	{
+		rc = MQTTASYNC_NULL_PARAMETER;
+		goto exit;
+	}
+	if (strncmp(message->struct_id, "MQTM", 4) != 0 ||
+		(message->struct_version != 0 && message->struct_version != 1))
+	{
+		rc = MQTTASYNC_BAD_STRUCTURE;
+		goto exit;
+	}
+
+	if (m->MQTTVersion >= MQTTVERSION_5 && response)
+		response->properties = message->properties;
+
+	rc = MQTTAsync_send(handle, destinationName, message->payloadlen, message->payload,
+						message->qos, message->retained, response);
+exit:
+	return rc;
 }

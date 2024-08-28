@@ -367,7 +367,8 @@ typedef int MQTTPersistence_afterRead(
 #define MQTT_SSL_VERSION_TLS_1_2 3
 #define MQTTProperties_initializer { 0, 0, 0, NULL }
 
-#define MQTTSubscribe_options_initializer { {'M', 'Q', 'S', 'O'}, 0, 0, 0, 0 }
+#define MQTTSubscribe_options_initializer \
+	{ { 'M', 'Q', 'S', 'O' }, 0, 0, 0, 0 }
 
 #define MQTTAsync_responseOptions_initializer                      \
 	{ { 'M', 'Q', 'T', 'R' }, 1, NULL, NULL, 0, 0, NULL, NULL, \
@@ -1254,7 +1255,7 @@ typedef struct {
 	/**
 	 * Reconnect automatically in the case of a connection being lost?
 	 */
-	int automaticReconnect;
+	int automaticReconnect; // not valid in nanosdk
 	/**
 	 * Minimum retry interval in seconds.  Doubled on each failed retry.
 	 */
@@ -1495,29 +1496,29 @@ typedef struct MQTTAsync_responseOptions {
 } MQTTAsync_responseOptions;
 
 /** The MQTT V5 subscribe options, apart from QoS which existed before V5. */
-typedef struct MQTTSubscribe_options
-{
+typedef struct MQTTSubscribe_options {
 	/** The eyecatcher for this structure. Must be MQSO. */
 	char struct_id[4];
 	/** The version number of this structure.  Must be 0.
 	 */
 	int struct_version;
 	/** To not receive our own publications, set to 1.
-	 *  0 is the original MQTT behaviour - all messages matching the subscription are received.
+	 *  0 is the original MQTT behaviour - all messages matching the
+	 * subscription are received.
 	 */
 	unsigned char noLocal;
-	/** To keep the retain flag as on the original publish message, set to 1.
-	 *  If 0, defaults to the original MQTT behaviour where the retain flag is only set on
-	 *  publications sent by a broker if in response to a subscribe request.
+	/** To keep the retain flag as on the original publish message, set
+	 * to 1. If 0, defaults to the original MQTT behaviour where the retain
+	 * flag is only set on publications sent by a broker if in response to
+	 * a subscribe request.
 	 */
 	unsigned char retainAsPublished;
-	/** 0 - send retained messages at the time of the subscribe (original MQTT behaviour)
-	 *  1 - send retained messages on subscribe only if the subscription is new
-	 *  2 - do not send retained messages at all
+	/** 0 - send retained messages at the time of the subscribe (original
+	 * MQTT behaviour) 1 - send retained messages on subscribe only if the
+	 * subscription is new 2 - do not send retained messages at all
 	 */
 	unsigned char retainHandling;
 } MQTTSubscribe_options;
-
 
 /**
  * This function sets the global callback functions for a specific client.
@@ -1583,6 +1584,146 @@ NNG_DECL int MQTTAsync_createWithOptions(MQTTAsync *handle,
     void *persistence_context, MQTTAsync_createOptions *options);
 NNG_DECL int MQTTAsync_create(MQTTAsync *handle, const char *serverURI,
     const char *clientId, int persistence_type, void *persistence_context);
+
+/**
+ * This function attempts to subscribe a client to a single topic, which may
+ * contain wildcards (see @ref wildcard). This call also specifies the
+ * @ref qos requested for the subscription
+ * (see also MQTTAsync_subscribeMany()).
+ * @param handle A valid client handle from a successful call to
+ * MQTTAsync_create().
+ * @param topic The subscription topic, which may include wildcards.
+ * @param qos The requested quality of service for the subscription.
+ * @param response A pointer to a response options structure. Used to set
+ * callback functions.
+ * @return ::MQTTASYNC_SUCCESS if the subscription request is successful.
+ * An error code is returned if there was a problem registering the
+ * subscription.
+ */
+NNG_DECL int MQTTAsync_subscribe(MQTTAsync handle, const char *topic, int qos,
+    MQTTAsync_responseOptions *response);
+
+/**
+ * This function attempts to subscribe a client to a list of topics, which may
+ * contain wildcards (see @ref wildcard). This call also specifies the
+ * @ref qos requested for each topic (see also MQTTAsync_subscribe()).
+ * @param handle A valid client handle from a successful call to
+ * MQTTAsync_create().
+ * @param count The number of topics for which the client is requesting
+ * subscriptions.
+ * @param topic An array (of length <i>count</i>) of pointers to
+ * topics, each of which may include wildcards.
+ * @param qos An array (of length <i>count</i>) of @ref qos
+ * values. qos[n] is the requested QoS for topic[n].
+ * @param response A pointer to a response options structure. Used to set
+ * callback functions.
+ * @return ::MQTTASYNC_SUCCESS if the subscription request is successful.
+ * An error code is returned if there was a problem registering the
+ * subscriptions.
+ */
+NNG_DECL int MQTTAsync_subscribeMany(MQTTAsync handle, int count,
+    char *const *topic, const int *qos, MQTTAsync_responseOptions *response);
+
+/**
+ * This function attempts to remove an existing subscription made by the
+ * specified client.
+ * @param handle A valid client handle from a successful call to
+ * MQTTAsync_create().
+ * @param topic The topic for the subscription to be removed, which may
+ * include wildcards (see @ref wildcard).
+ * @param response A pointer to a response options structure. Used to set
+ * callback functions.
+ * @return ::MQTTASYNC_SUCCESS if the subscription is removed.
+ * An error code is returned if there was a problem removing the
+ * subscription.
+ */
+NNG_DECL int MQTTAsync_unsubscribe(
+    MQTTAsync handle, const char *topic, MQTTAsync_responseOptions *response);
+
+/**
+ * This function attempts to remove existing subscriptions to a list of topics
+ * made by the specified client.
+ * @param handle A valid client handle from a successful call to
+ * MQTTAsync_create().
+ * @param count The number subscriptions to be removed.
+ * @param topic An array (of length <i>count</i>) of pointers to the topics of
+ * the subscriptions to be removed, each of which may include wildcards.
+ * @param response A pointer to a response options structure. Used to set
+ * callback functions.
+ * @return ::MQTTASYNC_SUCCESS if the subscriptions are removed.
+ * An error code is returned if there was a problem removing the subscriptions.
+ */
+NNG_DECL int MQTTAsync_unsubscribeMany(MQTTAsync handle, int count,
+    char *const *topic, MQTTAsync_responseOptions *response);
+
+/**
+ * This function attempts to publish a message to a given topic (see also
+ * ::MQTTAsync_sendMessage()). An ::MQTTAsync_token is issued when
+ * this function returns successfully if the QoS is greater than 0.
+ * If the client application needs to
+ * test for successful delivery of messages, a callback should be set
+ * (see ::MQTTAsync_onSuccess() and ::MQTTAsync_deliveryComplete()).
+ * @param handle A valid client handle from a successful call to
+ * MQTTAsync_create().
+ * @param destinationName The topic associated with this message.
+ * @param payloadlen The length of the payload in bytes.
+ * @param payload A pointer to the byte array payload of the message.
+ * @param qos The @ref qos of the message.
+ * @param retained The retained flag for the message.
+ * @param response A pointer to an ::MQTTAsync_responseOptions structure. Used
+ * to set callback functions. This is optional and can be set to NULL.
+ * @return ::MQTTASYNC_SUCCESS if the message is accepted for publication.
+ * An error code is returned if there was a problem accepting the message.
+ */
+NNG_DECL int MQTTAsync_send(MQTTAsync handle, const char *destinationName,
+    int payloadlen, const void *payload, int qos, int retained,
+    MQTTAsync_responseOptions *response);
+
+/**
+ * This function attempts to publish a message to a given topic (see also
+ * MQTTAsync_publish()). An ::MQTTAsync_token is issued when
+ * this function returns successfully if the QoS is greater than 0.
+ * If the client application needs to
+ * test for successful delivery of messages, a callback should be set
+ * (see ::MQTTAsync_onSuccess() and ::MQTTAsync_deliveryComplete()).
+ * @param handle A valid client handle from a successful call to
+ * MQTTAsync_create().
+ * @param destinationName The topic associated with this message.
+ * @param msg A pointer to a valid MQTTAsync_message structure containing
+ * the payload and attributes of the message to be published.
+ * @param response A pointer to an ::MQTTAsync_responseOptions structure. Used
+ * to set callback functions.
+ * @return ::MQTTASYNC_SUCCESS if the message is accepted for publication.
+ * An error code is returned if there was a problem accepting the message.
+ */
+NNG_DECL int MQTTAsync_sendMessage(MQTTAsync handle,
+    const char *destinationName, const MQTTAsync_message *msg,
+    MQTTAsync_responseOptions *response);
+
+/**
+ * Sets the MQTTAsync_connected() callback function for a client.
+ * @param handle A valid client handle from a successful call to
+ * MQTTAsync_create().
+ * @param context A pointer to any application-specific context. The
+ * the <i>context</i> pointer is passed to each of the callback functions to
+ * provide access to the context information in the callback.
+ * @param co A pointer to an MQTTAsync_connected() callback
+ * function.  NULL removes the callback setting.
+ * @return ::MQTTASYNC_SUCCESS if the callbacks were correctly set,
+ * ::MQTTASYNC_FAILURE if an error occurred.
+ */
+NNG_DECL int MQTTAsync_setConnected(
+    MQTTAsync handle, void *context, MQTTAsync_connected *co);
+
+/**
+ * Reconnects a client with the previously used connect options.  Connect
+ * must have previously been called for this to work.
+ * @param handle A valid client handle from a successful call to
+ * MQTTAsync_create().
+ * @return ::MQTTASYNC_SUCCESS if the callbacks were correctly set,
+ * ::MQTTASYNC_FAILURE if an error occurred.
+ */
+NNG_DECL int MQTTAsync_reconnect(MQTTAsync handle);
 
 #ifdef __cplusplus
 }

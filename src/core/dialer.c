@@ -444,7 +444,7 @@ nni_dialer_start(nni_dialer *d, unsigned flags)
 		nni_aio_free(aio);
 	}
 
-	nng_log_info("NNG-DIAL", "Starting dialer for socket<%u> on %s",
+	nng_log_info("NanoSDK-DIAL", "Starting dialer for socket<%u> on %s",
 	    nni_sock_id(d->d_sock), d->d_url->u_rawurl);
 
 	return (rv);

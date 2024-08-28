@@ -1031,6 +1031,25 @@ nng_mqtt_subscribe_async(nng_mqtt_client *client, nng_mqtt_topic_qos *sbs, size_
 	return 0;
 }
 
+int 
+nng_mqtt_publish_async(nng_mqtt_client *client, nng_msg *pubmsg)
+{
+	if (nng_aio_busy(client->send_aio)) {
+		if (nni_lmq_put((nni_lmq *)client->msgq, pubmsg) != 0) {
+			nni_plat_println("subscribe failed!");
+		}
+		return 1;
+	}
+	nng_aio_set_msg(client->send_aio, pubmsg);
+	if (client->send_cb != NULL)
+		nng_send_aio(client->sock, client->send_aio);
+	else {
+		nni_plat_println("Cancel MQTT publish_async!");
+		return -1;
+	}
+	return 0;
+}
+
 int
 nng_mqtt_disconnect(nng_socket *sock, uint8_t reason_code, property *pl)
 {
