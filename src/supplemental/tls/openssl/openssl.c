@@ -186,7 +186,7 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 		if (rv != 0)
 			rv = SSL_get_error(ec->ssl, rv);
 		fprintf(stderr, "[%d]openssl do handshake failed rv%d\n", cnt, rv);
-		cnt ++;
+		cnt --;
 		if (rv == SSL_ERROR_WANT_READ || rv == SSL_ERROR_WANT_WRITE) {
 			int ensz;
 			while ((ensz = BIO_read(ec->wbio, ec->rbuf, 4096)) > 0) {
@@ -211,10 +211,11 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 						return (NNG_ECRYPTO);
 				}
 			}
-		} else {
+		} else if (rv == SSL_ERROR_NONE) {
 			rv = 0;
 			ec->ok = 1;
 			break;
+		} else {
 		}
 		nng_msleep(200);
 		rv = NNG_EAGAIN;
@@ -409,24 +410,23 @@ static int
 open_config_auth_mode(nng_tls_engine_config *cfg, nng_tls_auth_mode mode)
 {
 	cfg->auth_mode = mode;
-	fprintf(stderr, "[%s] start\n", __FUNCTION__);
 	// XXX: REMOVE ME
 	switch (mode) {
 	case NNG_TLS_AUTH_MODE_NONE:
 		SSL_CTX_set_verify(cfg->ctx, SSL_VERIFY_NONE, NULL);
-	fprintf(stderr, "[%s] end1\n", __FUNCTION__);
+	fprintf(stderr, "[%s] AUTH MODE: NONE\n", __FUNCTION__);
 		return (0);
 	case NNG_TLS_AUTH_MODE_OPTIONAL:
 		SSL_CTX_set_verify(cfg->ctx, SSL_VERIFY_PEER, NULL);
-	fprintf(stderr, "[%s] end2\n", __FUNCTION__);
+	fprintf(stderr, "[%s] AUTH MODE: OPTION\n", __FUNCTION__);
 		return (0);
 	case NNG_TLS_AUTH_MODE_REQUIRED:
 		SSL_CTX_set_verify(cfg->ctx,
 		    SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
-	fprintf(stderr, "[%s] end3\n", __FUNCTION__);
+	fprintf(stderr, "[%s] AUTH MODE: REQUIRE\n", __FUNCTION__);
 		return (0);
 	}
-	fprintf(stderr, "[%s] wrong end\n", __FUNCTION__);
+	fprintf(stderr, "[%s] wrong auth mode!!!!!!!!\n", __FUNCTION__);
 	return (NNG_EINVAL);
 }
 
@@ -437,7 +437,6 @@ open_config_ca_chain(
 	size_t len;
 	fprintf(stderr, "[%s] start\n", __FUNCTION__);
 
-	// Certs and CRL are in PEM data, with terminating NUL byte.
 	len = strlen(certs);
 
 	BIO *bio = BIO_new_mem_buf(certs, len);
@@ -599,7 +598,6 @@ open_config_version(nng_tls_engine_config *cfg, nng_tls_version min_ver,
 
 	return (0);
 }
-
 
 static nng_tls_engine_config_ops open_config_ops = {
 	.init     = open_config_init,
