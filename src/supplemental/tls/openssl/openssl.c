@@ -3,6 +3,28 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define OPEN_DEBUG 1
+
+#ifdef OPEN_DEBUG
+#include <execinfo.h>
+void
+print_trace(void)
+{
+	void  *array[10];
+	char **strings;
+	int    size, i;
+
+	size    = backtrace(array, 10);
+	strings = backtrace_symbols(array, size);
+	if (strings != NULL) {
+		printf("Obtained %d stack frames.\n", size);
+		for (i = 0; i < size; i++)
+			printf("%s\n", strings[i]);
+	}
+	free(strings);
+}
+#endif
+
 #include <openssl/evp.h>
 #include <openssl/x509.h>
 #include <openssl/bio.h>
