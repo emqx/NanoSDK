@@ -81,8 +81,8 @@ static int msgarrvd(void* context, char* topicName, int topicLen, MQTTAsync_mess
 // 		}
 // 	}
 
-	// MQTTAsync_freeMessage(&message);
-	// MQTTAsync_free(&topicName);
+	MQTTAsync_freeMessage(&message);
+	MQTTAsync_free(topicName);
 
 	return iRet;
 }
@@ -602,6 +602,29 @@ void onSendSuccess(void* context, MQTTAsync_successData* response)
 	// }
 }
 
+void connlost(void *context, char *cause)
+{
+	MQTTAsync client = (MQTTAsync)context;
+	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer;
+	int rc;
+
+	printf("\nConnection lost\n");
+	if (cause)
+		printf("     cause: %s\n", cause);
+
+	printf("Reconnecting\n");
+	conn_opts.keepAliveInterval = 20;
+	conn_opts.cleansession = 1;
+	if ((rc = MQTTAsync_connect(client, &conn_opts)) != MQTTASYNC_SUCCESS)
+	{
+	}
+}
+
+void asyncDeliveryComplete(void* context, MQTTAsync_token token)
+{
+	printf("qos finished!");
+}
+
 int
 main(const int argc, const char **argv)
 {
@@ -629,7 +652,7 @@ main(const int argc, const char **argv)
 		rc = EXIT_FAILURE;
 		return;
 	}
-	if ((rc = MQTTAsync_setCallbacks(client, client, NULL, msgarrvd, NULL)) != MQTTASYNC_SUCCESS)
+	if ((rc = MQTTAsync_setCallbacks(client, client, connlost, msgarrvd, asyncDeliveryComplete)) != MQTTASYNC_SUCCESS)
 	{
 		printf("Failed to set callbacks, return code %d\n", rc);
 		rc = EXIT_FAILURE;
@@ -673,8 +696,8 @@ main(const int argc, const char **argv)
 	pubmsg.retained = 0;
 
 	MQTTAsync_responseOptions opts = MQTTAsync_responseOptions_initializer;
-	MQTTAsync_sendMessage(client, "msg", &pubmsg, &pub_opts);
-	nng_msleep(3600); // neither pause() nor sleep() portable
+	MQTTAsync_sendMessage(client, "test", &pubmsg, &pub_opts);
+	nng_msleep(5600);
 
 	disc_opts.onSuccess = onDisconnect;
 	disc_opts.onFailure = onDisconnectFailure;
@@ -684,6 +707,7 @@ main(const int argc, const char **argv)
 		rc = EXIT_FAILURE;
 		goto destroy_exit;
 	}
+	nng_msleep(15600);
 destroy_exit:
 	MQTTAsync_destroy(&client);
 exit:

@@ -496,6 +496,41 @@ typedef struct MQTTProperties {
 	MQTTProperty *array;  /**< array of properties */
 } MQTTProperties;
 
+
+struct {
+	enum MQTTPropertyCodes value;
+	const char* name;
+} nameToString[] =
+{
+  {MQTTPROPERTY_CODE_PAYLOAD_FORMAT_INDICATOR, "PAYLOAD_FORMAT_INDICATOR"},
+  {MQTTPROPERTY_CODE_MESSAGE_EXPIRY_INTERVAL, "MESSAGE_EXPIRY_INTERVAL"},
+  {MQTTPROPERTY_CODE_CONTENT_TYPE, "CONTENT_TYPE"},
+  {MQTTPROPERTY_CODE_RESPONSE_TOPIC, "RESPONSE_TOPIC"},
+  {MQTTPROPERTY_CODE_CORRELATION_DATA, "CORRELATION_DATA"},
+  {MQTTPROPERTY_CODE_SUBSCRIPTION_IDENTIFIER, "SUBSCRIPTION_IDENTIFIER"},
+  {MQTTPROPERTY_CODE_SESSION_EXPIRY_INTERVAL, "SESSION_EXPIRY_INTERVAL"},
+  {MQTTPROPERTY_CODE_ASSIGNED_CLIENT_IDENTIFER, "ASSIGNED_CLIENT_IDENTIFER"},
+  {MQTTPROPERTY_CODE_SERVER_KEEP_ALIVE, "SERVER_KEEP_ALIVE"},
+  {MQTTPROPERTY_CODE_AUTHENTICATION_METHOD, "AUTHENTICATION_METHOD"},
+  {MQTTPROPERTY_CODE_AUTHENTICATION_DATA, "AUTHENTICATION_DATA"},
+  {MQTTPROPERTY_CODE_REQUEST_PROBLEM_INFORMATION, "REQUEST_PROBLEM_INFORMATION"},
+  {MQTTPROPERTY_CODE_WILL_DELAY_INTERVAL, "WILL_DELAY_INTERVAL"},
+  {MQTTPROPERTY_CODE_REQUEST_RESPONSE_INFORMATION, "REQUEST_RESPONSE_INFORMATION"},
+  {MQTTPROPERTY_CODE_RESPONSE_INFORMATION, "RESPONSE_INFORMATION"},
+  {MQTTPROPERTY_CODE_SERVER_REFERENCE, "SERVER_REFERENCE"},
+  {MQTTPROPERTY_CODE_REASON_STRING, "REASON_STRING"},
+  {MQTTPROPERTY_CODE_RECEIVE_MAXIMUM, "RECEIVE_MAXIMUM"},
+  {MQTTPROPERTY_CODE_TOPIC_ALIAS_MAXIMUM, "TOPIC_ALIAS_MAXIMUM"},
+  {MQTTPROPERTY_CODE_TOPIC_ALIAS, "TOPIC_ALIAS"},
+  {MQTTPROPERTY_CODE_MAXIMUM_QOS, "MAXIMUM_QOS"},
+  {MQTTPROPERTY_CODE_RETAIN_AVAILABLE, "RETAIN_AVAILABLE"},
+  {MQTTPROPERTY_CODE_USER_PROPERTY, "USER_PROPERTY"},
+  {MQTTPROPERTY_CODE_MAXIMUM_PACKET_SIZE, "MAXIMUM_PACKET_SIZE"},
+  {MQTTPROPERTY_CODE_WILDCARD_SUBSCRIPTION_AVAILABLE, "WILDCARD_SUBSCRIPTION_AVAILABLE"},
+  {MQTTPROPERTY_CODE_SUBSCRIPTION_IDENTIFIERS_AVAILABLE, "SUBSCRIPTION_IDENTIFIERS_AVAILABLE"},
+  {MQTTPROPERTY_CODE_SHARED_SUBSCRIPTION_AVAILABLE, "SHARED_SUBSCRIPTION_AVAILABLE"}
+};
+
 /** The MQTT V5 one byte reason code */
 enum MQTTReasonCodes {
 	MQTTREASONCODE_SUCCESS                                = 0,
@@ -1428,6 +1463,31 @@ typedef void MQTTAsync_connected(void *context, char *cause);
 typedef void MQTTAsync_disconnected(void *context, MQTTProperties *properties,
     enum MQTTReasonCodes reasonCode);
 
+/** The MQTT V5 subscribe options, apart from QoS which existed before V5. */
+typedef struct MQTTSubscribe_options {
+	/** The eyecatcher for this structure. Must be MQSO. */
+	char struct_id[4];
+	/** The version number of this structure.  Must be 0.
+	 */
+	int struct_version;
+	/** To not receive our own publications, set to 1.
+	 *  0 is the original MQTT behaviour - all messages matching the
+	 * subscription are received.
+	 */
+	unsigned char noLocal;
+	/** To keep the retain flag as on the original publish message, set
+	 * to 1. If 0, defaults to the original MQTT behaviour where the retain
+	 * flag is only set on publications sent by a broker if in response to
+	 * a subscribe request.
+	 */
+	unsigned char retainAsPublished;
+	/** 0 - send retained messages at the time of the subscribe (original
+	 * MQTT behaviour) 1 - send retained messages on subscribe only if the
+	 * subscription is new 2 - do not send retained messages at all
+	 */
+	unsigned char retainHandling;
+} MQTTSubscribe_options;
+
 /** Structure to define call options.  For MQTT 5.0 there is input data as well
  * as that describing the response method.  So there is now also a synonym
  * ::MQTTAsync_callOptions to better reflect the use.  This responseOptions
@@ -1483,7 +1543,7 @@ typedef struct MQTTAsync_responseOptions {
 	/*
 	 * MQTT V5 subscribe options, when used with subscribe only.
 	 */
-	// MQTTSubscribe_options subscribeOptions;
+	MQTTSubscribe_options subscribeOptions;
 	/*
 	 * MQTT V5 subscribe option count, when used with subscribeMany only.
 	 * The number of entries in the subscribe_options_list array.
@@ -1492,33 +1552,8 @@ typedef struct MQTTAsync_responseOptions {
 	/*
 	 * MQTT V5 subscribe option array, when used with subscribeMany only.
 	 */
-	// MQTTSubscribe_options *subscribeOptionsList;
+	MQTTSubscribe_options *subscribeOptionsList;
 } MQTTAsync_responseOptions;
-
-/** The MQTT V5 subscribe options, apart from QoS which existed before V5. */
-typedef struct MQTTSubscribe_options {
-	/** The eyecatcher for this structure. Must be MQSO. */
-	char struct_id[4];
-	/** The version number of this structure.  Must be 0.
-	 */
-	int struct_version;
-	/** To not receive our own publications, set to 1.
-	 *  0 is the original MQTT behaviour - all messages matching the
-	 * subscription are received.
-	 */
-	unsigned char noLocal;
-	/** To keep the retain flag as on the original publish message, set
-	 * to 1. If 0, defaults to the original MQTT behaviour where the retain
-	 * flag is only set on publications sent by a broker if in response to
-	 * a subscribe request.
-	 */
-	unsigned char retainAsPublished;
-	/** 0 - send retained messages at the time of the subscribe (original
-	 * MQTT behaviour) 1 - send retained messages on subscribe only if the
-	 * subscription is new 2 - do not send retained messages at all
-	 */
-	unsigned char retainHandling;
-} MQTTSubscribe_options;
 
 /**
  * This function sets the global callback functions for a specific client.
@@ -1763,6 +1798,28 @@ NNG_DECL int MQTTAsync_isConnected(MQTTAsync handle);
  * structure to be freed.
  */
 NNG_DECL void MQTTAsync_destroy(MQTTAsync *handle);
+
+/**
+ * This function frees memory allocated to an MQTT message, including the
+ * additional memory allocated to the message payload. The client application
+ * calls this function when the message has been fully processed. <b>Important
+ * note:</b> This function does not free the memory allocated to a message
+ * topic string. It is the responsibility of the client application to free
+ * this memory using the MQTTAsync_free() library function.
+ * @param msg The address of a pointer to the ::MQTTAsync_message structure
+ * to be freed.
+ */
+NNG_DECL void MQTTAsync_freeMessage(MQTTAsync_message **msg);
+
+/**
+ * This function frees memory allocated by the MQTT C client library,
+ * especially the topic name. This is needed on Windows when the client library
+ * and application program have been compiled with different versions of the C
+ * compiler.  It is thus good policy to always use this function when freeing
+ * any MQTT C client- allocated memory.
+ * @param ptr The pointer to the client library storage to be freed.
+ */
+NNG_DECL void MQTTAsync_free(void *ptr);
 
 #ifdef __cplusplus
 }

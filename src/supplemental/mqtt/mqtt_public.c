@@ -2,7 +2,7 @@
 #include "core/nng_impl.h"
 #include <string.h>
 #include "mqtt_qos_db.h"
-#include "mqtt_nano_paho.h"
+// #include "mqtt_nano_paho.h"
 
 int
 nng_mqtt_msg_proto_data_alloc(nng_msg *msg)
@@ -838,10 +838,12 @@ nng_mqtt_client_recv_cb(void* arg)
 	int 			 rv;
 
 	if (msg == NULL || (rv = nng_aio_result(aio)) != 0) {
-		nni_plat_printf("aio recv error! %d", rv);
+		nng_log_debug("RECV", "nng_mqtt_client recv aio report error %d", rv);
+		msg = NULL;
 	}
 	nng_recv_aio(client->sock, client->recv_aio);
 	client->recv_cb(client, msg, client->obj);
+	nng_log_warn("RECV", "GOT!!!!!!!!!!!!!!!!!");
 
 	return;
 }

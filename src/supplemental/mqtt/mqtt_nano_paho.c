@@ -7,10 +7,10 @@
 #include "supplemental/mqtt/mqtt_msg.h"
 #include "mqtt_qos_db.h"
 
-#define URI_TCP "tcp://"
+#define URI_TCP "mqtt-tcp://"
 #define URI_WS "ws://"
 #define URI_WSS "wss://"
-#define URI_SSL "ssl://"
+#define URI_SSL "tls+mqtt-tcp://"
 
 static const char* UTF8_char_validate(int len, const char* data);
 
@@ -240,7 +240,7 @@ recv_callback(nng_mqtt_client *client, nng_msg *msg, void *arg)
 		printf("Sending in async way is done.\n");
 		break;
 	}
-	nng_log_warn("test", "aio mqtt result %d \n", nng_aio_result(aio));
+	nng_log_debug("test", "aio mqtt result %d \n", nng_aio_result(aio));
 	nng_msg_free(msg);
 }
 
@@ -336,7 +336,6 @@ MQTTAsync_setCallbacks(MQTTAsync handle, void *context,
 	if (m == NULL || ma == NULL || m->nanosdk_client != NULL)
 		rc = MQTTASYNC_FAILURE;
 	else {
-
 		m->clContext = m->maContext = m->dcContext = context;
 		m->cl                                      = cl;
 		m->ma                                      = ma;
@@ -361,11 +360,11 @@ MQTTAsync_createWithOptions(MQTTAsync *handle, const char *serverURI,
 		goto exit;
 	}
 
-	// if (!UTF8_validateString(clientId))
-	// {
-	// 	rc = MQTTASYNC_BAD_UTF8_STRING;
-	// 	goto exit;
-	// }
+	if (!UTF8_validateString(clientId))
+	{
+		rc = MQTTASYNC_BAD_UTF8_STRING;
+		goto exit;
+	}
 
 	if (strlen(clientId) == 0 &&
 	    persistence_type == MQTTCLIENT_PERSISTENCE_DEFAULT) {
@@ -377,18 +376,17 @@ MQTTAsync_createWithOptions(MQTTAsync *handle, const char *serverURI,
 		goto exit;
 	}
 
-// 	if (strstr(serverURI, "://") != NULL) {
-// 		if (strncmp(URI_TCP, serverURI, strlen(URI_TCP)) != 0 &&
-// 		    strncmp(URI_WS, serverURI, strlen(URI_WS)) != 0
-// #if defined(OPENSSL)
-// 		    && strncmp(URI_SSL, serverURI, strlen(URI_SSL)) != 0 &&
-// 		    strncmp(URI_WSS, serverURI, strlen(URI_WSS)) != 0
-// #endif
-// 		) {
-// 			rc = MQTTASYNC_BAD_PROTOCOL;
-// 			goto exit;
-// 		}
-// 	}
+	if (strstr(serverURI, "://") != NULL) {
+		if (strncmp(URI_TCP, serverURI, strlen(URI_TCP)) != 0
+#if defined(OPENSSL)
+		    && strncmp(URI_SSL, serverURI, strlen(URI_SSL)) != 0 &&
+		    strncmp(URI_WSS, serverURI, strlen(URI_WSS)) != 0
+#endif
+		) {
+			rc = MQTTASYNC_BAD_PROTOCOL;
+			goto exit;
+		}
+	}
 	if (options &&
 	    (strncmp(options->struct_id, "MQCO", 4) != 0 ||
 	        options->struct_version < 0 || options->struct_version > 2)) {
@@ -396,23 +394,11 @@ MQTTAsync_createWithOptions(MQTTAsync *handle, const char *serverURI,
 		goto exit;
 	}
     if (options &&
-        options->MQTTVersion >= MQTTVERSION_5)
+        options->MQTTVersion > MQTTVERSION_5)
 	{
 		rc = MQTTASYNC_WRONG_MQTT_VERSION;
 		goto exit;
 	}
-	// if (options) {
-	// 	if ((m->createOptions =
-	// 	            malloc(sizeof(MQTTAsync_createOptions))) == NULL) {
-	// 		rc = PAHO_MEMORY_ERROR;
-	// 		goto exit;
-	// 	}
-	// 	memcpy(m->createOptions, options,
-	// 	    sizeof(MQTTAsync_createOptions));
-	// 	if (options->struct_version > 0)
-	// 		m->c->MQTTVersion = options->MQTTVersion;
-	// }
-	// if (options->MQTTVersion ==)
 	// To enable SCRAM open a MQTTv5 socket
     // here starts NanoSDK
 
@@ -427,7 +413,7 @@ MQTTAsync_createWithOptions(MQTTAsync *handle, const char *serverURI,
     *handle = m;
     m->MQTTVersion = options->MQTTVersion;
     m->sock   = (nng_socket *) nng_alloc(sizeof(nng_socket));
-    if (options && options->MQTTVersion == MQTTVERSION_5) {
+    if (options && options->MQTTVersion >= MQTTVERSION_5) {
         if ((rc = nng_mqttv5_client_open(m->sock)) != 0) {
             rc = NNG_ENOMEM;
 		    goto exit;
@@ -441,15 +427,10 @@ MQTTAsync_createWithOptions(MQTTAsync *handle, const char *serverURI,
     m->dialer   = (nng_dialer *) nng_alloc(sizeof(nng_dialer));
     if ((rc = nng_dialer_create(m->dialer, *m->sock, serverURI))) {
 		nng_log_warn("dialer", "Dialer init failed!");
-		goto exit;
-	}
-    if (options && options->MQTTVersion == MQTTVERSION_5) {
-        // Enable scram
-	    bool enable_scram = true;
-	    nng_dialer_set(*m->dialer, NNG_OPT_MQTT_ENABLE_SCRAM, &enable_scram, sizeof(bool));
+        rc = MQTTASYNC_FAILURE;
     }
-    nng_duration retry = 10000;
-	nng_socket_set_ms(*m->sock, NNG_OPT_MQTT_RETRY_INTERVAL, retry);
+    // nni_atomic_init_bool(&m->connected_flag);
+    // nni_atomic_set_bool(&m->connected_flag, false);
 
 exit:
 	return rc;
@@ -475,40 +456,66 @@ connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 	// get property for MQTT V5
 	// property *prop;
 	// nng_pipe_get_ptr(p, NNG_OPT_MQTT_CONNECT_PROPERTY, &prop);
-	printf("%s: connected! RC [%d] \n", __FUNCTION__, reason);
     nng_log_warn("Connected!", "This is also fine");
-    m->shouldBeConnected = 1;
-    if (m->connect.onSuccess) {
-        MQTTAsync_successData data;
-        memset(&data, '\0', sizeof(data));
-        if ((m->serverURIcount > 0) && (m->connect.details.conn.currentURI < m->serverURIcount))
-            data.alt.connect.serverURI = m->serverURIs[m->connect.details.conn.currentURI];
-        else
-            data.alt.connect.serverURI = m->serverURI;
-        data.alt.connect.MQTTVersion = m->connect.details.conn.MQTTVersion;
-        // data.alt.connect.sessionPresent = sessionPresent;
-        (*(m->connect.onSuccess))(m->connect.context, &data);
-        /* Null out callback pointers so they aren't accidentally called again */
-        m->connect.onSuccess = NULL;
-        m->connect.onFailure = NULL;
-    } else if (m->connect.onSuccess5) {
-        MQTTAsync_successData5 data = MQTTAsync_successData5_initializer;
-        if (m->serverURIcount > 0)
-            data.alt.connect.serverURI = m->serverURIs[m->connect.details.conn.currentURI];
-        else
-            data.alt.connect.serverURI = m->serverURI;
-        data.alt.connect.MQTTVersion = m->connect.details.conn.MQTTVersion;
-        data.reasonCode = reason;
-        // data.alt.connect.sessionPresent = sessionPresent;
-        // data.properties = connack->properties;
-        // data.reasonCode = connack->rc;
-        (*(m->connect.onSuccess5))(m->connect.context, &data);
-        /* Null out callback pointers so they aren't accidentally called again */
-        m->connect.onSuccess5 = NULL;
-        m->connect.onFailure5 = NULL;
-    }
-    if (m->connected) {
-	    (*(m->connected))(m->connected_context, reason);
+    if (reason == MQTTREASONCODE_SUCCESS) {
+        m->shouldBeConnected = 1;
+        if (m->connect.onSuccess) {
+            MQTTAsync_successData data;
+            memset(&data, '\0', sizeof(data));
+            if ((m->serverURIcount > 0) && (m->connect.details.conn.currentURI < m->serverURIcount))
+                data.alt.connect.serverURI = m->serverURIs[m->connect.details.conn.currentURI];
+            else
+                data.alt.connect.serverURI = m->serverURI;
+            data.alt.connect.MQTTVersion = m->connect.details.conn.MQTTVersion;
+            // data.alt.connect.sessionPresent = sessionPresent;
+            (*(m->connect.onSuccess))(m->connect.context, &data);
+            /* Null out callback pointers so they aren't accidentally called again */
+            m->connect.onSuccess = NULL;
+            m->connect.onFailure = NULL;
+        } else if (m->connect.onSuccess5) {
+            MQTTAsync_successData5 data = MQTTAsync_successData5_initializer;
+            if (m->serverURIcount > 0)
+                data.alt.connect.serverURI = m->serverURIs[m->connect.details.conn.currentURI];
+            else
+                data.alt.connect.serverURI = m->serverURI;
+            data.alt.connect.MQTTVersion = m->connect.details.conn.MQTTVersion;
+            data.reasonCode = reason;
+            // data.alt.connect.sessionPresent = sessionPresent;
+            // data.properties = connack->properties;
+            // data.reasonCode = connack->rc;
+            (*(m->connect.onSuccess5))(m->connect.context, &data);
+            /* Null out callback pointers so they aren't accidentally called again */
+            m->connect.onSuccess5 = NULL;
+            m->connect.onFailure5 = NULL;
+        }
+        if (m->connected) {
+            (*(m->connected))(m->connected_context, reason);
+        }
+    } else {
+        if (m->connect.onFailure)
+		{
+			MQTTAsync_failureData data;
+			data.token = 0;
+			data.code = reason;
+			data.message = NULL;
+			nng_log_info("CONNECT", "Calling connect failure for client");
+			(*(m->connect.onFailure))(m->connect.context, &data);
+			/* Null out callback pointers so they aren't accidentally called again */
+			m->connect.onFailure = NULL;
+			m->connect.onSuccess = NULL;
+		}
+		else if (m->connect.onFailure5)
+		{
+			MQTTAsync_failureData5 data = MQTTAsync_failureData5_initializer;
+			data.token = 0;
+			data.code = reason;
+			data.message = NULL;
+			nng_log_info("CONNECT", "Calling connect failure for client");
+            (*(m->connect.onFailure5))(m->connect.context, &data);
+			/* Null out callback pointers so they aren't accidentally called again */
+			m->connect.onFailure5 = NULL;
+			m->connect.onSuccess5 = NULL;
+		}
     }
 }
 
@@ -537,10 +544,15 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 	MQTTAsyncs *m = handle;
     nng_socket *sock = m->sock;
     nng_dialer *dialer = m->dialer;
-	
+
     // create a CONNECT message
 	/* CONNECT */
-	nng_msg *connmsg;
+	nng_msg *connmsg = NULL;
+    // nng_dialer_get_ptr(*dialer, NNG_OPT_MQTT_CONNMSG, &connmsg);
+    // if (connmsg != NULL) {
+    //     nng_log_warn("MQTTAsync_connect", "Auto reconnect is enalbed by default!");
+    //     return MQTTASYNC_FAILURE;
+    // }
 	nng_mqtt_msg_alloc(&connmsg, 0);
 	nng_mqtt_msg_set_packet_type(connmsg, NNG_MQTT_CONNECT);
 	if (options == NULL)
@@ -561,7 +573,7 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 	// }
 	// To enable SCRAM, version must be MQTTv5
 #endif
-	if (options->MQTTVersion == MQTTVERSION_5)
+	if (options->MQTTVersion >= MQTTVERSION_5)
 		nng_mqtt_msg_set_connect_proto_version(
 		    connmsg, MQTT_PROTOCOL_VERSION_v5);
 	else
@@ -690,6 +702,11 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 #ifdef OPENSSL
     if (options->struct_version != 0 && options->ssl)
 	{
+        if (m->MQTTVersion >= MQTTVERSION_5) {
+            // Enable scram
+	        bool enable_scram = true;
+	        nng_dialer_set(*m->dialer, NNG_OPT_MQTT_ENABLE_SCRAM, &enable_scram, sizeof(bool));
+        }
 		if ((m->c->sslopts = malloc(sizeof(MQTTClient_SSLOptions))) == NULL)
 		{
 			rc = PAHO_MEMORY_ERROR;
@@ -772,12 +789,20 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 	// nng_mqtt_msg_set_connect_will_property(connmsg, will_prop);
 	nng_mqtt_set_connect_cb(*sock, connect_cb, m);
 	nng_mqtt_set_disconnect_cb(*sock, disconnect_cb, m);
-	nng_dialer_set_ptr(*dialer, NNG_OPT_MQTT_CONNMSG, connmsg);
+    if (m->MQTTVersion >= MQTTVERSION_5)
+        nng_mqttv5_msg_encode(connmsg);
+    else
+        nng_mqtt_msg_encode(connmsg);
+	if (nng_dialer_set_ptr(*dialer, NNG_OPT_MQTT_CONNMSG, connmsg) != 0) {
+        nng_log_warn("nng_dialer_set_ptr", "set failed");
+        rc = MQTTASYNC_FAILURE;
+        goto exit;
+    }
 	nng_dialer_start(*dialer, NNG_FLAG_NONBLOCK);
     return;
 exit:
     nng_msg_free(connmsg);
-	return MQTTASYNC_BAD_PROTOCOL;
+	return rc;
 }
 
 int MQTTAsync_subscribeMany(MQTTAsync handle, int count, char *const *topic, const int *qos, MQTTAsync_responseOptions *response)
@@ -846,6 +871,7 @@ int MQTTAsync_subscribeMany(MQTTAsync handle, int count, char *const *topic, con
 		}
 	}
 	nng_mqtt_subscribe_async(client, topic_qos, count, NULL);
+    nng_mqtt_topic_qos_array_free(topic_qos, count);
 	return rc;
 }
 
@@ -998,8 +1024,9 @@ int MQTTAsync_disconnect(MQTTAsync handle, const MQTTAsync_disconnectOptions *op
 	}
 	m->disconnect.type = DISCONNECT;
 	m->disconnect.details.dis.internal = 0; // ???
-    nng_mqtt_disconnect(client, options->reasonCode, NULL);
+    nng_mqtt_disconnect(m->sock, options->reasonCode, NULL);
     m->shouldBeConnected = 0;
+    return rc;
 }
 
 void MQTTAsync_destroy(MQTTAsync *handle)
@@ -1013,6 +1040,8 @@ void MQTTAsync_destroy(MQTTAsync *handle)
     // free objects
     nng_mqtt_client_free(m->nanosdk_client, true);
     nng_free(m->sock, sizeof(nng_socket));
+    m->sock = NULL;
     nng_free(m->dialer, sizeof(nng_dialer));
+    m->dialer = NULL;
     nng_free(m, sizeof(MQTTAsyncs));
 }
