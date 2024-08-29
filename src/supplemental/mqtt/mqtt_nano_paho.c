@@ -14,6 +14,63 @@
 
 static const char* UTF8_char_validate(int len, const char* data);
 
+
+const char *MQTTAsync_strerror(int code)
+{
+	static char buf[30];
+	int chars = 0;
+
+	switch (code)
+	{
+	case MQTTASYNC_SUCCESS:
+		return "Success";
+	case MQTTASYNC_FAILURE:
+		return "Failure";
+	case MQTTASYNC_PERSISTENCE_ERROR:
+		return "Persistence error";
+	case MQTTASYNC_DISCONNECTED:
+		return "Disconnected";
+	case MQTTASYNC_MAX_MESSAGES_INFLIGHT:
+		return "Maximum in-flight messages amount reached";
+	case MQTTASYNC_BAD_UTF8_STRING:
+		return "Invalid UTF8 string";
+	case MQTTASYNC_NULL_PARAMETER:
+		return "Invalid (NULL) parameter";
+	case MQTTASYNC_TOPICNAME_TRUNCATED:
+		return "Topic containing NULL characters has been truncated";
+	case MQTTASYNC_BAD_STRUCTURE:
+		return "Bad structure";
+	case MQTTASYNC_BAD_QOS:
+		return "Invalid QoS value";
+	case MQTTASYNC_NO_MORE_MSGIDS:
+		return "Too many pending commands";
+	case MQTTASYNC_OPERATION_INCOMPLETE:
+		return "Operation discarded before completion";
+	case MQTTASYNC_MAX_BUFFERED_MESSAGES:
+		return "No more messages can be buffered";
+	case MQTTASYNC_SSL_NOT_SUPPORTED:
+		return "SSL is not supported";
+	case MQTTASYNC_BAD_PROTOCOL:
+		return "Invalid protocol scheme";
+	case MQTTASYNC_BAD_MQTT_OPTION:
+		return "Options for wrong MQTT version";
+	case MQTTASYNC_WRONG_MQTT_VERSION:
+		return "Client created for another version of MQTT";
+	case MQTTASYNC_0_LEN_WILL_TOPIC:
+		return "Zero length will topic on connect";
+	case MQTTASYNC_COMMAND_IGNORED:
+		return "Connect or disconnect command ignored";
+	}
+
+	chars = snprintf(buf, sizeof(buf), "Unknown error code %d", code);
+	if (chars >= sizeof(buf))
+	{
+		buf[sizeof(buf) - 1] = '\0';
+		nng_log_info("LOG_ERROR", "Error writing %d chars with snprintf", chars);
+	}
+	return buf;
+}
+
 /**
  * Validate a single UTF-8 character
  * @param len the length of the string in "data"
@@ -340,7 +397,7 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
 		printf("Sending in async way is done.\n");
 		break;
 	}
-	printf("Aio mqtt result %d \n", nng_aio_result(aio));
+	nng_log_debug("Send callback", "aio mqtt result %d \n", nng_aio_result(aio));
 	nng_msg_free(msg);
 }
 
@@ -434,7 +491,10 @@ MQTTAsync_createWithOptions(MQTTAsync *handle, const char *serverURI,
 	}
     memset(m, '\0', sizeof(MQTTAsyncs));
     *handle = m;
-    m->MQTTVersion = options->MQTTVersion;
+    if (options)
+        m->MQTTVersion = options->MQTTVersion;
+    else
+        m->MQTTVersion = MQTTVERSION_3_1_1;
     m->sock   = (nng_socket *) nng_alloc(sizeof(nng_socket));
     if (options && options->MQTTVersion >= MQTTVERSION_5) {
         if ((rc = nng_mqttv5_client_open(m->sock)) != 0) {
@@ -562,7 +622,7 @@ disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 
 int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 {
-    int rc;
+    int rc = MQTTASYNC_SUCCESS;
 	MQTTAsyncs *m = handle;
     nng_socket *sock = m->sock;
     nng_dialer *dialer = m->dialer;

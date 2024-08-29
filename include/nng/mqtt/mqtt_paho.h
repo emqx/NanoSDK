@@ -49,6 +49,14 @@ extern "C" {
 #define MQTTCLIENT_PERSISTENCE_ERROR -2
 
 /**
+ * Returns a pointer to a string representation of the error code, or NULL.
+ * Do not free after use. Returns NULL if the error code is unknown.
+ * @param code the MQTTASYNC_ return code.
+ * @return a static string representation of the error code.
+ */
+NNG_DECL const char *MQTTAsync_strerror(int code);
+
+/**
  * @brief Initialize the persistent store.
  *
  * Either open the existing persistent store for this client ID or create a new

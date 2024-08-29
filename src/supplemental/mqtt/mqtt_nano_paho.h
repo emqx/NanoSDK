@@ -19,7 +19,6 @@ extern "C" {
 
 #define PAHO_MEMORY_ERROR -99
 
-
 struct {
 	enum MQTTPropertyCodes value;
 	const char* name;
