@@ -5,6 +5,22 @@
 #include <string.h>
 
 #define OPEN_DEBUG 1
+//#define OPEN_TRACE 1
+
+#ifdef OPEN_TRACE
+
+#define trace(format, arg...)                                                 \
+	do {                                                                  \
+		fprintf(stderr, ">>>[%s] " format "\n", __FUNCTION__, ##arg); \
+	} while (0)
+
+#else
+
+#define trace(format, arg...)                                                 \
+	do {                                                                  \
+	} while (0)
+
+#endif
 
 #ifdef OPEN_DEBUG
 #include <execinfo.h>
@@ -26,9 +42,11 @@ print_trace()
 }
 
 static void
-print_hex(const uint8_t *data, size_t len)
+print_hex(char *str, const uint8_t *data, size_t len)
 {
-	fprintf(stderr, "%p (%ld): ", data, len);
+	if (len == 0)
+		return;
+	fprintf(stderr, " %s (%ld): ", str, len);
 	for (size_t i=0; i<len; ++i) fprintf(stderr, "%x ", data[i]);
 	fprintf(stderr, "\n");
 }
@@ -36,11 +54,6 @@ print_hex(const uint8_t *data, size_t len)
 #define debug(format, arg...)                                              \
 	do {                                                               \
 		fprintf(stderr, "[%s] " format "\n", __FUNCTION__, ##arg); \
-	} while (0)
-
-#define trace(format, arg...)                                                 \
-	do {                                                                  \
-		fprintf(stderr, ">>>[%s] " format "\n", __FUNCTION__, ##arg); \
 	} while (0)
 
 #else
@@ -58,10 +71,6 @@ print_hex(const uint8_t *data, size_t len)
 }
 #define debug(format, arg...)                                              \
 	do {                                                               \
-	} while (0)
-
-#define trace(format, arg...)                                                 \
-	do {                                                                  \
 	} while (0)
 
 #endif
@@ -300,15 +309,15 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 readopenssl:
 	if ((rv = SSL_read(ec->ssl, buf, (int) *szp)) < 0) {
 		rv = SSL_get_error(ec->ssl, rv);
-		debug("result in openssl read %d", rv);
 		if (rv != SSL_ERROR_WANT_READ) {
+			debug("ERROR result in openssl read %d", rv);
 			return (NNG_ECRYPTO);
 		}
 		*szp = 0;
 		// TODO return codes according openssl documents
 	}
-	debug("recv buffer:");
-	print_hex((const uint8_t *)buf, *szp);
+	debug();
+	print_hex("recv buffer:", (const uint8_t *)buf, *szp);
 	nng_msleep(200);
 
 	trace("end");
@@ -328,8 +337,7 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 		return (NNG_EAGAIN);
 	}
 
-	debug("send buffer:");
-	print_hex(buf, *szp);
+	print_hex("send buffer:", buf, *szp);
 
 	if ((rv = SSL_write(ec->ssl, buf, (int) (*szp))) <= 0) {
 		rv = SSL_get_error(ec->ssl, rv);
