@@ -341,6 +341,7 @@ static int
 open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 {
 	int rv;
+	int written2ssl = 0;
 	trace("start");
 
 	// Am I ready?
@@ -352,13 +353,15 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 	print_hex("send buffer:", buf, *szp);
 
 	if ((rv = SSL_write(ec->ssl, buf, (int) (*szp))) <= 0) {
+		// TODO return codes according openssl documents
 		rv = SSL_get_error(ec->ssl, rv);
 		if (rv != SSL_ERROR_WANT_READ) {
 			debug("ERROR result in send %d", rv);
 			return (NNG_ECRYPTO);
 		}
-		// TODO return codes according openssl documents
 	}
+	written2ssl = rv;
+
 	int ensz;
 	while ((ensz = BIO_read(ec->wbio, ec->rbuf, 4096)) > 0) {
 		debug("BIO read rv%d", ensz);
@@ -383,7 +386,7 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 	}
 
 	trace("end ensz%d", ensz);
-	// *szp = (size_t) rv;
+	*szp = (size_t) written2ssl;
 	return (0);
 }
 
