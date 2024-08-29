@@ -328,6 +328,9 @@ readopenssl:
 		*szp = (size_t) rv;
 	}
 	print_hex("recv buffer:", (const uint8_t *)buf, *szp);
+	if (*szp == 0) {
+		return NNG_EAGAIN;
+	}
 	nng_msleep(50);
 
 	trace("end");
