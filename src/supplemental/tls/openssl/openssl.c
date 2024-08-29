@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define OPEN_DEBUG 1
+//#define OPEN_DEBUG 1
 //#define OPEN_TRACE 1
 
 #ifdef OPEN_TRACE
@@ -64,8 +64,9 @@ print_trace()
 }
 
 static void
-print_hex(const uint8_t *data, size_t len)
+print_hex(char *str, const uint8_t *data, size_t len)
 {
+	(void) str;
 	(void) data;
 	(void) len;
 }
@@ -227,9 +228,9 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 	trace("start");
 	if (ec->ok == 1)
 		return 0;
-#ifdef OPEN_DEBUG
+
 	print_trace();
-#endif
+
 	if (ec->running == 1)
 		//return 0;
 		return NNG_EAGAIN;
