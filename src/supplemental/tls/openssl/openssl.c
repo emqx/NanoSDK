@@ -125,7 +125,9 @@ open_net_read(void *ctx, char *buf, int len) {
 	int    rv;
 
 	rv = nng_tls_engine_recv(ctx, (uint8_t *) buf, &sz);
-	trace("end rv%d sz%ld", rv, sz);
+	if (rv == 0)
+		debug("Read From TCP %ld/%d rv%d", sz, len, rv);
+	trace("end");
 	switch (rv) {
 	case 0:
 		return ((int) sz);
@@ -151,7 +153,8 @@ open_net_write(void *ctx, const char *buf, int len) {
 	int    rv;
 
 	rv = nng_tls_engine_send(ctx, (const uint8_t *) buf, &sz);
-	debug("Sent %ld/%d rv%d", sz, len, rv);
+	if (rv == 0)
+		debug("Sent To TCP %ld/%d rv%d", sz, len, rv);
 	trace("end");
 	switch (rv) {
 	case 0:
@@ -299,29 +302,35 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 		return (NNG_ECLOSED);
 
 	debug("recv %d from tcp", rv);
-	ensz = BIO_write(ec->rbio, ec->wbuf, rv);
+	int written = 0;
+	while ((ensz = BIO_write(ec->rbio, ec->wbuf + written, rv - written)) > 0) {
+		written += ensz;
+		if (written == rv)
+			break;
+	}
 	if (ensz < 0) {
-		debug("bio write failed %d", ensz);
-		if (!BIO_should_retry(ec->rbio))
+		if (!BIO_should_retry(ec->rbio)) {
+			debug("ERROR bio write failed %d", ensz);
 			return (NNG_ECRYPTO);
+		}
 	}
 
 readopenssl:
 	if ((rv = SSL_read(ec->ssl, buf, (int) *szp)) < 0) {
 		rv = SSL_get_error(ec->ssl, rv);
+		// TODO return codes according openssl documents
 		if (rv != SSL_ERROR_WANT_READ) {
 			debug("ERROR result in openssl read %d", rv);
 			return (NNG_ECRYPTO);
 		}
 		*szp = 0;
-		// TODO return codes according openssl documents
+	} else {
+		*szp = (size_t) rv;
 	}
-	debug();
 	print_hex("recv buffer:", (const uint8_t *)buf, *szp);
-	nng_msleep(200);
+	nng_msleep(50);
 
 	trace("end");
-	// *szp = (size_t) rv;
 	return (0);
 }
 
@@ -341,25 +350,35 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 
 	if ((rv = SSL_write(ec->ssl, buf, (int) (*szp))) <= 0) {
 		rv = SSL_get_error(ec->ssl, rv);
-		debug("result in send %d", rv);
 		if (rv != SSL_ERROR_WANT_READ) {
+			debug("ERROR result in send %d", rv);
 			return (NNG_ECRYPTO);
 		}
 		// TODO return codes according openssl documents
 	}
-	int ensz = 4096;
+	int ensz;
 	while ((ensz = BIO_read(ec->wbio, ec->rbuf, 4096)) > 0) {
 		debug("BIO read rv%d", ensz);
-		if (ensz < 0) {
-			if (!BIO_should_retry(ec->wbio))
-				return (NNG_ECRYPTO);
+		int written = 0;
+		while (1) {
+			rv = open_net_write(ec->tls, ec->rbuf + written, ensz - written);
+			if (rv > 0) {
+				written += rv;
+				if (written == ensz)
+					break;
+			} else if (rv == 0 - SSL_ERROR_WANT_READ || rv == 0 - SSL_ERROR_WANT_WRITE)
+				return (NNG_EAGAIN);
+			else
+				return (NNG_ECLOSED);
 		}
-		rv = open_net_write(ec->tls, ec->rbuf, ensz);
-		if (rv == 0 - SSL_ERROR_WANT_READ || rv == 0 - SSL_ERROR_WANT_WRITE)
-			return (NNG_EAGAIN);
-		else if (rv < 0)
-			return (NNG_ECLOSED);
 	}
+	if (ensz < 0) {
+		if (!BIO_should_retry(ec->wbio)) {
+			debug("ERROR BIO read rv%d", ensz);
+			return (NNG_ECRYPTO);
+		}
+	}
+
 	trace("end ensz%d", ensz);
 	// *szp = (size_t) rv;
 	return (0);
