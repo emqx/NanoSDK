@@ -1,5 +1,6 @@
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -7,8 +8,8 @@
 
 #ifdef OPEN_DEBUG
 #include <execinfo.h>
-void
-print_trace(void)
+static void
+print_trace()
 {
 	void  *array[10];
 	char **strings;
@@ -23,6 +24,46 @@ print_trace(void)
 	}
 	free(strings);
 }
+
+static void
+print_hex(const uint8_t *data, size_t len)
+{
+	fprintf(stderr, "%p (%ld): ", data, len);
+	for (size_t i=0; i<len; ++i) fprintf(stderr, "%x ", data[i]);
+	fprintf(stderr, "\n");
+}
+
+#define debug(format, arg...)                                              \
+	do {                                                               \
+		fprintf(stderr, "[%s] " format "\n", __FUNCTION__, ##arg); \
+	} while (0)
+
+#define trace(format, arg...)                                                 \
+	do {                                                                  \
+		fprintf(stderr, ">>>[%s] " format "\n", __FUNCTION__, ##arg); \
+	} while (0)
+
+#else
+
+static void
+print_trace()
+{
+}
+
+static void
+print_hex(const uint8_t *data, size_t len)
+{
+	(void) data;
+	(void) len;
+}
+#define debug(format, arg...)                                              \
+	do {                                                               \
+	} while (0)
+
+#define trace(format, arg...)                                                 \
+	do {                                                                  \
+	} while (0)
+
 #endif
 
 #include <openssl/evp.h>
@@ -63,19 +104,19 @@ static int open_conn_handshake(nng_tls_engine_conn *ec);
 static void
 open_conn_fini(nng_tls_engine_conn *ec)
 {
-	fprintf(stderr, "[%s] start\n", __FUNCTION__);
+	trace("start");
 	SSL_free(ec->ssl);
-	fprintf(stderr, "[%s] end\n", __FUNCTION__);
+	trace("end");
 }
 
 static int
 open_net_read(void *ctx, char *buf, int len) {
-	fprintf(stderr, "[%s] start\n", __FUNCTION__);
+	trace("start");
 	size_t sz = len;
 	int    rv;
 
 	rv = nng_tls_engine_recv(ctx, (uint8_t *) buf, &sz);
-	fprintf(stderr, "[%s] end rv%d sz%ld\n", __FUNCTION__, rv, sz);
+	trace("end rv%d sz%ld", rv, sz);
 	switch (rv) {
 	case 0:
 		return ((int) sz);
@@ -96,12 +137,13 @@ open_net_read(void *ctx, char *buf, int len) {
 
 static int
 open_net_write(void *ctx, const char *buf, int len) {
-	fprintf(stderr, "[%s] start %d\n", __FUNCTION__, len);
+	trace("start %d", len);
 	size_t sz = len;
 	int    rv;
 
 	rv = nng_tls_engine_send(ctx, (const uint8_t *) buf, &sz);
-	fprintf(stderr, "[%s] end rv%d sz%ld\n", __FUNCTION__, rv, sz);
+	debug("Sent %ld/%d rv%d", sz, len, rv);
+	trace("end");
 	switch (rv) {
 	case 0:
 		return ((int) sz);
@@ -124,16 +166,17 @@ open_net_write(void *ctx, const char *buf, int len) {
 static int
 open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 {
-	fprintf(stderr, "[%s] start\n", __FUNCTION__);
+	trace("start");
 	ec->running = 0;
 	ec->ok = 0;
 	ec->tls = tls;
 	if ((ec->ssl = SSL_new(cfg->ctx)) == NULL) {
-		fprintf(stderr, "[%s] error in new SSL connection\n", __FUNCTION__);
+		debug("error in new SSL connection\n");
 		return (NNG_ENOMEM); // most likely
 	}
 
-	fprintf(stderr, "[%s] mode %d\n", __FUNCTION__, cfg->mode);
+	debug("%s\n", cfg->mode == NNG_TLS_MODE_SERVER ? "SSL Server Mode":"SSL Client Mode");
+
 	if (cfg->mode == NNG_TLS_MODE_CLIENT)
 		SSL_set_connect_state(ec->ssl);
 	else
@@ -142,7 +185,7 @@ open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 	ec->rbio = BIO_new(BIO_s_mem());
 	ec->wbio = BIO_new(BIO_s_mem());
 	if (!ec->rbio || !ec->wbio) {
-		fprintf(stderr, "[%s] error in new BIO for connection\n", __FUNCTION__);
+		debug("error in new BIO for connection\n");
 		return (NNG_ENOMEM); // most likely
 	}
 	SSL_set_bio(ec->ssl, ec->rbio, ec->wbio);
@@ -151,7 +194,7 @@ open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 		SSL_set_tlsext_host_name(ec->ssl, cfg->server_name);
 	}
 	open_conn_handshake(ec);
-	fprintf(stderr, "[%s] end\n", __FUNCTION__);
+	trace("end");
 
 	return (0);
 }
@@ -159,9 +202,9 @@ open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 static void
 open_conn_close(nng_tls_engine_conn *ec)
 {
-	fprintf(stderr, "[%s] start\n", __FUNCTION__);
+	trace("start");
 	SSL_shutdown(ec->ssl);
-	fprintf(stderr, "[%s] end\n", __FUNCTION__);
+	trace("end");
 }
 
 static int
@@ -169,7 +212,7 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 {
 	int rv;
 	int cnt = 10;
-	fprintf(stderr, "[%s] start\n", __FUNCTION__);
+	trace("start");
 	if (ec->ok == 1)
 		return 0;
 #ifdef OPEN_DEBUG
@@ -185,12 +228,12 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 		rv = SSL_do_handshake(ec->ssl);
 		if (rv != 0)
 			rv = SSL_get_error(ec->ssl, rv);
-		fprintf(stderr, "[%d]openssl do handshake failed rv%d\n", cnt, rv);
+		debug("[%d]openssl do handshake failed rv%d\n", cnt, rv);
 		cnt --;
 		if (rv == SSL_ERROR_WANT_READ || rv == SSL_ERROR_WANT_WRITE) {
 			int ensz;
 			while ((ensz = BIO_read(ec->wbio, ec->rbuf, 4096)) > 0) {
-				fprintf(stderr, "[%s] BIO read rv%d\n", __FUNCTION__, ensz);
+				debug("BIO read rv%d", ensz);
 				if (ensz < 0) {
 					if (!BIO_should_retry(ec->wbio))
 						return (NNG_ECRYPTO);
@@ -204,9 +247,9 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 
 			while ((ensz = open_net_read(ec->tls, ec->wbuf, 1024)) > 0) {
 				ensz = BIO_write(ec->rbio, ec->wbuf, ensz);
-				fprintf(stderr, "[%s] BIO write rv%d\n", __FUNCTION__, ensz);
+				debug("BIO write rv%d", ensz);
 				if (ensz < 0) {
-					fprintf(stderr, "bio write failed %d\n", ensz);
+					debug("bio write failed %d\n", ensz);
 					if (!BIO_should_retry(ec->rbio))
 						return (NNG_ECRYPTO);
 				}
@@ -220,7 +263,7 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 		nng_msleep(200);
 		rv = NNG_EAGAIN;
 	}
-	fprintf(stderr, "[%s] end\n", __FUNCTION__);
+	trace("end");
 	ec->running = 0;
 	return rv;
 }
@@ -228,13 +271,13 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 static int
 open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 {
-	fprintf(stderr, "[%s] start\n", __FUNCTION__);
+	trace("start");
 	int rv;
 	int ensz = 4096;
 
 	// Am I ready?
 	if (!SSL_is_init_finished(ec->ssl)) {
-		fprintf(stderr, "[%s] Not Ready !!!!!!!!!!!!\n", __FUNCTION__);
+		trace("end Not Ready !!!!!!!!!!!!");
 		return (NNG_EAGAIN);
 	}
 
@@ -246,10 +289,10 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 	else if (rv < 0)
 		return (NNG_ECLOSED);
 
-	fprintf(stderr, "recv %d from tcp\n", rv);
+	debug("recv %d from tcp", rv);
 	ensz = BIO_write(ec->rbio, ec->wbuf, rv);
 	if (ensz < 0) {
-		fprintf(stderr, "bio write failed %d\n", ensz);
+		debug("bio write failed %d", ensz);
 		if (!BIO_should_retry(ec->rbio))
 			return (NNG_ECRYPTO);
 	}
@@ -257,20 +300,18 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 readopenssl:
 	if ((rv = SSL_read(ec->ssl, buf, (int) *szp)) < 0) {
 		rv = SSL_get_error(ec->ssl, rv);
-		fprintf(stderr, "result in recv %d\n", rv);
+		debug("result in openssl read %d", rv);
 		if (rv != SSL_ERROR_WANT_READ) {
 			return (NNG_ECRYPTO);
 		}
 		*szp = 0;
 		// TODO return codes according openssl documents
 	}
-
-	fprintf(stderr, "recv buffer (%ld): ", *szp);
-	for (size_t i=0; i<*szp; ++i) fprintf(stderr, "%x ", buf[i]);
-	fprintf(stderr, "\n");
+	debug("recv buffer:");
+	print_hex((const uint8_t *)buf, *szp);
 	nng_msleep(200);
 
-	fprintf(stderr, "[%s] end\n", __FUNCTION__);
+	trace("end");
 	// *szp = (size_t) rv;
 	return (0);
 }
@@ -279,21 +320,20 @@ static int
 open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 {
 	int rv;
-	fprintf(stderr, "[%s] start\n", __FUNCTION__);
+	trace("start");
 
 	// Am I ready?
 	if (!SSL_is_init_finished(ec->ssl)) {
-		fprintf(stderr, "[%s] Not Ready !!!!!!!!!!!!\n", __FUNCTION__);
+		trace("end Not Ready !!!!!!!!!!!!");
 		return (NNG_EAGAIN);
 	}
 
-	fprintf(stderr, "send buffer (%ld): ", *szp);
-	for (size_t i=0; i<*szp; ++i) fprintf(stderr, "%x ", buf[i]);
-	fprintf(stderr, "\n");
+	debug("send buffer:");
+	print_hex(buf, *szp);
 
 	if ((rv = SSL_write(ec->ssl, buf, (int) (*szp))) <= 0) {
 		rv = SSL_get_error(ec->ssl, rv);
-		fprintf(stderr, "result in send %d\n", rv);
+		debug("result in send %d", rv);
 		if (rv != SSL_ERROR_WANT_READ) {
 			return (NNG_ECRYPTO);
 		}
@@ -301,7 +341,7 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 	}
 	int ensz = 4096;
 	while ((ensz = BIO_read(ec->wbio, ec->rbuf, 4096)) > 0) {
-		fprintf(stderr, "BIO read rv%d\n", ensz);
+		debug("BIO read rv%d", ensz);
 		if (ensz < 0) {
 			if (!BIO_should_retry(ec->wbio))
 				return (NNG_ECRYPTO);
@@ -312,7 +352,7 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 		else if (rv < 0)
 			return (NNG_ECLOSED);
 	}
-	fprintf(stderr, "[%s] end ensz%d\n", __FUNCTION__, ensz);
+	trace("end ensz%d", ensz);
 	// *szp = (size_t) rv;
 	return (0);
 }
@@ -321,7 +361,7 @@ static bool
 open_conn_verified(nng_tls_engine_conn *ec)
 {
 	long rv = SSL_get_verify_result(ec->ssl);
-	fprintf(stderr, "verified result: %ld\n", rv);
+	debug("verified result: %ld\n", rv);
 	return (X509_V_OK == rv);
 }
 
@@ -330,7 +370,7 @@ open_conn_verified(nng_tls_engine_conn *ec)
 static void
 open_config_fini(nng_tls_engine_config *cfg)
 {
-	fprintf(stderr, "[%s] cfg %p ctx %p start\n", __FUNCTION__, cfg, cfg->ctx);
+	trace("start cfg %p ctx %p", cfg, cfg->ctx);
 	SSL_CTX_free(cfg->ctx);
 	if (cfg->server_name != NULL) {
 		nng_strfree(cfg->server_name);
@@ -338,7 +378,7 @@ open_config_fini(nng_tls_engine_config *cfg)
 	if (cfg->pass != NULL) {
 		nng_strfree(cfg->pass);
 	}
-	fprintf(stderr, "[%s] end\n", __FUNCTION__);
+	trace("end");
 }
 
 static int
@@ -347,7 +387,7 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 	int               auth_mode;
 	int               nng_auth;
 	const SSL_METHOD *method;
-	fprintf(stderr, "[%s] start\n", __FUNCTION__);
+	trace("start");
 
 	cfg->mode = mode;
 	// TODO NNI_LIST_INIT(&cfg->psks, psk, node);
@@ -355,18 +395,16 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 		method    = SSLv23_server_method();
 		auth_mode = SSL_VERIFY_NONE;
 		nng_auth  = NNG_TLS_AUTH_MODE_NONE;
-		fprintf(stderr, "SSL Server Mode\n");
 	} else {
 		method    = SSLv23_client_method();
 		auth_mode = SSL_VERIFY_PEER;
 		nng_auth  = NNG_TLS_AUTH_MODE_REQUIRED;
-		fprintf(stderr, "SSL Client Mode\n");
 	}
 
 	cfg->ctx = SSL_CTX_new(method);
 	//cfg->ctx = SSL_CTX_new(TLS_method());
 	if (cfg->ctx == NULL) {
-		fprintf(stderr, "error in config init \n");
+		debug("error in config init");
 		return (NNG_ENOMEM);
 	}
 	// Set max/min version TODO
@@ -375,7 +413,7 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 	//SSL_CTX_set_mode(cfg->ctx, SSL_MODE_AUTO_RETRY);
 	//SSL_CTX_set_options(cfg->ctx, SSL_OP_ALL|SSL_OP_NO_SSLv2|SSL_OP_NO_SSLv3);
 
-	fprintf(stderr, "[%s] end %p ctx %p\n", __FUNCTION__, cfg, cfg->ctx);
+	trace("start end %p ctx %p", cfg, cfg->ctx);
 	cfg->auth_mode = nng_auth;
 	return (0);
 }
@@ -384,7 +422,7 @@ static int
 open_config_server(nng_tls_engine_config *cfg, const char *name)
 {
 	char *dup;
-	fprintf(stderr, "[%s] start\n", __FUNCTION__);
+	trace("start");
 	if ((dup = nng_strdup(name)) == NULL) {
 		return (NNG_ENOMEM);
 	}
@@ -392,7 +430,7 @@ open_config_server(nng_tls_engine_config *cfg, const char *name)
 		nng_strfree(cfg->server_name);
 	}
 	cfg->server_name = dup;
-	fprintf(stderr, "[%s] end\n", __FUNCTION__);
+	trace("end");
 	return (0);
 }
 
@@ -415,19 +453,19 @@ open_config_auth_mode(nng_tls_engine_config *cfg, nng_tls_auth_mode mode)
 	switch (mode) {
 	case NNG_TLS_AUTH_MODE_NONE:
 		SSL_CTX_set_verify(cfg->ctx, SSL_VERIFY_NONE, NULL);
-	fprintf(stderr, "[%s] AUTH MODE: NONE\n", __FUNCTION__);
+	debug("AUTH MODE: NONE");
 		return (0);
 	case NNG_TLS_AUTH_MODE_OPTIONAL:
 		SSL_CTX_set_verify(cfg->ctx, SSL_VERIFY_PEER, NULL);
-	fprintf(stderr, "[%s] AUTH MODE: OPTION\n", __FUNCTION__);
+	debug("AUTH MODE: OPTION");
 		return (0);
 	case NNG_TLS_AUTH_MODE_REQUIRED:
 		SSL_CTX_set_verify(cfg->ctx,
 		    SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
-	fprintf(stderr, "[%s] AUTH MODE: REQUIRE\n", __FUNCTION__);
+	debug("AUTH MODE: REQUIRE");
 		return (0);
 	}
-	fprintf(stderr, "[%s] wrong auth mode!!!!!!!!\n", __FUNCTION__);
+	debug("wrong auth mode!!!!!!!!\n");
 	return (NNG_EINVAL);
 }
 
@@ -436,13 +474,13 @@ open_config_ca_chain(
     nng_tls_engine_config *cfg, const char *certs, const char *crl)
 {
 	size_t len;
-	fprintf(stderr, "[%s] start\n", __FUNCTION__);
+	trace("start");
 
 	len = strlen(certs);
 
 	BIO *bio = BIO_new_mem_buf(certs, len);
 	if (!bio) {
-		fprintf(stderr, "Failed to create BIO\n");
+		debug("Failed to create BIO");
 		return (NNG_ENOMEM);
 	}
 
@@ -451,7 +489,7 @@ open_config_ca_chain(
 
 	while ((cert = PEM_read_bio_X509(bio, NULL, 0, NULL)) != NULL) {
 		if (X509_STORE_add_cert(store, cert) == 0) {
-			fprintf(stderr, "Failed to add certificate to store\n");
+			debug("Failed to add certificate to store");
 			X509_free(cert);
 			BIO_free(bio);
 			return (NNG_ECRYPTO);
@@ -462,7 +500,7 @@ open_config_ca_chain(
 	BIO_free(bio);
 
 	if (crl == NULL) {
-	fprintf(stderr, "[%s] end1\n", __FUNCTION__);
+	trace("end without crl");
 		return (0);
 	}
 
@@ -476,7 +514,7 @@ open_config_ca_chain(
 	}
 	*/
 #endif
-	fprintf(stderr, "[%s] end2\n", __FUNCTION__);
+	trace("end");
 
 	return (0);
 }
@@ -486,7 +524,7 @@ static int
 open_get_password(char *passwd, int size, int rw, void *ctx)
 {
 	// password is *not* NUL terminated in wolf
-	fprintf(stderr, "[%s] start\n", __FUNCTION__);
+	trace("start");
 	nng_tls_engine_config *cfg = ctx;
 	size_t                 len;
 
@@ -500,7 +538,7 @@ open_get_password(char *passwd, int size, int rw, void *ctx)
 		len = size;
 	}
 	memcpy(passwd, cfg->pass, len);
-	fprintf(stderr, "[%s] end\n", __FUNCTION__);
+	trace("end");
 	return (len);
 }
 #endif
@@ -510,7 +548,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
     const char *key, const char *pass)
 {
 	int len;
-	fprintf(stderr, "[%s] start\n", __FUNCTION__);
+	trace("start");
 
 #if NNG_OPENSSL_HAVE_PASSWORD
 	char *dup = NULL;
@@ -532,17 +570,17 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	len = strlen(cert);
 	BIO *biocert = BIO_new_mem_buf(cert, len);
 	if (!biocert) {
-		fprintf(stderr, "Failed to create BIO\n");
+		debug("Failed to create BIO");
 		return (NNG_ENOMEM);
 	}
 	X509 *xcert = PEM_read_bio_X509(biocert, NULL, 0, NULL);
 	if (!xcert) {
-		fprintf(stderr, "Failed to load certificate from buffer\n");
+		debug("Failed to load certificate from buffer");
 		BIO_free(biocert);
 		return (NNG_ECRYPTO);
 	}
 	if (SSL_CTX_use_certificate(cfg->ctx, xcert) <= 0) {
-		fprintf(stderr, "Failed to set certificate in SSL_CTX\n");
+		debug("Failed to set certificate in SSL_CTX");
 		X509_free(xcert);
 		BIO_free(biocert);
 		return (NNG_EINVAL);
@@ -551,24 +589,24 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	len = strlen(key);
 	BIO *biokey = BIO_new_mem_buf(key, len);
 	if (!biokey) {
-		fprintf(stderr, "Failed to create BIO\n");
+		debug("Failed to create BIO");
 		return (NNG_ENOMEM);
 	}
 	EVP_PKEY *pkey = PEM_read_bio_PrivateKey(biokey, NULL, NULL, NULL);
 	if (!pkey) {
-		fprintf(stderr, "Failed to load certificate from buffer\n");
+		debug("Failed to load certificate from buffer");
 		BIO_free(biokey);
 		return (NNG_ECRYPTO);
 	}
 	if (SSL_CTX_use_PrivateKey(cfg->ctx, pkey) <= 0) {
-		fprintf(stderr, "Failed to set certificate in SSL_CTX\n");
+		debug("Failed to set certificate in SSL_CTX");
 		EVP_PKEY_free(pkey);
 		BIO_free(biokey);
 		return (NNG_EINVAL);
 	}
 
 	if (SSL_CTX_check_private_key(cfg->ctx) != 1) {
-		fprintf(stderr, "SSL_CTX_check_private_key failed\n");
+		debug("SSL_CTX_check_private_key failed");
 		EVP_PKEY_free(pkey);
 		BIO_free(biokey);
 		return (NNG_ECRYPTO);
@@ -582,8 +620,8 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 		EVP_PKEY_free(pkey);
 	if (biokey)
 		BIO_free(biokey);
-	fprintf(stderr, "[%s] end\n", __FUNCTION__);
 
+	trace("end");
 	return 0;
 }
 
@@ -659,7 +697,7 @@ nng_tls_engine_init_open(void)
 void
 nng_tls_engine_fini_open(void)
 {
-	fprintf(stderr, "[%s] start\n", __FUNCTION__);
+	trace("start");
 	EVP_cleanup();
-	fprintf(stderr, "[%s] end\n", __FUNCTION__);
+	trace("end");
 }
