@@ -1640,8 +1640,10 @@ mqtt_tcptran_ep_get_connmsg(void *arg, void *v, size_t *szp, nni_opt_type t)
 {
 	mqtt_tcptran_ep *ep = arg;
 	int              rv;
-
-	rv = nni_copyout_ptr(ep->connmsg, v, szp, t);
+	if (ep->connmsg != NULL)
+		rv = nni_copyout_ptr(ep->connmsg, v, szp, t);
+	else
+		rv = NNG_EEXIST;
 
 	return (rv);
 }
@@ -1651,8 +1653,10 @@ mqtt_tcptran_ep_get_property(void *arg, void *v, size_t *szp, nni_opt_type t)
 {
 	mqtt_tcptran_ep *ep = arg;
 	int              rv;
-
-	rv = nni_copyout_ptr(ep->property, v, szp, t);
+	if (ep->property != NULL)
+		rv = nni_copyout_ptr(ep->property, v, szp, t);
+	else
+		rv = NNG_EEXIST;
 	return (rv);
 }
 
