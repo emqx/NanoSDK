@@ -1009,7 +1009,9 @@ mqtt_recv_cb(void *arg)
 			nni_msg_free(nni_aio_get_msg(user_aio));
 			nni_aio_set_msg(user_aio, NULL);
 			if (packet_type == NNG_MQTT_SUBACK ||
-			    packet_type == NNG_MQTT_UNSUBACK) {
+			    packet_type == NNG_MQTT_UNSUBACK ||
+			    packet_type == NNG_MQTT_PUBACK ||
+			    packet_type == NNG_MQTT_PUBCOMP) {
 				nni_msg_clone(msg);
 				nni_aio_set_msg(user_aio, msg);
 			}
