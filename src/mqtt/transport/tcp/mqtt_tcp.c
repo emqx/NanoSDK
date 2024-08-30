@@ -191,11 +191,11 @@ mqtt_tcptran_pipe_fini(void *arg)
 		nni_mtx_unlock(&ep->mtx);
 	}
 
+	nng_stream_free(p->conn);
 	nni_aio_free(p->rxaio);
 	nni_aio_free(p->txaio);
 	nni_aio_free(p->negoaio);
 	nni_aio_free(p->rpaio);
-	nng_stream_free(p->conn);
 	nni_msg_free(p->rxmsg);
 	// nni_lmq_fini(&p->rslmq);
 	nni_mtx_fini(&p->mtx);
@@ -360,6 +360,7 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 			if (rv != 0)
 				goto mqtt_error;
 			property_free(ep->property);
+			ep->property = NULL;
 #ifdef SUPP_SCRAM
 			if (ep->scram_ctx &&
 				nni_mqtt_msg_get_packet_type(p->rxmsg) == NNG_MQTT_AUTH) {
@@ -450,66 +451,67 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 			property *prop = nni_mqtt_msg_get_connack_property(p->rxmsg);
 			if (property_dup((property **) &ep->property, prop) != 0)
 				goto mqtt_error;
-			property_data *data;
-			data = property_get_value(ep->property, RECEIVE_MAXIMUM);
-			if (data) {
-				if (data->p_value.u16 == 0) {
-					rv = MQTT_ERR_PROTOCOL;
-					ep->reason_code = rv;
-					goto mqtt_error;
-				} else {
-					p->sndmax = data->p_value.u16;
+			if (ep->property != NULL) {
+				property_data *data;
+				data = property_get_value(ep->property, RECEIVE_MAXIMUM);
+				if (data) {
+					if (data->p_value.u16 == 0) {
+						rv = MQTT_ERR_PROTOCOL;
+						ep->reason_code = rv;
+						goto mqtt_error;
+					} else {
+						p->sndmax = data->p_value.u16;
+					}
 				}
-			}
-			data = property_get_value(ep->property, MAXIMUM_PACKET_SIZE);
-			if (data) {
-				if (data->p_value.u32 == 0) {
-					rv = MQTT_ERR_PROTOCOL;
-					ep->reason_code = rv;
-					goto mqtt_error;
-				} else {
-					p->packmax = data->p_value.u32;
-					log_info("Set max packet size as %ld", p->packmax);
+				data = property_get_value(ep->property, MAXIMUM_PACKET_SIZE);
+				if (data) {
+					if (data->p_value.u32 == 0) {
+						rv = MQTT_ERR_PROTOCOL;
+						ep->reason_code = rv;
+						goto mqtt_error;
+					} else {
+						p->packmax = data->p_value.u32;
+						log_info("Set max packet size as %ld", p->packmax);
+					}
 				}
-			}
-			data = property_get_value(ep->property, PUBLISH_MAXIMUM_QOS);
-			if (data) {
-				p->qosmax = data->p_value.u8;
-			}
-#ifdef SUPP_SCRAM
-			data = property_get_value(ep->property, AUTHENTICATION_DATA);
-			if (data && data->p_value.str.buf && ep->scram_ctx) {
-				char *server_final_msg = (char *)data->p_value.str.buf;
-				log_debug("auth:server_final_msg:%.*s",
-					data->p_value.str.length, server_final_msg);
-				char *result = scram_handle_server_final_msg(
-					ep->scram_ctx, server_final_msg, data->p_value.str.length);
-				if (result == NULL) {
+				data = property_get_value(ep->property, PUBLISH_MAXIMUM_QOS);
+				if (data) {
+					p->qosmax = data->p_value.u8;
+				}
+	#ifdef SUPP_SCRAM
+				data = property_get_value(ep->property, AUTHENTICATION_DATA);
+				if (data && data->p_value.str.buf && ep->scram_ctx) {
+					char *server_final_msg = (char *)data->p_value.str.buf;
+					log_debug("auth:server_final_msg:%.*s",
+						data->p_value.str.length, server_final_msg);
+					char *result = scram_handle_server_final_msg(
+						ep->scram_ctx, server_final_msg, data->p_value.str.length);
+					if (result == NULL) {
+						log_error("Enhanced Authentication failed");
+						rv = MQTT_ERR_PROTOCOL;
+						ep->reason_code = rv;
+						// Failed so closed the connection
+						goto error;
+					} else {
+						log_info("Enhanced Authentication Passed");
+					}
+				} else if (ep->scram_ctx) {
+					// We want a authenticate response. but not found
 					log_error("Enhanced Authentication failed");
 					rv = MQTT_ERR_PROTOCOL;
 					ep->reason_code = rv;
-					// Failed so closed the connection
 					goto error;
 				} else {
-					log_info("Enhanced Authentication Passed");
+					// No more action
 				}
-			} else if (ep->scram_ctx) {
-				// We want a authenticate response. but not found
-				log_error("Enhanced Authentication failed");
-				rv = MQTT_ERR_PROTOCOL;
-				ep->reason_code = rv;
-				goto error;
-			} else {
-				// No more action
+	#endif
+
+				// TODO move CONNACK to protocol layer
+				// data = property_get_value(ep->property, SERVER_KEEP_ALIVE);
+				// if (data) {
+				// 	p->keepalive = data->p_value.u16;
+				// }
 			}
-#endif
-
-			// TODO move CONNACK to protocol layer
-			// data = property_get_value(ep->property, SERVER_KEEP_ALIVE);
-			// if (data) {
-			// 	p->keepalive = data->p_value.u16;
-			// }
-
 		} else {
 			if ((rv = nni_mqtt_msg_decode(p->rxmsg)) != MQTT_SUCCESS) {
 				ep->reason_code = rv;
@@ -550,13 +552,6 @@ mqtt_error:
 		nni_aio_set_iov(p->rpaio, 1, &iov);
 		nng_stream_send(p->conn, p->rpaio);
 	}
-	/* stream closed passively by peer? TODO
-	nng_stream_close(p->conn);
-	if ((uaio = ep->useraio) != NULL) {
-		ep->useraio = NULL;
-		nni_aio_finish_error(uaio, rv);
-	}
-	*/
 
 	nni_mtx_unlock(&ep->mtx);
 
@@ -631,7 +626,7 @@ mqtt_tcptran_pipe_send_cb(void *arg)
 
 	nni_aio_set_msg(aio, NULL);
 	nni_msg_free(msg);
-	nni_aio_finish_sync(aio, 0, n);
+	nni_aio_finish_sync(aio, rv, n);
 }
 
 static void
@@ -717,6 +712,7 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 	nni_msg_header_append(p->rxmsg, p->rxlen, pos + 1);
 	msg      = p->rxmsg;
 	p->rxmsg = NULL;
+	n 		 = nni_msg_len(msg);
 	type     = p->rxlen[0] & 0xf0;
 	flags    = p->rxlen[0] & 0x0f;
 
@@ -889,8 +885,8 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 			if (qos > 0)
 				p->sndmax --;
 			if (qos > p->qosmax) {
-				p->qosmax == 1? (*header &= 0XF9) & (*header |= 0X02): NNI_ARG_UNUSED(*header);
-				p->qosmax == 0? *header &= 0XF9:*header;
+				p->qosmax == 1? ((*header &= 0XF9), (*header |= 0X02)) : NNI_ARG_UNUSED(*header);
+				p->qosmax == 0 ? *header &= 0XF9 : NNI_ARG_UNUSED(*header);
 			}
 		}
 	}
@@ -915,27 +911,6 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 		iov[niov].iov_len = nni_msg_len(msg);
 		niov++;
 	}
-
-	// int msg_body_len = 30 < nni_msg_len(msg) ? 30 : nni_msg_len(msg);
-
-	// char *strheader = nng_alloc(nni_msg_header_len(msg) * 3 + 1);
-	// char *strbody   = nng_alloc(msg_body_len * 3 + 1);
-	// char *data;
-
-	// data = nni_msg_header(msg);
-	// for (int i = 0; i < nni_msg_header_len(msg); ++i) {
-	// 	sprintf(strheader + i * 3, "%02X ", data[i]);
-	// }
-	// log_debug("msg header: %s", strheader);
-
-	// data = nni_msg_body(msg);
-	// for (int i = 0; i < msg_body_len; ++i) {
-	// 	sprintf(strbody + i * 3, "%02X ", data[i]);
-	// }
-	// log_debug("msg body: %s", strbody);
-
-	// nng_free(strheader, nni_msg_header_len(msg) * 3 + 1);
-	// nng_free(strbody, msg_body_len * 3 + 1);
 
 	nni_aio_set_iov(txaio, niov, iov);
 	nng_stream_send(p->conn, txaio);
@@ -1191,6 +1166,8 @@ mqtt_tcptran_ep_fini(void *arg)
 	}
 	nni_mtx_unlock(&ep->mtx);
 
+    if (ep->connmsg)
+        nni_msg_free(ep->connmsg);
 #ifdef SUPP_SCRAM
 	if (ep->authmsg)
 		nni_msg_free(ep->authmsg);
@@ -1558,6 +1535,8 @@ mqtt_tcptran_ep_connect(void *arg, nni_aio *aio)
 		ep->backoff = ep->backoff > ep->backoff_max
 		    ? (nni_duration) (nni_random() % 1000)
 		    : ep->backoff;
+		nng_log_debug("NanoSDK-Transport",
+		    "wait backoff time : %ld ms to start reconnect ... ", ep->backoff);
 		nni_msleep(ep->backoff);
 	} else {
 		ep->backoff = nni_random()%2000;
@@ -1622,8 +1601,10 @@ mqtt_tcptran_ep_get_connmsg(void *arg, void *v, size_t *szp, nni_opt_type t)
 {
 	mqtt_tcptran_ep *ep = arg;
 	int              rv;
-
-	rv = nni_copyout_ptr(ep->connmsg, v, szp, t);
+	if (ep->connmsg != NULL)
+		rv = nni_copyout_ptr(ep->connmsg, v, szp, t);
+	else
+		rv = NNG_EEXIST;
 
 	return (rv);
 }
@@ -1633,8 +1614,10 @@ mqtt_tcptran_ep_get_property(void *arg, void *v, size_t *szp, nni_opt_type t)
 {
 	mqtt_tcptran_ep *ep = arg;
 	int              rv;
-
-	rv = nni_copyout_ptr(ep->property, v, szp, t);
+	if (ep->property != NULL)
+		rv = nni_copyout_ptr(ep->property, v, szp, t);
+	else
+		rv = NNG_EEXIST;
 	return (rv);
 }
 
