@@ -537,7 +537,7 @@ connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 	// get property for MQTT V5
 	// property *prop;
 	// nng_pipe_get_ptr(p, NNG_OPT_MQTT_CONNECT_PROPERTY, &prop);
-    nng_log_warn("Connected!", "This is also fine");
+    nng_log_warn("NanoSDK-Internal!", "Pipe is Connected");
     if (reason == MQTTREASONCODE_SUCCESS) {
         m->shouldBeConnected = 1;
         if (m->connect.onSuccess) {

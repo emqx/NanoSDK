@@ -25,7 +25,7 @@ nni_sp_tran_register(nni_sp_tran *tran)
 	if (!nni_list_node_active(&tran->tran_link)) {
 		tran->tran_init();
 		nni_list_append(&sp_tran_list, tran);
-		nng_log_info(
+		nng_log_debug(
 		    "NanoSDK-TRAN", "Registered transport: %s", tran->tran_scheme);
 	}
 	nni_rwlock_unlock(&sp_tran_lk);

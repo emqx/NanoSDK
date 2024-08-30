@@ -133,6 +133,9 @@ int main(int argc, char* argv[])
 	int rc;
 	int ch;
 
+	// nng_log_set_logger(nng_system_logger);
+	nng_log_set_logger(nng_stderr_logger);
+	nng_log_set_level(NNG_LOG_DEBUG);
 	if ((rc = MQTTAsync_create(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL))
 			!= MQTTASYNC_SUCCESS)
 	{
