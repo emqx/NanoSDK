@@ -4,8 +4,24 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define OPEN_GM 1
 //#define OPEN_DEBUG 1
 //#define OPEN_TRACE 1
+
+#ifdef OPEN_GM
+
+#define gminfo(format, arg...)                                              \
+	do {                                                               \
+		fprintf(stderr, "[%s] " format "\n", __FUNCTION__, ##arg); \
+	} while (0)
+
+#else
+
+#define gminfo(format, arg...)                                              \
+	do {                                                               \
+	} while (0)
+
+#endif
 
 #ifdef OPEN_TRACE
 
@@ -589,6 +605,23 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	EVP_PKEY *pkey = NULL;
 	trace("start");
 
+#ifdef OPEN_GM
+
+	if (pass == NULL) {
+		gminfo("Please provide GM certificates");
+		return;
+	}
+	char **encerts = pass;
+	char *dkey_store = encerts[0];
+	char *dkey_private = encerts[1];
+	if (dkey_store == NULL || dkey_private == NULL) {
+		gminfo("Please provide GM dkey store and dkey private");
+		return;
+	}
+	debug("SSL_TLCP start dkeyStore = %s dkey = %s", dkey_store, dkey_private);
+
+#else
+
 #if NNG_OPENSSL_HAVE_PASSWORD
 	char *dup = NULL;
 	if (pass != NULL) {
@@ -605,6 +638,8 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 #else
 	(void) pass;
 #endif
+
+#endif // OPEN_GM
 
 	len = strlen(cert);
 	biocert = BIO_new_mem_buf(cert, len);
@@ -650,6 +685,27 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 		goto error;
 	}
 
+#ifdef OPEN_GM
+
+	// encrypt cert
+	if ((rv = SSL_CTX_use_enc_certificate_file(
+					cfg->ctx, dkey_store, SSL_FILETYPE_PEM)) != 1) {
+		gminfo("SSL_CTX_use_enc_certificate_file load failed");
+		goto error;
+	}
+	// encrypt private key
+	if ((rv = SSL_CTX_use_enc_PrivateKey_file(
+	         cfg->ctx, dprivate_key, SSL_FILETYPE_PEM)) != 1) {
+		gminfo("SSL_CTX_use_enc_PrivateKey_file load failed");
+		goto error;
+	}
+	if ((rv = SSL_CTX_check_enc_private_key(cfg->ctx)) != 1) {
+		gminfo("SSL_CTX_check_enc_private_key load failed");
+		goto error;
+	}
+
+#endif
+
 error:
 	if (xcert)
 		X509_free(xcert);
@@ -659,6 +715,13 @@ error:
 		EVP_PKEY_free(pkey);
 	if (biokey)
 		BIO_free(biokey);
+
+#ifdef OPEN_GM
+	if (dkey_store)
+		free(dkey_store);
+	if (dkey_private)
+		free(dkey_private);
+#endif
 
 	trace("end");
 	return rv;
