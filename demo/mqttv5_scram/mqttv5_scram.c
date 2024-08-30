@@ -37,6 +37,7 @@
 #include <time.h>
 
 #include <nng/mqtt/mqtt_client.h>
+#include <nng/mqtt/mqtt_paho.h>
 #include <nng/nng.h>
 #include <nng/supplemental/util/platform.h>
 #include <nng/supplemental/tls/tls.h>
@@ -46,6 +47,22 @@
 #define SUBSCRIBE     "sub"
 #define TLS_PUBLISH   "pubtls"
 #define TLS_SUBSCRIBE "subtls"
+
+#define ADDRESS     "mqtt-tcp://localhost:1883"
+#define CLIENTID    "SCRAM"
+
+
+//接收回调处理
+static int msgarrvd(void* context, char* topicName, int topicLen, MQTTAsync_message* message)
+{
+	printf("Message arrived\n");
+    printf("     topic: %s\n", topicName);
+    printf("   message: %.*s\n", message->payloadlen, (char*)message->payload);
+
+	MQTTAsync_freeMessage(&message);
+	MQTTAsync_free(topicName);
+	return 1;
+}
 
 void
 fatal(const char *msg, int rv)
@@ -454,6 +471,11 @@ void msg_recv_deal(nng_msg *msg, bool verbose)
 		nng_msg_free(msg);
 }
 
+struct pub_params params;
+int disc_finished = 0;
+int subscribed = 0;
+int finished = 0;
+
 void
 publish_cb(void *args)
 {
@@ -466,7 +488,104 @@ publish_cb(void *args)
 	printf("thread_exit\n");
 }
 
-struct pub_params params;
+void onSubscribe(void* context, MQTTAsync_successData* response)
+{
+	printf("Subscribe succeeded\n");
+	subscribed = 1;
+}
+
+void onSubscribeFailure(void* context, MQTTAsync_failureData* response)
+{
+	printf("Subscribe failed, rc %d\n", response->code);
+	finished = 1;
+}
+
+void onConnect(void* context, MQTTAsync_successData* response)
+{
+	MQTTAsync client = (MQTTAsync)context;
+	printf("Successful connection\n");
+}
+
+void onConnectFailure(void* context, MQTTAsync_failureData* response)
+{
+	printf("Connect failed, rc %d\n", response->code);
+	finished = 1;
+}
+
+void onDisconnectFailure(void* context, MQTTAsync_failureData* response)
+{
+	printf("Disconnect failed, rc %d\n", response->code);
+	disc_finished = 1;
+}
+
+void onDisconnect(void* context, MQTTAsync_successData* response)
+{
+	printf("Successful disconnection\n");
+	disc_finished = 1;
+}
+
+void testConnected(void* context, char* cause)
+{
+	MQTTAsync c = (MQTTAsync)context;
+	nng_log_debug("Test", "testConnected is called! %s", cause);
+	MQTTAsync_responseOptions opts = MQTTAsync_responseOptions_initializer;
+	int rc;
+
+	printf("Successful connection\n");
+	opts.onSuccess = onSubscribe;
+	opts.onFailure = onSubscribeFailure;
+	opts.context = c;
+
+	// opts.onSuccess = onSubscribeSuccess;
+	// opts.onFailure = onSubscribeFailure;
+	// opts.context = NULL;
+	if ((rc = MQTTAsync_subscribe(c, "msg", 1, &opts)) != MQTTASYNC_SUCCESS)
+	{
+		printf("Failed to start subscribe, return code %d\n", rc);
+		finished = 1;
+	}
+}
+
+void onSendFailure(void* context, MQTTAsync_failureData* response)
+{
+	MQTTAsync client = (MQTTAsync)context;
+	MQTTAsync_disconnectOptions opts = MQTTAsync_disconnectOptions_initializer;
+	int rc;
+
+	printf("Message send failed token %d error code %d\n", response->token, response->code);
+}
+
+void onSendSuccess(void* context, MQTTAsync_successData* response)
+{
+	MQTTAsync client = (MQTTAsync)context;
+	MQTTAsync_disconnectOptions opts = MQTTAsync_disconnectOptions_initializer;
+	int rc;
+
+	printf("Message delivery %d confirmed\n", response->token);
+}
+
+void connlost(void *context, char *cause)
+{
+	MQTTAsync client = (MQTTAsync)context;
+	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer;
+	int rc;
+
+	printf("\nConnection lost\n");
+	if (cause)
+		printf("     cause: %s\n", cause);
+
+	printf("Reconnecting\n");
+	conn_opts.keepAliveInterval = 20;
+	conn_opts.cleansession = 1;
+	if ((rc = MQTTAsync_connect(client, &conn_opts)) != MQTTASYNC_SUCCESS)
+	{
+	}
+}
+
+void asyncDeliveryComplete(void* context, MQTTAsync_token token)
+{
+	printf("qos finished!");
+}
 
 int
 main(const int argc, const char **argv)
@@ -474,11 +593,87 @@ main(const int argc, const char **argv)
 	nng_socket sock;
 
 	const char *exe = argv[0];
-
+	int rc;
+	int ch;
 	const char *cmd;
 	int   istls = 0;
 	const char  *ca = NULL, *cert = NULL, *key = NULL, *pwd = NULL;
+	// nng_log_set_logger(nng_system_logger);
+	nng_log_set_logger(nng_stderr_logger);
+	nng_log_set_level(NNG_LOG_DEBUG);
+	MQTTAsync client;
+	MQTTAsync_createOptions create_opts = MQTTAsync_createOptions_initializer;
+	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer;
+	MQTTAsync_disconnectOptions disc_opts = MQTTAsync_disconnectOptions_initializer;
+	MQTTAsync_responseOptions pub_opts = MQTTAsync_responseOptions_initializer;
 
+	rc = MQTTAsync_createWithOptions(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL, &create_opts);
+	if (rc != MQTTASYNC_SUCCESS)
+	{
+		printf("Failed to create client, return code %d\n", rc);
+		rc = EXIT_FAILURE;
+		return;
+	}
+	if ((rc = MQTTAsync_setCallbacks(client, client, connlost, msgarrvd, asyncDeliveryComplete)) != MQTTASYNC_SUCCESS)
+	{
+		printf("Failed to set callbacks, return code %d\n", rc);
+		rc = EXIT_FAILURE;
+		return;
+	}
+	MQTTAsync_SSLOptions ssl_opts = MQTTAsync_SSLOptions_initializer;
+	ssl_opts.enableServerCertAuth = 1;  // 开启服务器证书认证
+	ssl_opts.sslVersion = MQTT_SSL_VERSION_DEFAULT;
+	// ssl_opts.keyStore = CLIENT_SIGN_CERT_PATH;
+	// ssl_opts.privateKey = CLIENT_SIGN_KEY_PATH;
+	// ssl_opts.dkeyStore = CLIENT_ENC_CERT_PATH;
+	// ssl_opts.dprivateKey = CLIENT_ENC_KEY_PATH;
+	// ssl_opts.trustStore = CLIENT_CA_CERT_PATH;
+
+	conn_opts.keepAliveInterval = 64;
+	conn_opts.onSuccess = onConnect;
+	conn_opts.onFailure = onConnectFailure;
+	conn_opts.username  = "g_pcUserName";
+	conn_opts.password  = "g_pcPassword";
+	conn_opts.context   = NULL;
+	// 增加重连机制
+	conn_opts.automaticReconnect = 1; // 设置非零，断开自动重连
+	conn_opts.minRetryInterval = 3; // 单位秒，重连间隔次数，每次重新连接失败时，重试间隔都会加倍，直到最大间隔
+	conn_opts.maxRetryInterval = 60; // 单位秒，最大重连尝试间隔
+	// ssl选项
+	conn_opts.ssl = &ssl_opts;
+	if (MQTTAsync_connect(client, &conn_opts) != MQTTASYNC_SUCCESS) {
+		printf("MQTTAsync_connect failed");
+	}
+	if (MQTTAsync_setConnected(client, NULL, testConnected) != MQTTASYNC_SUCCESS)
+		printf("MQTTAsync_setConnected failed");
+
+	MQTTAsync_message pubmsg = MQTTAsync_message_initializer;
+	MQTTAsync_token token;
+	pub_opts.onSuccess = onSendSuccess;
+	pub_opts.onFailure = onSendFailure;
+	pub_opts.context = client;
+	pubmsg.payload = "hello world";
+	pubmsg.payloadlen = 11;
+	pubmsg.qos = 2;
+	pubmsg.retained = 0;
+
+	MQTTAsync_responseOptions opts = MQTTAsync_responseOptions_initializer;
+	MQTTAsync_sendMessage(client, "test", &pubmsg, &pub_opts);
+	nng_msleep(15600);
+
+	disc_opts.onSuccess = onDisconnect;
+	disc_opts.onFailure = onDisconnectFailure;	// this is nonsense
+	if ((MQTTAsync_disconnect(client, &disc_opts)) != MQTTASYNC_SUCCESS)
+	{
+		printf("Failed to start disconnect, return code %d\n", rc);
+		rc = EXIT_FAILURE;
+		goto destroy_exit;
+	}
+	nng_msleep(6600);
+destroy_exit:
+	MQTTAsync_destroy(&client);
+exit:
+	return;
 	if (5 == argc && 0 == strcmp(argv[1], SUBSCRIBE)) {
 		cmd = SUBSCRIBE;
 	} else if (6 <= argc && 0 == strcmp(argv[1], PUBLISH)) {
