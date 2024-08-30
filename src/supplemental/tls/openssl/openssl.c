@@ -582,6 +582,11 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
     const char *key, const char *pass)
 {
 	int len;
+	int rv;
+	BIO *biokey = NULL;
+	BIO *biocert = NULL;
+	X509 *xcert = NULL;
+	EVP_PKEY *pkey = NULL;
 	trace("start");
 
 #if NNG_OPENSSL_HAVE_PASSWORD
@@ -602,50 +607,50 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 #endif
 
 	len = strlen(cert);
-	BIO *biocert = BIO_new_mem_buf(cert, len);
+	biocert = BIO_new_mem_buf(cert, len);
 	if (!biocert) {
 		debug("Failed to create BIO");
-		return (NNG_ENOMEM);
+		rv = NNG_ENOMEM;
+		goto error;
 	}
-	X509 *xcert = PEM_read_bio_X509(biocert, NULL, 0, NULL);
+	xcert = PEM_read_bio_X509(biocert, NULL, 0, NULL);
 	if (!xcert) {
 		debug("Failed to load certificate from buffer");
-		BIO_free(biocert);
-		return (NNG_ECRYPTO);
+		rv = NNG_ECRYPTO;
+		goto error;
 	}
 	if (SSL_CTX_use_certificate(cfg->ctx, xcert) <= 0) {
 		debug("Failed to set certificate in SSL_CTX");
-		X509_free(xcert);
-		BIO_free(biocert);
-		return (NNG_EINVAL);
+		rv = NNG_EINVAL;
+		goto error;
 	}
 
 	len = strlen(key);
-	BIO *biokey = BIO_new_mem_buf(key, len);
+	biokey = BIO_new_mem_buf(key, len);
 	if (!biokey) {
 		debug("Failed to create BIO");
-		return (NNG_ENOMEM);
+		rv = NNG_ENOMEM;
+		goto error;
 	}
-	EVP_PKEY *pkey = PEM_read_bio_PrivateKey(biokey, NULL, NULL, NULL);
+	pkey = PEM_read_bio_PrivateKey(biokey, NULL, NULL, NULL);
 	if (!pkey) {
 		debug("Failed to load certificate from buffer");
-		BIO_free(biokey);
-		return (NNG_ECRYPTO);
+		rv = NNG_ECRYPTO;
+		goto error;
 	}
 	if (SSL_CTX_use_PrivateKey(cfg->ctx, pkey) <= 0) {
 		debug("Failed to set certificate in SSL_CTX");
-		EVP_PKEY_free(pkey);
-		BIO_free(biokey);
-		return (NNG_EINVAL);
+		rv = NNG_EINVAL;
+		goto error;
 	}
 
 	if (SSL_CTX_check_private_key(cfg->ctx) != 1) {
 		debug("SSL_CTX_check_private_key failed");
-		EVP_PKEY_free(pkey);
-		BIO_free(biokey);
-		return (NNG_ECRYPTO);
+		rv = NNG_ECRYPTO;
+		goto error;
 	}
 
+error:
 	if (xcert)
 		X509_free(xcert);
 	if (biocert)
@@ -656,7 +661,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 		BIO_free(biokey);
 
 	trace("end");
-	return 0;
+	return rv;
 }
 
 static int
