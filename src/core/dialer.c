@@ -272,14 +272,15 @@ nni_dialer_create(nni_dialer **dp, nni_sock *s, const char *url_str)
 		nni_mtx_lock(&dialers_lk);
 		nni_id_remove(&dialers, d->d_id);
 		nni_mtx_unlock(&dialers_lk);
-#ifdef NNG_ENABLE_STATS
-		nni_stat_unregister(&d->st_root);
-#endif
-		nni_dialer_destroy(d);
 		nng_log_warn("NanoSDK-CONN-FAIL",
 		    "Fail to create the dialer of socket<%u> to %s: %s",
 		    nni_sock_id(d->d_sock), d->d_url->u_rawurl,
 		    nng_strerror(rv));
+#ifdef NNG_ENABLE_STATS
+		nni_stat_unregister(&d->st_root);
+#endif
+		nni_dialer_destroy(d);
+
 		return (rv);
 	}
 
@@ -341,13 +342,14 @@ void
 nni_dialer_close(nni_dialer *d)
 {
 	nni_mtx_lock(&dialers_lk);
+	nng_log_debug("NanoSDK-Dialer",
+		    "Dialer to %s is being closed", d->d_url->u_rawurl);
 	if (d->d_closed) {
 		nni_mtx_unlock(&dialers_lk);
 		nni_dialer_rele(d);
 		return;
 	}
-	nng_log_debug("NanoSDK-Dialer",
-		    "Dialer to %s is being closed", d->d_url->u_rawurl);
+
 	d->d_closed = true;
 	nni_id_remove(&dialers, d->d_id);
 	nni_mtx_unlock(&dialers_lk);
@@ -470,9 +472,9 @@ nni_dialer_stop(nni_dialer *d)
 {
 	nni_aio_stop(&d->d_tmo_aio);
 	nni_aio_stop(&d->d_con_aio);
-	d->d_ops.d_close(d->d_data);
 	nng_log_info("NanoSDK-DIAL", "Stopping dialer for socket<%u> on %s",
 	    nni_sock_id(d->d_sock), d->d_url->u_rawurl);
+	d->d_ops.d_close(d->d_data);
 }
 
 nni_sock *
