@@ -282,7 +282,6 @@ recv_callback(nng_mqtt_client *client, nng_msg *msg, void *arg)
 		return;
 	switch (nng_mqtt_msg_get_packet_type(msg)) {
 	case NNG_MQTT_PUBLISH:
-        nng_msg *pmsg = msg;
         uint32_t len;
         MQTTAsync_message *mm = prepare_paho_msg(msg);
         const char *buf = nng_mqtt_msg_get_publish_topic(msg, &len);
@@ -371,7 +370,7 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
                 MQTTAsync_failureData data;
                 data.code = code[i];
                 data.token = handle->subscribe.token;
-                (*(handle->subscribe.onSuccess))(handle->subscribe.context, &data);
+                (*(handle->subscribe.onFailure))(handle->subscribe.context, &data);
             }
         }
 
@@ -384,14 +383,18 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
 			printf("[%d] ", code[i]);
 		break;
 	case NNG_MQTT_PUBACK:
+        uint16_t token = nng_mqtt_msg_get_puback_packet_id(msg);
 		nng_log_info("TRANSPORT", "PUBACK of %d received",
-                nng_mqtt_msg_get_puback_packet_id(msg));
+                token);
         if (handle->dc)
-            handle->dc(handle->dcContext, NULL);
+            handle->dc(handle->dcContext, token);
 		break;
 	case NNG_MQTT_PUBCOMP:
+        uint16_t token2 = nng_mqtt_msg_get_pubcomp_packet_id(msg);
+        nng_log_info("TRANSPORT", "PUBACK of %d received",
+                token2);
         if (handle->dc)
-		    handle->dc(handle->dcContext, NULL);
+		    handle->dc(handle->dcContext, token2);
 		break;
 	default:
 		printf("Sending in async way is done.\n");
@@ -630,7 +633,7 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
     // create a CONNECT message
 	/* CONNECT */
 	nng_msg *connmsg = NULL;
-    nng_dialer_get_ptr(*dialer, NNG_OPT_MQTT_CONNMSG, &connmsg);
+    nng_dialer_get_ptr(*dialer, NNG_OPT_MQTT_CONNMSG, (void **)&connmsg);
     if (connmsg != NULL) {
         nng_log_warn("MQTTAsync_connect", "Auto reconnect is enalbed by default!");
         return MQTTASYNC_FAILURE;
@@ -917,7 +920,7 @@ int MQTTAsync_subscribeMany(MQTTAsync handle, int count, char *const *topic, con
 
 	nng_mqtt_topic_qos *topic_qos =
 	    nng_mqtt_topic_qos_array_create((size_t)count);
-	for (size_t i = 0; i < count; ++i) {
+	for (size_t i = 0; i < (size_t)count; ++i) {
 		nng_mqtt_topic_qos_array_set(topic_qos, i,
 		    topic[i], strlen(topic[i]), qos[i], 1, 1, 0);
 		nng_log_info("Performing subscription",
@@ -1064,7 +1067,6 @@ exit:
 int MQTTAsync_disconnect(MQTTAsync handle, const MQTTAsync_disconnectOptions *options)
 {
     MQTTAsyncs *m = handle;
-    nng_mqtt_client *client = m->nanosdk_client;
 	int rc = MQTTASYNC_SUCCESS;
 
 	if (options != NULL && (strncmp(options->struct_id, "MQTD", 4) != 0 || options->struct_version < 0 || options->struct_version > 1))
