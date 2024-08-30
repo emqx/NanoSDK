@@ -451,6 +451,10 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 		nng_auth  = NNG_TLS_AUTH_MODE_REQUIRED;
 	}
 
+#ifdef OPEN_GM
+	method = CNTLS_client_method();
+#endif
+
 	cfg->ctx = SSL_CTX_new(method);
 	//cfg->ctx = SSL_CTX_new(TLS_method());
 	if (cfg->ctx == NULL) {
