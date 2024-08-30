@@ -790,8 +790,10 @@ mqtt_recv_cb(void *arg)
 		if (cached_msg != NULL) {
 			nni_id_remove(&p->sent_unack, packet_id);
 			user_aio = nni_mqtt_msg_get_aio(cached_msg);
-			if (packet_type == NNG_MQTT_SUBACK ||
-			    packet_type == NNG_MQTT_UNSUBACK) {
+			if (packet_type == NNG_MQTT_SUBACK   ||
+			    packet_type == NNG_MQTT_UNSUBACK ||
+				packet_type == NNG_MQTT_PUBACK   ||
+				packet_type == NNG_MQTT_PUBCOMP) {
 				nni_msg_clone(msg);
 				nni_aio_set_msg(user_aio, msg);
 			}
