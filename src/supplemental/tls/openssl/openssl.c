@@ -613,14 +613,14 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 
 	if (pass == NULL) {
 		gminfo("Please provide GM certificates");
-		return;
+		return NNG_EINVAL;
 	}
 	char **encerts = pass;
 	char *dkey_store = encerts[0];
 	char *dkey_private = encerts[1];
 	if (dkey_store == NULL || dkey_private == NULL) {
 		gminfo("Please provide GM dkey store and dkey private");
-		return;
+		return NNG_EINVAL;
 	}
 	debug("SSL_TLCP start dkeyStore = %s dkey = %s", dkey_store, dkey_private);
 
@@ -693,13 +693,13 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 
 	// encrypt cert
 	if ((rv = SSL_CTX_use_enc_certificate_file(
-					cfg->ctx, dkey_store, SSL_FILETYPE_PEM)) != 1) {
+	         cfg->ctx, dkey_store, SSL_FILETYPE_PEM)) != 1) {
 		gminfo("SSL_CTX_use_enc_certificate_file load failed");
 		goto error;
 	}
 	// encrypt private key
 	if ((rv = SSL_CTX_use_enc_PrivateKey_file(
-	         cfg->ctx, dprivate_key, SSL_FILETYPE_PEM)) != 1) {
+	         cfg->ctx, dkey_private, SSL_FILETYPE_PEM)) != 1) {
 		gminfo("SSL_CTX_use_enc_PrivateKey_file load failed");
 		goto error;
 	}
@@ -719,13 +719,6 @@ error:
 		EVP_PKEY_free(pkey);
 	if (biokey)
 		BIO_free(biokey);
-
-#ifdef OPEN_GM
-	if (dkey_store)
-		free(dkey_store);
-	if (dkey_private)
-		free(dkey_private);
-#endif
 
 	trace("end");
 	return rv;
