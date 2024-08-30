@@ -464,6 +464,7 @@ NNG_DECL int         nng_mqtt_msg_set_publish_topic_len(nng_msg *msg, uint32_t l
 NNG_DECL void	 	 nng_mqtt_msg_free_publish_buf(nng_msg *msg);
 
 NNG_DECL const char *nng_mqtt_msg_get_publish_topic(nng_msg *, uint32_t *);
+NNG_DECL uint16_t    nng_mqtt_msg_get_publish_packet_id(nng_msg *msg);
 NNG_DECL int         nng_mqtt_msg_set_publish_payload(nng_msg *, uint8_t *, uint32_t);
 NNG_DECL uint8_t    *nng_mqtt_msg_get_publish_payload(nng_msg *, uint32_t *);
 NNG_DECL property   *nng_mqtt_msg_get_publish_property(nng_msg *);
@@ -572,6 +573,7 @@ NNG_DECL int nng_mqttv5_client_open(nng_socket *);
 // TODO: shared subscriptions.  Subscription options (retain, QoS)
 typedef struct nng_mqtt_client nng_mqtt_client;
 typedef void(nng_mqtt_send_cb)(nng_mqtt_client *client, nng_msg *msg, void *);
+typedef void(nng_mqtt_recv_cb)(nng_mqtt_client *client, nng_msg *msg, void *);
 struct nng_mqtt_client{
 	nng_socket sock;
 	nng_aio   *send_aio;
@@ -580,18 +582,20 @@ struct nng_mqtt_client{
 	void      *obj; // user defined callback obj
 	bool       async;
 
-	nng_mqtt_send_cb *cb;
+	nng_mqtt_send_cb *send_cb;
+	nng_mqtt_recv_cb *recv_cb;
 };
 
-
-NNG_DECL nng_mqtt_client *nng_mqtt_client_alloc(nng_socket, nng_mqtt_send_cb, bool);
+NNG_DECL nng_mqtt_client *nng_mqtt_paho_client_alloc(nng_socket, nng_mqtt_send_cb, nng_mqtt_recv_cb, void *obj);
+NNG_DECL nng_mqtt_client *nng_mqtt_client_alloc(nng_socket, nng_mqtt_send_cb, nng_mqtt_recv_cb, bool);
 NNG_DECL void nng_mqtt_client_free(nng_mqtt_client*, bool);
-NNG_DECL int nng_mqtt_subscribe(nng_socket, nng_mqtt_topic_qos *, uint32_t, property *);
+NNG_DECL int nng_mqtt_subscribe(nng_socket, nng_mqtt_topic_qos *, size_t, property *);
 NNG_DECL int nng_mqtt_subscribe_async(nng_mqtt_client *, nng_mqtt_topic_qos *, size_t, property *);
 NNG_DECL int nng_mqtt_unsubscribe(nng_socket, nng_mqtt_topic *, size_t, property *);
 NNG_DECL int nng_mqtt_unsubscribe_async(nng_mqtt_client *, nng_mqtt_topic *, size_t, property *);
 // as with other ctx based methods, we use the aio form exclusively
 NNG_DECL int nng_mqtt_ctx_subscribe(nng_ctx *, const char *, nng_aio *, ...);
+NNG_DECL int nng_mqtt_publish_async(nng_mqtt_client *, nng_msg *);
 NNG_DECL int nng_mqtt_disconnect(nng_socket *, uint8_t, property *);
 
 NNG_DECL int mqtt_get_remaining_length(uint8_t *, uint32_t, uint32_t *, uint8_t *);

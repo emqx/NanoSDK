@@ -939,23 +939,29 @@ nng_mqtt_paho_client_alloc(nng_socket sock, nng_mqtt_send_cb send_cb, nng_mqtt_r
  * Return NULL if failed
  * */
 nng_mqtt_client *
-nng_mqtt_client_alloc(nng_socket sock, nng_mqtt_send_cb cb, bool is_async)
+nng_mqtt_client_alloc(nng_socket sock, nng_mqtt_send_cb send_cb, nng_mqtt_recv_cb recv_cb, bool is_async)
 {
 	nng_mqtt_client *client = NNI_ALLOC_STRUCT(client);
 	client->sock            = sock;
 	client->async           = is_async;
-	client->cb              = NULL;
+	client->send_cb         = NULL;
+	client->recv_cb         = NULL;
 	client->msgq            = NULL;
 	client->obj             = NULL;
 
-	if (cb != NULL) {
-		client->cb = cb;
+	if (send_cb != NULL) {
+		client->send_cb = send_cb;
+	}
+	if (recv_cb != NULL) {
+		client->recv_cb = recv_cb;
 	}
 	if (is_async) {
 		// replace nng_mqtt_client_send_cb for lmq
-		nng_aio_alloc(&client->send_aio, nng_mqtt_client_send_cb, client);
+		if (send_cb != NULL)
+			nng_aio_alloc(&client->send_aio, nng_mqtt_client_send_cb, client);
+		if (recv_cb != NULL)
+			nng_aio_alloc(&client->recv_aio, nng_mqtt_client_recv_cb, client);
 		if ((client->msgq = nng_alloc(sizeof(nni_lmq))) == NULL) {
-			NNI_FREE_STRUCT(client);
 			return NULL;
 		}
 		nni_lmq_init((nni_lmq *)client->msgq, NNG_MAX_SEND_LMQ);
