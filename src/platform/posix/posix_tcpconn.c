@@ -71,6 +71,8 @@ tcp_dowrite(nni_tcp_conn *c)
 			case EINTR:
 				continue;
 			case EAGAIN:
+				nng_log_info("NanoSDK-POSIX-TCP",
+		    	"Socket %d is congested %d",fd, nni_plat_errno(errno));
 #ifdef EWOULDBLOCK
 #if EWOULDBLOCK != EAGAIN
 			case EWOULDBLOCK:
@@ -78,9 +80,10 @@ tcp_dowrite(nni_tcp_conn *c)
 #endif
 				return;
 			default:
+				nng_log_info("NanoSDK-POSIX-TCP",
+				    "sendmsg to Socket %d fail %d",fd, nni_plat_errno(errno));
 				nni_aio_list_remove(aio);
-				nni_aio_finish_error(
-				    aio, nni_plat_errno(errno));
+				nni_aio_finish_error(aio, nni_plat_errno(errno));
 				return;
 			}
 		}
@@ -133,8 +136,12 @@ tcp_doread(nni_tcp_conn *c)
 			case EINTR:
 				continue;
 			case EAGAIN:
+				nng_log_debug("NanoSDK-POSIX-TCP",
+		    	"Reading Socket %d return EAGAIN %d",fd, nni_plat_errno(errno));
 				return;
 			default:
+				nng_log_info("NanoSDK-POSIX-TCP",
+				    "readv of Socket %d fail %d",fd, nni_plat_errno(errno));
 				nni_aio_list_remove(aio);
 				nni_aio_finish_error(
 				    aio, nni_plat_errno(errno));
@@ -145,6 +152,8 @@ tcp_doread(nni_tcp_conn *c)
 		if (n == 0) {
 			// No bytes indicates a closed descriptor.
 			// This implicitly completes this (all!) aio.
+			nng_log_info("NanoSDK-POSIX-TCP",
+		    	"Reading Socket %d hits EOF",fd);
 			nni_aio_list_remove(aio);
 			nni_aio_finish_error(aio, NNG_ECONNSHUT);
 			continue;
