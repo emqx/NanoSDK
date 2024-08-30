@@ -2,6 +2,7 @@
 #include "core/nng_impl.h"
 #include <string.h>
 #include "mqtt_qos_db.h"
+// #include "mqtt_nano_paho.h"
 
 int
 nng_mqtt_msg_proto_data_alloc(nng_msg *msg)
@@ -805,6 +806,7 @@ mqtt_property_append(property *prop_list, property *last)
 static void
 nng_mqtt_client_send_cb(void* arg)
 {
+	int rv;
 	nng_mqtt_client *client = (nng_mqtt_client *) arg;
 	nng_aio *        aio    = client->send_aio;
 	nng_msg *        msg    = nng_aio_get_msg(aio);
@@ -812,8 +814,10 @@ nng_mqtt_client_send_cb(void* arg)
 
 	nni_lmq * lmq = (nni_lmq *)client->msgq;
 
-	if (msg == NULL || nng_aio_result(aio) != 0) {
+	rv = nng_aio_result(aio);
+	if (msg == NULL ||  rv != 0) {
 		client->send_cb(client, NULL, client->obj);
+		nng_log_warn("Send aio error", "result %d", rv);
 		return;
 	}
 
@@ -834,12 +838,48 @@ nng_mqtt_client_recv_cb(void* arg)
 	int 			 rv;
 
 	if (msg == NULL || (rv = nng_aio_result(aio)) != 0) {
-		nni_plat_printf("aio recv error! %d", rv);
+		nng_log_debug("RECV", "nng_mqtt_client recv aio report error %d", rv);
+		msg = NULL;
 	}
 	nng_recv_aio(client->sock, client->recv_aio);
 	client->recv_cb(client, msg, client->obj);
-
 	return;
+}
+
+/**
+ * ATTENTION: This API is for Paho user only
+ * 
+ * 	Alloc an nng_mqtt_client object with paho async style callbacks
+ * 	Return NULL if failed
+ * */
+nng_mqtt_client *
+nng_mqtt_paho_client_alloc(nng_socket sock, nng_mqtt_send_cb send_cb, nng_mqtt_recv_cb recv_cb, void *async)
+{
+	nng_mqtt_client *client = NNI_ALLOC_STRUCT(client);
+	client->sock            = sock;
+	client->async           = true;
+	client->send_cb         = NULL;
+	client->recv_cb         = NULL;
+	client->msgq            = NULL;
+	client->obj             = async;
+
+	if (send_cb != NULL) {
+		client->send_cb = send_cb;
+	}
+	if (recv_cb != NULL) {
+		client->recv_cb = recv_cb;
+	}
+	// replace nng_mqtt_client_send_cb for lmq
+	if (send_cb != NULL)
+		nng_aio_alloc(&client->send_aio, nng_mqtt_client_send_cb, client);
+	if (recv_cb != NULL)
+		nng_aio_alloc(&client->recv_aio, nng_mqtt_client_recv_cb, client);
+	if ((client->msgq = nng_alloc(sizeof(nni_lmq))) == NULL) {
+		return NULL;
+	}
+	nni_lmq_init((nni_lmq *)client->msgq, NNG_MAX_SEND_LMQ);
+	nng_recv_aio(client->sock, client->recv_aio);
+	return client;
 }
 
 /**
@@ -891,9 +931,13 @@ void nng_mqtt_client_free(nng_mqtt_client *client, bool is_async)
 	nni_aio_close(client->send_aio);
 	if (client) {
 		if (is_async) {
+			nni_aio_close(client->recv_aio);
+			nni_aio_stop(client->send_aio);
+			nni_aio_stop(client->recv_aio);
 			nng_aio_free(client->send_aio);
 			nni_lmq_fini((nni_lmq *) client->msgq);
 			nng_free(client->msgq, sizeof(nni_lmq));
+			nng_aio_free(client->recv_aio);
 		}
 		NNI_FREE_STRUCT(client);
 	}
@@ -986,9 +1030,26 @@ nng_mqtt_subscribe_async(nng_mqtt_client *client, nng_mqtt_topic_qos *sbs, size_
 	nng_aio_set_msg(client->send_aio, submsg);
 	if (client->send_cb != NULL)
 		nng_send_aio(client->sock, client->send_aio);
-	if (client->recv_cb != NULL)
-		nng_recv_aio(client->sock, client->recv_aio);
 
+	return 0;
+}
+
+int 
+nng_mqtt_publish_async(nng_mqtt_client *client, nng_msg *pubmsg)
+{
+	if (nng_aio_busy(client->send_aio)) {
+		if (nni_lmq_put((nni_lmq *)client->msgq, pubmsg) != 0) {
+			nni_plat_println("subscribe failed!");
+		}
+		return 1;
+	}
+	nng_aio_set_msg(client->send_aio, pubmsg);
+	if (client->send_cb != NULL)
+		nng_send_aio(client->sock, client->send_aio);
+	else {
+		nni_plat_println("Cancel MQTT publish_async!");
+		return -1;
+	}
 	return 0;
 }
 
@@ -1010,13 +1071,16 @@ nng_mqtt_disconnect(nng_socket *sock, uint8_t reason_code, property *pl)
 	}
 
 	if ((rv = nng_sendmsg(*sock, disconnmsg, 0)) != 0) {
-		nng_msg_free(disconnmsg);
+		nng_log_warn("Disconnect", "sending disconnect failed");
 	}
-
-	nng_close(*sock);
-
+	// we only send a disconnect packet to remote
+	// and wait for a passive socket close
+	// however nanosdk will reconnect again.
 	return (rv);
 }
+
+/* Paho style compatible API */
+
 
 #if defined(NNG_SUPP_SQLITE)
 
