@@ -622,7 +622,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 		gminfo("Please provide GM dkey store and dkey private");
 		return NNG_EINVAL;
 	}
-	debug("SSL_TLCP start dkeyStore = %s dkey = %s", dkey_store, dkey_private);
+	gminfo("SSL_TLCP start dkeyStore = %s dkey = %s", dkey_store, dkey_private);
 
 #else
 
