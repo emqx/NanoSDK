@@ -785,19 +785,23 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	// encrypt cert
 	if ((rv = SSL_CTX_use_enc_certificate_file(
 	         cfg->ctx, dkey_store, SSL_FILETYPE_PEM)) != 1) {
+		rv = NNG_EINVAL;
 		gminfo("SSL_CTX_use_enc_certificate_file load failed");
 		goto error;
 	}
 	// encrypt private key
 	if ((rv = SSL_CTX_use_enc_PrivateKey_file(
 	         cfg->ctx, dkey_private, SSL_FILETYPE_PEM)) != 1) {
+		rv = NNG_EINVAL;
 		gminfo("SSL_CTX_use_enc_PrivateKey_file load failed");
 		goto error;
 	}
 	if ((rv = SSL_CTX_check_enc_private_key(cfg->ctx)) != 1) {
+		rv = NNG_ECRYPTO;
 		gminfo("SSL_CTX_check_enc_private_key load failed");
 		goto error;
 	}
+	rv = 0;
 
 #endif
 
