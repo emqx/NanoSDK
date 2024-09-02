@@ -274,7 +274,7 @@ static void
 recv_callback(nng_mqtt_client *client, nng_msg *msg, void *arg)
 {
 	nng_aio    *aio = client->recv_aio;
-	uint32_t    count;
+	uint32_t    count, len;
 	uint8_t    *code;
 	MQTTAsyncs *handle = arg;
 
@@ -282,7 +282,6 @@ recv_callback(nng_mqtt_client *client, nng_msg *msg, void *arg)
 		return;
 	switch (nng_mqtt_msg_get_packet_type(msg)) {
 	case NNG_MQTT_PUBLISH:
-        uint32_t len;
         MQTTAsync_message *mm = prepare_paho_msg(msg);
         const char *buf = nng_mqtt_msg_get_publish_topic(msg, &len);
         char *topic = nni_zalloc(len + 1);
