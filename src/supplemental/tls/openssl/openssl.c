@@ -602,7 +602,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
     const char *key, const char *pass)
 {
 	int len;
-	int rv;
+	int rv = 0;
 	BIO *biokey = NULL;
 	BIO *biocert = NULL;
 	X509 *xcert = NULL;
@@ -655,7 +655,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	xcert = PEM_read_bio_X509(biocert, NULL, 0, NULL);
 	if (!xcert) {
 		debug("Failed to load certificate from buffer");
-		rv = NNG_ECRYPTO;
+		rv = NNG_EINVAL;
 		goto error;
 	}
 	if (SSL_CTX_use_certificate(cfg->ctx, xcert) <= 0) {
@@ -674,7 +674,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	pkey = PEM_read_bio_PrivateKey(biokey, NULL, NULL, NULL);
 	if (!pkey) {
 		debug("Failed to load certificate from buffer");
-		rv = NNG_ECRYPTO;
+		rv = NNG_EINVAL;
 		goto error;
 	}
 	if (SSL_CTX_use_PrivateKey(cfg->ctx, pkey) <= 0) {
@@ -694,19 +694,23 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	// encrypt cert
 	if ((rv = SSL_CTX_use_enc_certificate_file(
 	         cfg->ctx, dkey_store, SSL_FILETYPE_PEM)) != 1) {
+		rv = NNG_EINVAL;
 		gminfo("SSL_CTX_use_enc_certificate_file load failed");
 		goto error;
 	}
 	// encrypt private key
 	if ((rv = SSL_CTX_use_enc_PrivateKey_file(
 	         cfg->ctx, dkey_private, SSL_FILETYPE_PEM)) != 1) {
+		rv = NNG_EINVAL;
 		gminfo("SSL_CTX_use_enc_PrivateKey_file load failed");
 		goto error;
 	}
 	if ((rv = SSL_CTX_check_enc_private_key(cfg->ctx)) != 1) {
+		rv = NNG_ECRYPTO;
 		gminfo("SSL_CTX_check_enc_private_key load failed");
 		goto error;
 	}
+	rv = 0;
 
 #endif
 
