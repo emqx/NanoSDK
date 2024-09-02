@@ -306,6 +306,7 @@ static void
 send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
 	nng_aio *        aio    = client->send_aio;
 	uint32_t         count;
+	uint16_t         token;
 	uint8_t *        code;
     MQTTAsyncs *handle  = arg;
 
@@ -354,11 +355,11 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
 	case NNG_MQTT_PUBLISH:
         // nng_msg_free(msg);
         break;
-    case NNG_MQTT_SUBACK:
+	case NNG_MQTT_SUBACK:
 		code = nng_mqtt_msg_get_suback_return_codes(msg, &count);
 		nng_log_info("Send callback", "SUBACK reason codes are: ");
 		for (int i = 0; i < (int)count; ++i) {
-            nng_log_info("Topic result", "[%d] ", code[i]);
+		nng_log_info("Topic result", "[%d] ", code[i]);
             			
             if (code[i] <= 2 && handle->subscribe.onSuccess) {
                 MQTTAsync_successData data;
@@ -382,18 +383,18 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
 			printf("[%d] ", code[i]);
 		break;
 	case NNG_MQTT_PUBACK:
-        uint16_t token = nng_mqtt_msg_get_puback_packet_id(msg);
+        	token = nng_mqtt_msg_get_puback_packet_id(msg);
 		nng_log_info("TRANSPORT", "PUBACK of %d received",
                 token);
         if (handle->dc)
             handle->dc(handle->dcContext, token);
 		break;
 	case NNG_MQTT_PUBCOMP:
-        uint16_t token2 = nng_mqtt_msg_get_pubcomp_packet_id(msg);
-        nng_log_info("TRANSPORT", "PUBACK of %d received",
-                token2);
-        if (handle->dc)
-		    handle->dc(handle->dcContext, token2);
+        	token = nng_mqtt_msg_get_pubcomp_packet_id(msg);
+        	nng_log_info("TRANSPORT", "PUBACK of %d received",
+                	token);
+        	if (handle->dc)
+		    handle->dc(handle->dcContext, token);
 		break;
 	default:
 		printf("Sending in async way is done.\n");
