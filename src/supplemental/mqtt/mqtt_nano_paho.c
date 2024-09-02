@@ -277,12 +277,13 @@ recv_callback(nng_mqtt_client *client, nng_msg *msg, void *arg)
 	uint32_t    count, len;
 	uint8_t    *code;
 	MQTTAsyncs *handle = arg;
+	MQTTAsync_message *mm;
 
 	if (msg == NULL)
 		return;
 	switch (nng_mqtt_msg_get_packet_type(msg)) {
 	case NNG_MQTT_PUBLISH:
-        MQTTAsync_message *mm = prepare_paho_msg(msg);
+        mm = prepare_paho_msg(msg);
         const char *buf = nng_mqtt_msg_get_publish_topic(msg, &len);
         char *topic = nni_zalloc(len + 1);
         memcpy(topic, buf, len);
@@ -1106,7 +1107,7 @@ void MQTTAsync_destroy(MQTTAsync *handle)
 {
 	MQTTAsyncs *m = *handle;
     nng_socket *sock = m->sock;
-    if (m->shouldBeConnected = 1)
+    if (m->shouldBeConnected == 1)
         nng_mqtt_disconnect(m->sock, MQTTREASONCODE_NORMAL_DISCONNECTION, NULL);
     nng_close(*sock);
 
