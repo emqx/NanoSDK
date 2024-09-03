@@ -110,8 +110,11 @@ struct nng_tls_engine_conn {
 	SSL     *ssl;
 	BIO     *rbio; /* SSL reads from, we write to. */
 	BIO     *wbio; /* SSL writes to, we read from. */
-	char     rbuf[OPEN_BUF_SZ];
-	char     wbuf[OPEN_BUF_SZ];
+	// FIXME Not a good way because the length of encrypted payload might over it
+	char     rbuf[2 * OPEN_BUF_SZ];
+	char     wbuf[2 * OPEN_BUF_SZ];
+	char    *wnext;
+	int      wnsz;
 	int      running;
 	int      ok;
 };
@@ -172,8 +175,7 @@ open_net_write(void *ctx, const char *buf, int len) {
 	int    rv;
 
 	rv = nng_tls_engine_send(ctx, (const uint8_t *) buf, &sz);
-	if (rv == 0)
-		debug("Sent To TCP %ld/%d rv%d", sz, len, rv);
+	debug("Sent To TCP %ld/%d rv%d", sz, len, rv);
 	trace("end");
 	switch (rv) {
 	case 0:
@@ -220,6 +222,8 @@ open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 		return (NNG_ENOMEM); // most likely
 	}
 	SSL_set_bio(ec->ssl, ec->rbio, ec->wbio);
+
+	ec->wnext = NULL;
 
 	if (cfg->server_name != NULL) {
 		SSL_set_tlsext_host_name(ec->ssl, cfg->server_name);
@@ -354,49 +358,102 @@ static int
 open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 {
 	int rv;
+	int sz = *szp;
+	int batchsz = OPEN_BUF_SZ;
 	int written2ssl = 0;
+	int written2tcp = 0;
 	trace("start");
 
-	print_hex("send buffer:", buf, *szp);
+	if (ec->wnext) {
+		debug("write last remaining payload first %d", ec->wnsz);
+		char *wnext = ec->wnext;
+		ec->wnext = NULL;
+		rv = open_net_write(ec->tls, wnext, ec->wnsz);
+		if (rv > 0) {
+			if (rv != ec->wnsz) {
+				int dm = ec->wnsz - rv;
+				ec->wnext = nng_alloc(sizeof(char) * dm);
+				memcpy(ec->wnext, wnext + rv, dm);
+				ec->wnsz = dm;
+				debug("WARNING still %d bytes not really be put to kernel", dm);
+				nng_free(wnext, 0);
+				return NNG_EAGAIN;
+			}
+			nng_free(wnext, 0);
+		} else if (rv == 0 - SSL_ERROR_WANT_READ || rv == 0 - SSL_ERROR_WANT_WRITE) {
+			trace("end3");
+			return NNG_EAGAIN;
+		} else
+			return (NNG_ECLOSED);
+	}
 
-	if ((rv = SSL_write(ec->ssl, buf, (int) (*szp))) <= 0) {
-		// TODO return codes according openssl documents
-		rv = SSL_get_error(ec->ssl, rv);
-		if (rv != SSL_ERROR_WANT_READ) {
-			debug("ERROR result in send %d", rv);
-			return (NNG_ECRYPTO);
-		}
-		rv = 0;
-	}
-	written2ssl = rv;
+	print_hex("send buffer:", buf, sz);
 
-	int ensz;
-	while ((ensz = BIO_read(ec->wbio, ec->rbuf, OPEN_BUF_SZ)) > 0) {
-		debug("BIO read rv%d", ensz);
-		int written = 0;
-		while (1) {
-			rv = open_net_write(ec->tls, ec->rbuf + written, ensz - written);
-			if (rv > 0) {
-				written += rv;
-				if (written == ensz)
-					break;
-			} else if (rv == 0 - SSL_ERROR_WANT_READ || rv == 0 - SSL_ERROR_WANT_WRITE)
-				return (NNG_EAGAIN);
-			else
-				return (NNG_ECLOSED);
+	while (written2tcp < sz) {
+		debug("written2tcp %d sz %d", written2tcp, sz);
+		int remain = sz - written2tcp;
+		batchsz = OPEN_BUF_SZ > remain ? remain : OPEN_BUF_SZ;
+
+		if ((rv = SSL_write(ec->ssl, buf + written2tcp, batchsz)) <= 0) {
+			// TODO return codes according openssl documents
+			rv = SSL_get_error(ec->ssl, rv);
+			if (rv != SSL_ERROR_WANT_READ && rv != SSL_ERROR_WANT_WRITE) {
+				debug("ERROR result in send %d", rv);
+				return (NNG_ECRYPTO);
+			}
+			rv = 0;
 		}
-	}
-	if (ensz < 0) {
-		if (!BIO_should_retry(ec->wbio)) {
-			debug("ERROR BIO read rv%d", ensz);
-			return (NNG_ECRYPTO);
+		// Update the actual length written to ssl
+		written2ssl = rv;
+
+		// We would better to read all bufs first then send.
+		int ensz;
+		int read2buf = 0;
+		while ((ensz = BIO_read(ec->wbio, ec->rbuf + read2buf, OPEN_BUF_SZ)) > 0) {
+			debug("BIO read ensz%d", ensz);
+			read2buf += ensz;
+			if (read2buf > 2 * OPEN_BUF_SZ) {
+				debug("ERROR BIO read buf over that 2*OPEN_BUF_SZ %d", read2buf);
+				return NNG_EINTERNAL;
+			}
 		}
+		if (ensz < 0) {
+			//trace("ensz%d", ensz);
+			if (!BIO_should_retry(ec->wbio)) {
+				debug("ERROR BIO read rv%d", ensz);
+				return (NNG_ECRYPTO);
+			}
+		}
+
+		rv = open_net_write(ec->tls, ec->rbuf, read2buf);
+		if (rv > 0) {
+			if (rv != read2buf) {
+				int dm = read2buf - rv;
+				ec->wnext = nng_alloc(sizeof(char) * dm);
+				memcpy(ec->wnext, ec->rbuf + rv, dm);
+				ec->wnsz = dm;
+				debug("WARNING still %d bytes not really be put to kernel", dm);
+				written2tcp += written2ssl;
+				goto end;
+			}
+			// A special case for handshake
+			written2tcp += written2ssl;
+			if (written2tcp == 0)
+				goto end;
+		} else if (rv == 0 - SSL_ERROR_WANT_READ || rv == 0 - SSL_ERROR_WANT_WRITE) {
+			trace("end2 read2buf%d written2tcp%d", read2buf, written2tcp);
+			if (written2tcp == 0)
+				return NNG_EAGAIN;
+			*szp = (size_t) written2tcp;
+			return 0;
+		} else
+			return (NNG_ECLOSED);
 	}
-	trace("end ensz%d written2ssl%d", ensz, written2ssl);
-	if (written2ssl == 0) {
+end:
+	trace("end written2tcp%d", written2tcp);
+	if (written2tcp == 0)
 		return NNG_EAGAIN;
-	}
-	*szp = (size_t) written2ssl;
+	*szp = (size_t) written2tcp;
 	return (0);
 }
 
