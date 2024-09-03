@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define OPEN_BUF_SZ 4096
+
 #define OPEN_GM 1
 //#define OPEN_DEBUG 1
 //#define OPEN_TRACE 1
@@ -108,8 +110,8 @@ struct nng_tls_engine_conn {
 	SSL     *ssl;
 	BIO     *rbio; /* SSL reads from, we write to. */
 	BIO     *wbio; /* SSL writes to, we read from. */
-	char     rbuf[4096];
-	char     wbuf[4096];
+	char     rbuf[OPEN_BUF_SZ];
+	char     wbuf[OPEN_BUF_SZ];
 	int      running;
 	int      ok;
 };
@@ -240,7 +242,7 @@ static int
 open_conn_handshake(nng_tls_engine_conn *ec)
 {
 	int rv;
-	int cnt = 10;
+	int cnt = 2;
 	trace("start");
 	if (ec->ok == 1)
 		return 0;
@@ -261,7 +263,7 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 		cnt --;
 		if (rv == SSL_ERROR_WANT_READ || rv == SSL_ERROR_WANT_WRITE) {
 			int ensz;
-			while ((ensz = BIO_read(ec->wbio, ec->rbuf, 4096)) > 0) {
+			while ((ensz = BIO_read(ec->wbio, ec->rbuf, OPEN_BUF_SZ)) > 0) {
 				debug("BIO read rv%d", ensz);
 				if (ensz < 0) {
 					if (!BIO_should_retry(ec->wbio))
@@ -274,7 +276,7 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 					return (NNG_ECLOSED);
 			}
 
-			while ((ensz = open_net_read(ec->tls, ec->wbuf, 1024)) > 0) {
+			while ((ensz = open_net_read(ec->tls, ec->wbuf, OPEN_BUF_SZ)) > 0) {
 				ensz = BIO_write(ec->rbio, ec->wbuf, ensz);
 				debug("BIO write rv%d", ensz);
 				if (ensz < 0) {
@@ -302,7 +304,7 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 {
 	trace("start");
 	int rv;
-	int ensz = 4096;
+	int ensz = OPEN_BUF_SZ;
 
 	// Am I ready?
 	//if (!SSL_is_init_finished(ec->ssl)) {
@@ -389,7 +391,7 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 	written2ssl = rv;
 
 	int ensz;
-	while ((ensz = BIO_read(ec->wbio, ec->rbuf, 4096)) > 0) {
+	while ((ensz = BIO_read(ec->wbio, ec->rbuf, OPEN_BUF_SZ)) > 0) {
 		debug("BIO read rv%d", ensz);
 		int written = 0;
 		while (1) {
