@@ -306,16 +306,6 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 	int rv;
 	int ensz = OPEN_BUF_SZ;
 
-	// Am I ready?
-	//if (!SSL_is_init_finished(ec->ssl)) {
-	//	if (ec->ok == -1) {
-	//		trace("Error in handshake!!!!!!!!!!!!");
-	//		return (NNG_ECLOSED);
-	//	}
-	//	trace("end Not Ready !!!!!!!!!!!!");
-	//	return (NNG_EAGAIN);
-	//}
-
 	rv = open_net_read(ec->tls, ec->wbuf, ensz);
 	if (rv == 0 - SSL_ERROR_WANT_READ || rv == 0 - SSL_ERROR_WANT_WRITE) {
 		rv = NNG_EAGAIN;
@@ -366,16 +356,6 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 	int rv;
 	int written2ssl = 0;
 	trace("start");
-
-	// Am I ready?
-	//if (!SSL_is_init_finished(ec->ssl)) {
-	//	if (ec->ok == -1) {
-	//		trace("Error in handshake!!!!!!!!!!!!");
-	//		return (NNG_ECLOSED);
-	//	}
-	//	trace("end Not Ready !!!!!!!!!!!!");
-	//	return (NNG_EAGAIN);
-	//}
 
 	print_hex("send buffer:", buf, *szp);
 
