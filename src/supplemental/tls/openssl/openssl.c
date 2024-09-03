@@ -384,6 +384,7 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 			debug("ERROR result in send %d", rv);
 			return (NNG_ECRYPTO);
 		}
+		rv = 0;
 	}
 	written2ssl = rv;
 
@@ -409,8 +410,10 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 			return (NNG_ECRYPTO);
 		}
 	}
-
-	trace("end ensz%d", ensz);
+	trace("end ensz%d written2ssl%d", ensz, written2ssl);
+	if (written2ssl == 0) {
+		return NNG_EAGAIN;
+	}
 	*szp = (size_t) written2ssl;
 	return (0);
 }
