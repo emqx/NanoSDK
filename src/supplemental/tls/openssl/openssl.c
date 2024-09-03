@@ -222,7 +222,7 @@ open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 	if (cfg->server_name != NULL) {
 		SSL_set_tlsext_host_name(ec->ssl, cfg->server_name);
 	}
-	open_conn_handshake(ec);
+	//open_conn_handshake(ec);
 	trace("end");
 
 	return (0);
@@ -305,10 +305,14 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 	int ensz = 4096;
 
 	// Am I ready?
-	if (!SSL_is_init_finished(ec->ssl)) {
-		trace("end Not Ready !!!!!!!!!!!!");
-		return (NNG_EAGAIN);
-	}
+	//if (!SSL_is_init_finished(ec->ssl)) {
+	//	if (ec->ok == -1) {
+	//		trace("Error in handshake!!!!!!!!!!!!");
+	//		return (NNG_ECLOSED);
+	//	}
+	//	trace("end Not Ready !!!!!!!!!!!!");
+	//	return (NNG_EAGAIN);
+	//}
 
 	rv = open_net_read(ec->tls, ec->wbuf, ensz);
 	if (rv == 0 - SSL_ERROR_WANT_READ || rv == 0 - SSL_ERROR_WANT_WRITE) {
@@ -362,10 +366,14 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 	trace("start");
 
 	// Am I ready?
-	if (!SSL_is_init_finished(ec->ssl)) {
-		trace("end Not Ready !!!!!!!!!!!!");
-		return (NNG_EAGAIN);
-	}
+	//if (!SSL_is_init_finished(ec->ssl)) {
+	//	if (ec->ok == -1) {
+	//		trace("Error in handshake!!!!!!!!!!!!");
+	//		return (NNG_ECLOSED);
+	//	}
+	//	trace("end Not Ready !!!!!!!!!!!!");
+	//	return (NNG_EAGAIN);
+	//}
 
 	print_hex("send buffer:", buf, *szp);
 
