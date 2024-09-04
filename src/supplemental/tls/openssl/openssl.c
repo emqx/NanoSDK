@@ -4,7 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define OPEN_BUF_SZ 4096
+// Follow the suggestion from Sliepen. https://stackoverflow.com/questions/69079419/how-i-can-read-more-than-16384-bytes-using-openssl-tls
+#define OPEN_BUF_SZ 16000
 
 #define OPEN_GM 1
 //#define OPEN_DEBUG 1
@@ -346,9 +347,9 @@ readopenssl:
 	}
 	print_hex("recv buffer:", (const uint8_t *)buf, *szp);
 	if (*szp == 0) {
+		trace("end eagain");
 		return NNG_EAGAIN;
 	}
-	nng_msleep(50);
 
 	trace("end");
 	return (0);
