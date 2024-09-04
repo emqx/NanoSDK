@@ -149,7 +149,7 @@ open_net_read(void *ctx, char *buf, int len) {
 
 	rv = nng_tls_engine_recv(ctx, (uint8_t *) buf, &sz);
 	if (rv == 0)
-		debug("Read From TCP %ld/%d rv%d", sz, len, rv);
+		nng_log_debug("NNG-TLS-NET-RD", "Read From TCP %ld/%d rv%d", sz, len, rv);
 	trace("end");
 	switch (rv) {
 	case 0:
@@ -176,7 +176,7 @@ open_net_write(void *ctx, const char *buf, int len) {
 	int    rv;
 
 	rv = nng_tls_engine_send(ctx, (const uint8_t *) buf, &sz);
-	debug("Sent To TCP %ld/%d rv%d", sz, len, rv);
+	nng_log_debug("NNG-TLS-NET-WR", "Sent To TCP %ld/%d rv%d", sz, len, rv);
 	trace("end");
 	switch (rv) {
 	case 0:
@@ -205,11 +205,12 @@ open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 	ec->ok = 0;
 	ec->tls = tls;
 	if ((ec->ssl = SSL_new(cfg->ctx)) == NULL) {
-		debug("error in new SSL connection\n");
+		nng_log_err("NNG-TLS-CONN-INIT", "error in new SSL connection");
 		return (NNG_ENOMEM); // most likely
 	}
 
-	debug("%s\n", cfg->mode == NNG_TLS_MODE_SERVER ? "SSL Server Mode":"SSL Client Mode");
+	nng_log_debug("NNG-TLS-CONN-INIT", "%s",
+			cfg->mode == NNG_TLS_MODE_SERVER ? "SSL Server Mode":"SSL Client Mode");
 
 	if (cfg->mode == NNG_TLS_MODE_CLIENT)
 		SSL_set_connect_state(ec->ssl);
@@ -219,7 +220,7 @@ open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 	ec->rbio = BIO_new(BIO_s_mem());
 	ec->wbio = BIO_new(BIO_s_mem());
 	if (!ec->rbio || !ec->wbio) {
-		debug("error in new BIO for connection\n");
+		nng_log_err("NNG-TLS-CONN-INIT", "error in new BIO for connection");
 		return (NNG_ENOMEM); // most likely
 	}
 	SSL_set_bio(ec->ssl, ec->rbio, ec->wbio);
@@ -264,12 +265,13 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 		rv = SSL_do_handshake(ec->ssl);
 		if (rv != 0)
 			rv = SSL_get_error(ec->ssl, rv);
-		debug("[%d]openssl do handshake failed rv%d\n", cnt, rv);
+		nng_log_warn("NNG-TLS-CONN-HANDSHAKE",
+				"[%d]openssl do handshake failed rv%d", cnt, rv);
 		cnt --;
 		if (rv == SSL_ERROR_WANT_READ || rv == SSL_ERROR_WANT_WRITE) {
 			int ensz;
 			while ((ensz = BIO_read(ec->wbio, ec->rbuf, OPEN_BUF_SZ)) > 0) {
-				debug("BIO read rv%d", ensz);
+				nng_log_debug("NNG-TLS-CONN-HANDSHAKE", "BIO read rv%d", ensz);
 				if (ensz < 0) {
 					if (!BIO_should_retry(ec->wbio))
 						return (NNG_ECRYPTO);
@@ -283,11 +285,15 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 
 			while ((ensz = open_net_read(ec->tls, ec->wbuf, OPEN_BUF_SZ)) > 0) {
 				ensz = BIO_write(ec->rbio, ec->wbuf, ensz);
-				debug("BIO write rv%d", ensz);
+				nng_log_debug("NNG-TLS-CONN-HANDSHAKE", "BIO write rv%d", ensz);
 				if (ensz < 0) {
-					debug("bio write failed %d\n", ensz);
-					if (!BIO_should_retry(ec->rbio))
+					nng_log_debug("NNG-TLS-CONN-HANDSHAKE",
+							"bio write failed %d", ensz);
+					if (!BIO_should_retry(ec->rbio)) {
+						nng_log_warn("NNG-TLS-CONN-HANDSHAKE",
+							"[%d]openssl BIO read failed rv%d", ensz);
 						return (NNG_ECRYPTO);
+					}
 				}
 			}
 		} else if (rv == SSL_ERROR_NONE) {
@@ -325,11 +331,14 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 		if (written == rv)
 			break;
 	}
-	debug("recv %d from tcp and written %d to BIO", rv, written);
+	nng_log_debug("NNG-TLS-CONN-RECV",
+		"recv %d from tcp and written %d to BIO", rv, written);
 	if (ensz < 0) {
-		debug("WARNING bio write failed %d", ensz);
+		nng_log_debug("NNG-TLS-CONN-RECV",
+			"bio write result %d", ensz);
 		if (!BIO_should_retry(ec->rbio)) {
-			debug("ERROR bio write failed %d", ensz);
+			nng_log_warn("NNG-TLS-CONN-RECV",
+				"[%d]openssl BIO write failed rv%d", ensz);
 			return (NNG_ECRYPTO);
 		}
 	}
@@ -339,7 +348,8 @@ readopenssl:
 		rv = SSL_get_error(ec->ssl, rv);
 		// TODO return codes according openssl documents
 		if (rv != SSL_ERROR_WANT_READ) {
-			debug("ERROR result in openssl read %d", rv);
+			nng_log_err("NNG-TLS-CONN-RECV",
+				"openssl read failed rv%d", rv);
 			return (NNG_ECRYPTO);
 		}
 		*szp = 0;
@@ -367,7 +377,8 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 	trace("start");
 
 	if (ec->wnext) {
-		debug("write last remaining payload first %d", ec->wnsz);
+		nng_log_debug("NNG-TLS-CONN-SEND",
+			"write last remaining payload first %d", ec->wnsz);
 		char *wnext = ec->wnext;
 		rv = open_net_write(ec->tls, wnext, ec->wnsz);
 		if (rv > 0) {
@@ -377,7 +388,8 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 				ec->wnext = nng_alloc(sizeof(char) * dm);
 				memcpy(ec->wnext, wnext + rv, dm);
 				ec->wnsz = dm;
-				debug("WARNING still %d bytes not really be put to kernel", dm);
+				nng_log_debug("NNG-TLS-CONN-SEND",
+					"still %d bytes not really be put to kernel", dm);
 				nng_free(wnext, 0);
 				return NNG_EAGAIN;
 			}
@@ -392,7 +404,8 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 	print_hex("send buffer:", buf, sz);
 
 	while (written2tcp < sz) {
-		debug("written2tcp %d sz %d", written2tcp, sz);
+		nng_log_debug("NNG-TLS-CONN-SEND",
+			"written2tcp %d sz %d", written2tcp, sz);
 		int remain = sz - written2tcp;
 		batchsz = OPEN_BUF_SZ > remain ? remain : OPEN_BUF_SZ;
 
@@ -400,7 +413,7 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 			// TODO return codes according openssl documents
 			rv = SSL_get_error(ec->ssl, rv);
 			if (rv != SSL_ERROR_WANT_READ && rv != SSL_ERROR_WANT_WRITE) {
-				debug("ERROR result in send %d", rv);
+				nng_log_err("NNG-TLS-CONN-SEND", "error in ssl write%d", rv);
 				return (NNG_ECRYPTO);
 			}
 			rv = 0;
@@ -412,17 +425,19 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 		int ensz;
 		int read2buf = 0;
 		while ((ensz = BIO_read(ec->wbio, ec->rbuf + read2buf, OPEN_BUF_SZ)) > 0) {
-			debug("BIO read ensz%d", ensz);
+			nng_log_debug("NNG-TLS-CONN-SEND", "BIO read ensz%d", ensz);
 			read2buf += ensz;
 			if (read2buf > 2 * OPEN_BUF_SZ) {
-				debug("ERROR BIO read buf over that 2*OPEN_BUF_SZ %d", read2buf);
+				nng_log_err("NNG-TLS-CONN-SEND",
+					"BIO read buf over that 2*OPEN_BUF_SZ %d", read2buf);
 				return NNG_EINTERNAL;
 			}
 		}
 		if (ensz < 0) {
 			//trace("ensz%d", ensz);
 			if (!BIO_should_retry(ec->wbio)) {
-				debug("ERROR BIO read rv%d", ensz);
+				nng_log_err("NNG-TLS-CONN-SEND",
+					"BIO read failed rv%d", ensz);
 				return (NNG_ECRYPTO);
 			}
 		}
@@ -434,7 +449,8 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 				ec->wnext = nng_alloc(sizeof(char) * dm);
 				memcpy(ec->wnext, ec->rbuf + rv, dm);
 				ec->wnsz = dm;
-				debug("WARNING still %d bytes not really be put to kernel", dm);
+				nng_log_debug("NNG-TLS-CONN-SEND",
+					"still %d bytes not really be put to kernel", dm);
 				written2tcp += written2ssl;
 				goto end;
 			}
@@ -463,7 +479,7 @@ static bool
 open_conn_verified(nng_tls_engine_conn *ec)
 {
 	long rv = SSL_get_verify_result(ec->ssl);
-	debug("verified result: %ld\n", rv);
+	nng_log_info("NNG-TLS-CONN-VERIFY", "verified result: %ld", rv);
 	return (X509_V_OK == rv);
 }
 
@@ -510,7 +526,7 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 	cfg->ctx = SSL_CTX_new(method);
 	//cfg->ctx = SSL_CTX_new(TLS_method());
 	if (cfg->ctx == NULL) {
-		debug("error in config init");
+		nng_log_err("NNG-TLS-CFG-INIT", "error in new ctx");
 		return (NNG_ENOMEM);
 	}
 	// Set max/min version TODO
@@ -559,19 +575,19 @@ open_config_auth_mode(nng_tls_engine_config *cfg, nng_tls_auth_mode mode)
 	switch (mode) {
 	case NNG_TLS_AUTH_MODE_NONE:
 		SSL_CTX_set_verify(cfg->ctx, SSL_VERIFY_NONE, NULL);
-	debug("AUTH MODE: NONE");
+		nng_log_debug("NNG-TLS-CFG-AUTH", "AUTH MODE: NONE");
 		return (0);
 	case NNG_TLS_AUTH_MODE_OPTIONAL:
 		SSL_CTX_set_verify(cfg->ctx, SSL_VERIFY_PEER, NULL);
-	debug("AUTH MODE: OPTION");
+		nng_log_debug("NNG-TLS-CFG-AUTH", "AUTH MODE: OPTION");
 		return (0);
 	case NNG_TLS_AUTH_MODE_REQUIRED:
 		SSL_CTX_set_verify(cfg->ctx,
 		    SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
-	debug("AUTH MODE: REQUIRE");
+		nng_log_debug("NNG-TLS-CFG-AUTH", "AUTH MODE: REQUIRE");
 		return (0);
 	}
-	debug("wrong auth mode!!!!!!!!\n");
+	nng_log_err("NNG-TLS-CFG-AUTH", "AUTH MODE: Unknown");
 	return (NNG_EINVAL);
 }
 
@@ -586,7 +602,7 @@ open_config_ca_chain(
 
 	BIO *bio = BIO_new_mem_buf(certs, len);
 	if (!bio) {
-		debug("Failed to create BIO");
+		nng_log_err("NNG-TLS-CFG-CACHAIN", "Failed to create BIO");
 		return (NNG_ENOMEM);
 	}
 
@@ -595,7 +611,7 @@ open_config_ca_chain(
 
 	while ((cert = PEM_read_bio_X509(bio, NULL, 0, NULL)) != NULL) {
 		if (X509_STORE_add_cert(store, cert) == 0) {
-			debug("Failed to add certificate to store");
+			nng_log_err("NNG-TLS-CFG-CACHAIN", "Failed to add certificate to store");
 			X509_free(cert);
 			BIO_free(bio);
 			return (NNG_ECRYPTO);
@@ -606,7 +622,7 @@ open_config_ca_chain(
 	BIO_free(bio);
 
 	if (crl == NULL) {
-	trace("end without crl");
+		trace("end without crl");
 		return (0);
 	}
 
@@ -701,18 +717,18 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	len = strlen(cert);
 	biocert = BIO_new_mem_buf(cert, len);
 	if (!biocert) {
-		debug("Failed to create BIO");
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to create BIO");
 		rv = NNG_ENOMEM;
 		goto error;
 	}
 	xcert = PEM_read_bio_X509(biocert, NULL, 0, NULL);
 	if (!xcert) {
-		debug("Failed to load certificate from buffer");
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load certificate from buffer");
 		rv = NNG_EINVAL;
 		goto error;
 	}
 	if (SSL_CTX_use_certificate(cfg->ctx, xcert) <= 0) {
-		debug("Failed to set certificate in SSL_CTX");
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to set certificate to SSL_CTX");
 		rv = NNG_EINVAL;
 		goto error;
 	}
@@ -720,24 +736,24 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	len = strlen(key);
 	biokey = BIO_new_mem_buf(key, len);
 	if (!biokey) {
-		debug("Failed to create BIO");
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to create key BIO");
 		rv = NNG_ENOMEM;
 		goto error;
 	}
 	pkey = PEM_read_bio_PrivateKey(biokey, NULL, NULL, NULL);
 	if (!pkey) {
-		debug("Failed to load certificate from buffer");
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load key from buffer");
 		rv = NNG_EINVAL;
 		goto error;
 	}
 	if (SSL_CTX_use_PrivateKey(cfg->ctx, pkey) <= 0) {
-		debug("Failed to set certificate in SSL_CTX");
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to set key to SSL_CTX");
 		rv = NNG_EINVAL;
 		goto error;
 	}
 
 	if (SSL_CTX_check_private_key(cfg->ctx) != 1) {
-		debug("SSL_CTX_check_private_key failed");
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to check key in SSL_CTX");
 		rv = NNG_ECRYPTO;
 		goto error;
 	}
