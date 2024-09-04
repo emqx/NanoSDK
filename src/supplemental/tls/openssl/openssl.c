@@ -369,9 +369,9 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 	if (ec->wnext) {
 		debug("write last remaining payload first %d", ec->wnsz);
 		char *wnext = ec->wnext;
-		ec->wnext = NULL;
 		rv = open_net_write(ec->tls, wnext, ec->wnsz);
 		if (rv > 0) {
+			ec->wnext = NULL;
 			if (rv != ec->wnsz) {
 				int dm = ec->wnsz - rv;
 				ec->wnext = nng_alloc(sizeof(char) * dm);
