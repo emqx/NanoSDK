@@ -664,17 +664,18 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 #ifdef OPEN_GM
 
 	if (pass == NULL) {
-		gminfo("Please provide GM certificates");
+		nng_log_err("NNG-TLS-GM-OWN-CERT", "Please provide GM certificates");
 		return NNG_EINVAL;
 	}
 	char **encerts = pass;
-	char *dkey_store = encerts[0];
-	char *dkey_private = encerts[1];
+	char *dkey_store = encerts[0]; // encrypt cert
+	char *dkey_private = encerts[1]; // encrypt private key
 	if (dkey_store == NULL || dkey_private == NULL) {
-		gminfo("Please provide GM dkey store and dkey private");
+		nng_log_err("NNG-TLS-GM-OWN-CERT", "Please provide GM dkey store and dkey private");
 		return NNG_EINVAL;
 	}
-	gminfo("SSL_TLCP start dkeyStore = %s dkey = %s", dkey_store, dkey_private);
+	nng_log_info("NNG-TLS-GM-OWN-CERT",
+			"SSL_TLCP start dkeyStore = %s dkey = %s", dkey_store, dkey_private);
 
 #else
 
@@ -747,19 +748,19 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	if ((rv = SSL_CTX_use_enc_certificate_file(
 	         cfg->ctx, dkey_store, SSL_FILETYPE_PEM)) != 1) {
 		rv = NNG_EINVAL;
-		gminfo("SSL_CTX_use_enc_certificate_file load failed");
+		nng_log_err("NNG-TLS-GM-ENC-CRT", "Enc cert load failed");
 		goto error;
 	}
 	// encrypt private key
 	if ((rv = SSL_CTX_use_enc_PrivateKey_file(
 	         cfg->ctx, dkey_private, SSL_FILETYPE_PEM)) != 1) {
 		rv = NNG_EINVAL;
-		gminfo("SSL_CTX_use_enc_PrivateKey_file load failed");
+		nng_log_err("NNG-TLS-GM-ENC-KEY", "Enc key load failed");
 		goto error;
 	}
 	if ((rv = SSL_CTX_check_enc_private_key(cfg->ctx)) != 1) {
 		rv = NNG_ECRYPTO;
-		gminfo("SSL_CTX_check_enc_private_key load failed");
+		nng_log_err("NNG-TLS-GM-ENC-CHECK", "check key failed");
 		goto error;
 	}
 	rv = 0;
