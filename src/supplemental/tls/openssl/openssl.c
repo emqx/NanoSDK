@@ -319,14 +319,15 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 	else if (rv < 0)
 		return (NNG_ECLOSED);
 
-	debug("recv %d from tcp", rv);
 	int written = 0;
 	while ((ensz = BIO_write(ec->rbio, ec->wbuf + written, rv - written)) > 0) {
 		written += ensz;
 		if (written == rv)
 			break;
 	}
+	debug("recv %d from tcp and written %d to BIO", rv, written);
 	if (ensz < 0) {
+		debug("WARNING bio write failed %d", ensz);
 		if (!BIO_should_retry(ec->rbio)) {
 			debug("ERROR bio write failed %d", ensz);
 			return (NNG_ECRYPTO);
