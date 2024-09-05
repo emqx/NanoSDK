@@ -62,7 +62,7 @@ enum msgTypes
 
 #define MQTTAsync_successData5_initializer                                          \
   {                                                                                 \
-    {'M', 'Q', 'S', 'D'}, 0, 0, MQTTREASONCODE_SUCCESS, MQTTProperties_initializer, \
+    {'M', 'Q', 'S', 'D'}, 0, 0, MQTTREASONCODE_SUCCESS, NULL, \
     {                                                                               \
       .sub = { 0,                                                                   \
                0 }                                                                  \
@@ -183,6 +183,15 @@ typedef struct MQTTAsync_struct
     nng_mqtt_client *nanosdk_client;
     nng_dialer *dialer;
     nng_socket *sock;
+    // TLS
+	char *ca;
+	char *cert;
+	char *key;
+	char *key_password;
+    char *dcert;
+    char *dkey;
+	bool  verify_peer;
+	bool  set_fail; // fail_if_no_peer_cert
 } MQTTAsyncs;
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
@@ -217,7 +226,7 @@ int UTF8_validateString(const char* string);
 
 #define MQTTAsync_failureData5_initializer                                                     \
   {                                                                                            \
-    {'M', 'Q', 'F', 'D'}, 0, 0, MQTTREASONCODE_SUCCESS, MQTTProperties_initializer, 0, NULL, 0 \
+    {'M', 'Q', 'F', 'D'}, 0, 0, MQTTREASONCODE_SUCCESS, NULL, 0, NULL, 0 \
   }
 
 
