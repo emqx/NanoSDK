@@ -472,6 +472,7 @@ NNG_DECL void nng_mqtt_msg_set_suback_return_codes(
     nng_msg *, uint8_t *, uint32_t);
 NNG_DECL uint8_t *nng_mqtt_msg_get_suback_return_codes(nng_msg *, uint32_t *);
 NNG_DECL property *nng_mqtt_msg_get_suback_property(nng_msg *);
+NNG_DECL uint16_t  nng_mqtt_msg_get_suback_packet_id(nng_msg *);
 NNG_DECL void      nng_mqtt_msg_set_suback_property(nng_msg *, property *);
 
 NNG_DECL void     nng_mqtt_msg_set_unsubscribe_topics(

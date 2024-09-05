@@ -16,6 +16,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "mqtt_client.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -391,20 +393,20 @@ typedef struct MQTTAsync_responseOptions MQTTAsync_callOptions;
 	{ { 'M', 'Q', 'T', 'C' }, 8, 60, 1, 65535, NULL, NULL, NULL, 30, 0, \
 		NULL, NULL, NULL, NULL, 0, NULL, MQTTVERSION_DEFAULT, 0, 1, \
 		60, { 0, NULL }, 0, NULL, NULL, NULL, NULL, NULL, NULL,     \
-		NULL }
+		NULL, 0 }
 #define MQTTAsync_connectOptions_initializer5                               \
 	{ { 'M', 'Q', 'T', 'C' }, 8, 60, 0, 65535, NULL, NULL, NULL, 30, 0, \
 		NULL, NULL, NULL, NULL, 0, NULL, MQTTVERSION_5, 0, 1, 60,   \
-		{ 0, NULL }, 1, NULL, NULL, NULL, NULL, NULL, NULL, NULL }
+		{ 0, NULL }, 1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0 }
 #define MQTTAsync_connectOptions_initializer_ws                             \
 	{ { 'M', 'Q', 'T', 'C' }, 8, 45, 1, 65535, NULL, NULL, NULL, 30, 0, \
 		NULL, NULL, NULL, NULL, 0, NULL, MQTTVERSION_DEFAULT, 0, 1, \
 		60, { 0, NULL }, 0, NULL, NULL, NULL, NULL, NULL, NULL,     \
-		NULL }
+		NULL, 0 }
 #define MQTTAsync_connectOptions_initializer5_ws                            \
 	{ { 'M', 'Q', 'T', 'C' }, 8, 45, 0, 65535, NULL, NULL, NULL, 30, 0, \
 		NULL, NULL, NULL, NULL, 0, NULL, MQTTVERSION_5, 0, 1, 60,   \
-		{ 0, NULL }, 1, NULL, NULL, NULL, NULL, NULL, NULL, NULL }
+		{ 0, NULL }, 1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0 }
 #define MQTTAsync_createOptions_initializer \
 	{ { 'M', 'Q', 'C', 'O' }, 2, 0, 100, MQTTVERSION_DEFAULT, 0, 0, 1, 1 }
 
@@ -712,7 +714,7 @@ typedef struct {
 	 * the request later. */
 	MQTTAsync_token      token;
 	enum MQTTReasonCodes reasonCode; /**< MQTT V5 reason code returned */
-	MQTTProperties properties; /**< MQTT V5 properties returned, if any */
+	property *properties; /**< MQTT V5 properties returned, if any */
 	/** A union of the different values that can be returned for subscribe,
 	 * unsubscribe and publish. */
 	union {
@@ -721,8 +723,7 @@ typedef struct {
 		struct {
 			int reasonCodeCount; /**< the number of reason codes in
 			                        the reasonCodes array */
-			enum MQTTReasonCodes
-			    *reasonCodes; /**< an array of reasonCodes */
+			uint8_t *reasonCodes; /**< an array of reasonCodes */
 		} sub;
 		/** For publish, the message being sent to the server. */
 		struct {
@@ -745,7 +746,7 @@ typedef struct {
 		struct {
 			int reasonCodeCount; /**< the number of reason codes in
 			                        the reasonCodes array */
-			enum MQTTReasonCodes
+			uint8_t
 			    *reasonCodes; /**< an array of reasonCodes */
 		} unsub;
 	} alt;
@@ -774,7 +775,7 @@ typedef struct {
 	/** The MQTT reason code returned. */
 	enum MQTTReasonCodes reasonCode;
 	/** The MQTT properties on the ack, if any. */
-	MQTTProperties properties;
+	property *properties;
 	/** A numeric code identifying the MQTT client library error. */
 	int code;
 	/** Optional further text explaining the error. Can be NULL. */
@@ -1318,6 +1319,10 @@ typedef struct {
 	 * HTTPS proxy for websockets
 	 */
 	const char *httpsProxy;
+	/**
+	 * MQTTV5 SCRAM enhanced authentication
+	 */
+	bool scram;
 } MQTTAsync_connectOptions;
 
 #define MQTTAsync_message_initializer                     \
