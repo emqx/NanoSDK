@@ -649,7 +649,10 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 	MQTTAsyncs *m = handle;
     nng_socket *sock = m->sock;
     nng_dialer *dialer = m->dialer;
-    nng_tls_config *tls_cfg = NULL;
+#ifdef NNG_SUPP_TLS
+	nng_tls_config *tls_cfg = NULL;
+#endif
+    
 
     // create a CONNECT message
 	/* CONNECT */
