@@ -1,6 +1,9 @@
 include(FindThreads)
 
 if (NNG_TLS_ENGINE STREQUAL "open")
+    set(NNG_TLS_OPENSSL ON)
+    set(NNG_TLS_OPENSSL_HAVE_GM ON)
+    message("Enable TASSL !!")
     message(NOTICE "
         ************************************************************
         Linking against OpenSSL may change license terms.

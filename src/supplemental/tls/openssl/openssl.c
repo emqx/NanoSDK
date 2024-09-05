@@ -25,7 +25,7 @@
 //#define OPEN_DEBUG 1
 //#define OPEN_TRACE 1
 
-#ifdef OPEN_GM
+#ifdef NNG_TLS_OPENSSL_HAVE_GM
 
 #define gminfo(format, arg...)                                              \
 	do {                                                               \
@@ -595,7 +595,7 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 		nng_auth  = NNG_TLS_AUTH_MODE_REQUIRED;
 	}
 
-#ifdef OPEN_GM
+#ifdef NNG_TLS_OPENSSL_HAVE_GM
 	method = CNTLS_client_method();
 #endif
 
@@ -756,13 +756,14 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	EVP_PKEY *pkey = NULL;
 	trace("start");
 
-#ifdef OPEN_GM
+#ifdef NNG_TLS_OPENSSL_HAVE_GM
 
 	if (pass == NULL) {
 		nng_log_err("NNG-TLS-GM-OWN-CERT", "Please provide GM certificates");
 		return NNG_EINVAL;
 	}
 	char **encerts = (char **)pass;
+	nng_log_debug("OpenSSL", "pass path  %s  %s", (encerts[0]), (encerts[1]));
 	char *dkey_store = encerts[0]; // encrypt cert
 	char *dkey_private = encerts[1]; // encrypt private key
 	if (dkey_store == NULL || dkey_private == NULL) {
@@ -791,7 +792,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	(void) pass;
 #endif
 
-#endif // OPEN_GM
+#endif // NNG_TLS_OPENSSL_HAVE_GM
 
 	len = strlen(cert);
 	biocert = BIO_new_mem_buf(cert, len);
@@ -837,7 +838,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 		goto error;
 	}
 
-#ifdef OPEN_GM
+#ifdef NNG_TLS_OPENSSL_HAVE_GM
 
 	// encrypt cert
 	if ((rv = SSL_CTX_use_enc_certificate_file(
