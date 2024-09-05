@@ -240,6 +240,8 @@ static void
 open_conn_close(nng_tls_engine_conn *ec)
 {
 	trace("start");
+	if (ec->wnext)
+		nng_free(ec->wnext, 0);
 	SSL_shutdown(ec->ssl);
 	trace("end");
 }
@@ -263,10 +265,11 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 	// TODO more rv handle
 	while (cnt != 0) {
 		rv = SSL_do_handshake(ec->ssl);
-		if (rv != 0)
+		if (rv != 0) {
 			rv = SSL_get_error(ec->ssl, rv);
-		nng_log_warn("NNG-TLS-CONN-HANDSHAKE",
-				"[%d]openssl do handshake failed rv%d", cnt, rv);
+			nng_log_warn("NNG-TLS-CONN-HANDSHAKE",
+				"[%d]openssl handshake still in process rv%d", cnt, rv);
+		}
 		cnt --;
 		if (rv == SSL_ERROR_WANT_READ || rv == SSL_ERROR_WANT_WRITE) {
 			int ensz;
@@ -298,6 +301,8 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 			}
 		} else if (rv == SSL_ERROR_NONE) {
 			rv = 0;
+			nng_log_warn("NNG-TLS-CONN-HANDSHAKE",
+					"openssl do handshake successfully");
 			ec->ok = 1;
 			break;
 		} else {
@@ -683,7 +688,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 		nng_log_err("NNG-TLS-GM-OWN-CERT", "Please provide GM certificates");
 		return NNG_EINVAL;
 	}
-	char **encerts = pass;
+	char **encerts = (char **)pass;
 	char *dkey_store = encerts[0]; // encrypt cert
 	char *dkey_private = encerts[1]; // encrypt private key
 	if (dkey_store == NULL || dkey_private == NULL) {
