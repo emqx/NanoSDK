@@ -7,6 +7,7 @@
 #include "supplemental/mqtt/mqtt_msg.h"
 #include "mqtt_qos_db.h"
 #include "nng/mqtt/mqtt_client.h"
+#include "nng/supplemental/nanolib/file.h"
 
 #define URI_TCP "mqtt-tcp://"
 #define URI_WS "ws://"
