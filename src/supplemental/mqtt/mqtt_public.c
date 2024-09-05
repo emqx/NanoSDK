@@ -806,7 +806,7 @@ mqtt_property_append(property *prop_list, property *last)
 static void
 nng_mqtt_client_send_cb(void* arg)
 {
-	int rv;
+	int rv = 0;
 	nng_mqtt_client *client = (nng_mqtt_client *) arg;
 	nng_aio *        aio    = client->send_aio;
 	nng_msg *        msg    = nng_aio_get_msg(aio);
@@ -835,7 +835,7 @@ nng_mqtt_client_recv_cb(void* arg)
 	nng_mqtt_client *client = (nng_mqtt_client *) arg;
 	nng_aio *        aio    = client->recv_aio;
 	nng_msg *        msg    = nng_aio_get_msg(aio);
-	int 			 rv;
+	int 			 rv = 0;
 
 	if (msg == NULL || (rv = nng_aio_result(aio)) != 0) {
 		nng_log_debug("RECV", "nng_mqtt_client recv aio report error %d", rv);
