@@ -49,8 +49,22 @@
 #define TLS_SUBSCRIBE "subtls"
 
 #define ADDRESS     "mqtt-tcp://localhost:1883"
-#define CLIENTID    "SCRAM"
+#define ADDRESS2     "tls+mqtt-tcp://123.60.191.138:2443"
+#define ADDRESS3     "tls+mqtt-tcp://localhost:8884"
 
+#define CLIENTID    "SCRAM"
+#define CLIENT_CA_CERT_PATH "/OPT/certs/client/ca.crt"
+#define CLIENT_CA_CERT_PATH2 "/OPT/nanomq/etc/certs/cacert.pem"
+
+#define CLIENT_SIGN_CERT_PATH2 "/OPT/nanomq/etc/certs/client-cert.pem"
+#define CLIENT_SIGN_KEY_PATH2 "/OPT/nanomq/etc/certs/client-key.pem"
+
+
+#define CLIENT_SIGN_CERT_PATH "/OPT/certs/client/client_sign.crt"
+#define CLIENT_SIGN_KEY_PATH "/OPT/certs/client/client_sign.key"
+
+#define CLIENT_ENC_CERT_PATH "/OPT/certs/client/client.crt"
+#define CLIENT_ENC_KEY_PATH "/OPT/certs/client/client.key"
 
 //接收回调处理
 static int msgarrvd(void* context, char* topicName, int topicLen, MQTTAsync_message* message)
@@ -488,13 +502,20 @@ publish_cb(void *args)
 	printf("thread_exit\n");
 }
 
-void onSubscribe(void* context, MQTTAsync_successData* response)
+void onSubscribe(void* context, MQTTAsync_successData5* response)
 {
 	printf("Subscribe succeeded\n");
+	printf("Sub packet id %d\n", response->token);
+	printf("Sub packet topic count %d\n", response->alt.sub.reasonCodeCount);
+	for (size_t i = 0; i < response->alt.sub.reasonCodeCount; i++)
+	{
+		printf ("Sub result %d\n", response->alt.sub.reasonCodes[i]);
+	}
+	
 	subscribed = 1;
 }
 
-void onSubscribeFailure(void* context, MQTTAsync_failureData* response)
+void onSubscribeFailure(void* context, MQTTAsync_failureData5* response)
 {
 	printf("Subscribe failed, rc %d\n", response->code);
 	finished = 1;
@@ -532,21 +553,26 @@ void testConnected(void* context, char* cause)
 	int rc;
 
 	printf("Successful connection\n");
-	opts.onSuccess = onSubscribe;
-	opts.onFailure = onSubscribeFailure;
+	// opts.onSuccess = onSubscribe;
+	// opts.onFailure = onSubscribeFailure;
+	opts.onSuccess5 = onSubscribe;
+	opts.onFailure5 = onSubscribeFailure;
 	opts.context = c;
 
 	// opts.onSuccess = onSubscribeSuccess;
 	// opts.onFailure = onSubscribeFailure;
 	// opts.context = NULL;
-	if ((rc = MQTTAsync_subscribe(c, "msg", 1, &opts)) != MQTTASYNC_SUCCESS)
-	{
-		printf("Failed to start subscribe, return code %d\n", rc);
-		finished = 1;
-	}
+	// if ((rc = MQTTAsync_subscribe(c, "msg", 1, &opts)) != MQTTASYNC_SUCCESS)
+	// {
+	// 	printf("Failed to start subscribe, return code %d\n", rc);
+	// 	finished = 1;
+	// }
+	char *topics[4] = {"msg1", "msg2", "msg3", "msg4"};
+	int qos[4] = {0,1,2,0};
+	MQTTAsync_subscribeMany(c, 4, topics, qos, &opts);
 }
 
-void onSendFailure(void* context, MQTTAsync_failureData* response)
+void onSendFailure5(void* context, MQTTAsync_failureData5* response)
 {
 	MQTTAsync client = (MQTTAsync)context;
 	MQTTAsync_disconnectOptions opts = MQTTAsync_disconnectOptions_initializer;
@@ -555,7 +581,7 @@ void onSendFailure(void* context, MQTTAsync_failureData* response)
 	printf("Message send failed token %d error code %d\n", response->token, response->code);
 }
 
-void onSendSuccess(void* context, MQTTAsync_successData* response)
+void onSendSuccess5(void* context, MQTTAsync_successData5* response)
 {
 	MQTTAsync client = (MQTTAsync)context;
 	MQTTAsync_disconnectOptions opts = MQTTAsync_disconnectOptions_initializer;
@@ -585,6 +611,7 @@ void connlost(void *context, char *cause)
 void asyncDeliveryComplete(void* context, MQTTAsync_token token)
 {
 	printf("qos finished!");
+	nng_log_debug("Delivery report", "QoS id %d", token);
 }
 
 int
@@ -602,12 +629,12 @@ main(const int argc, const char **argv)
 	nng_log_set_logger(nng_stderr_logger);
 	nng_log_set_level(NNG_LOG_DEBUG);
 	MQTTAsync client;
-	MQTTAsync_createOptions create_opts = MQTTAsync_createOptions_initializer;
-	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer;
+	MQTTAsync_createOptions create_opts = MQTTAsync_createOptions_initializer5;
+	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer5;
 	MQTTAsync_disconnectOptions disc_opts = MQTTAsync_disconnectOptions_initializer;
 	MQTTAsync_responseOptions pub_opts = MQTTAsync_responseOptions_initializer;
 
-	rc = MQTTAsync_createWithOptions(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL, &create_opts);
+	rc = MQTTAsync_createWithOptions(&client, ADDRESS2, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL, &create_opts);
 	if (rc != MQTTASYNC_SUCCESS)
 	{
 		printf("Failed to create client, return code %d\n", rc);
@@ -623,18 +650,20 @@ main(const int argc, const char **argv)
 	MQTTAsync_SSLOptions ssl_opts = MQTTAsync_SSLOptions_initializer;
 	ssl_opts.enableServerCertAuth = 1;  // 开启服务器证书认证
 	ssl_opts.sslVersion = MQTT_SSL_VERSION_DEFAULT;
-	// ssl_opts.keyStore = CLIENT_SIGN_CERT_PATH;
-	// ssl_opts.privateKey = CLIENT_SIGN_KEY_PATH;
-	// ssl_opts.dkeyStore = CLIENT_ENC_CERT_PATH;
-	// ssl_opts.dprivateKey = CLIENT_ENC_KEY_PATH;
-	// ssl_opts.trustStore = CLIENT_CA_CERT_PATH;
+	ssl_opts.keyStore = CLIENT_SIGN_CERT_PATH;
+	ssl_opts.privateKey = CLIENT_SIGN_KEY_PATH;
+	ssl_opts.dkeyStore = CLIENT_ENC_CERT_PATH;
+	ssl_opts.dprivateKey = CLIENT_ENC_KEY_PATH;
+	ssl_opts.trustStore = CLIENT_CA_CERT_PATH;
 
 	conn_opts.keepAliveInterval = 64;
-	conn_opts.onSuccess = onConnect;
-	conn_opts.onFailure = onConnectFailure;
-	conn_opts.username  = "g_pcUserName";
-	conn_opts.password  = "g_pcPassword";
-	conn_opts.context   = NULL;
+	conn_opts.scram             = true;
+	conn_opts.MQTTVersion       = MQTTVERSION_5;
+	conn_opts.onSuccess         = onConnect;
+	conn_opts.onFailure         = onConnectFailure;
+	conn_opts.username          = "admin";
+	conn_opts.password          = "public";
+	conn_opts.context           = NULL;
 	// 增加重连机制
 	conn_opts.automaticReconnect = 1; // 设置非零，断开自动重连
 	conn_opts.minRetryInterval = 3; // 单位秒，重连间隔次数，每次重新连接失败时，重试间隔都会加倍，直到最大间隔
@@ -649,17 +678,19 @@ main(const int argc, const char **argv)
 
 	MQTTAsync_message pubmsg = MQTTAsync_message_initializer;
 	MQTTAsync_token token;
-	pub_opts.onSuccess = onSendSuccess;
-	pub_opts.onFailure = onSendFailure;
+	// be awared that we have no msg-specific callback. all msgs share one cb
+	pub_opts.onSuccess5 = onSendSuccess5;
+	pub_opts.onFailure5 = onSendFailure5;
 	pub_opts.context = client;
 	pubmsg.payload = "hello world";
 	pubmsg.payloadlen = 11;
-	pubmsg.qos = 2;
+	pubmsg.qos = 1;
 	pubmsg.retained = 0;
 
+	nng_msleep(3600);
 	MQTTAsync_responseOptions opts = MQTTAsync_responseOptions_initializer;
-	MQTTAsync_sendMessage(client, "test", &pubmsg, &pub_opts);
-	nng_msleep(15600);
+	MQTTAsync_sendMessage(client, "msg", &pubmsg, &pub_opts);
+	nng_msleep(10000);
 
 	disc_opts.onSuccess = onDisconnect;
 	disc_opts.onFailure = onDisconnectFailure;	// this is nonsense
@@ -669,7 +700,7 @@ main(const int argc, const char **argv)
 		rc = EXIT_FAILURE;
 		goto destroy_exit;
 	}
-	nng_msleep(6600);
+	nng_msleep(8600);
 destroy_exit:
 	MQTTAsync_destroy(&client);
 exit:

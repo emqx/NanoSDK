@@ -26,12 +26,20 @@
 #include <OsWrapper.h>
 #endif
 
-#define ADDRESS     "mqtt-tcp://localhost:1883"
+#define ADDRESS     "tls+mqtt-tcp://123.60.191.138:2443"
 #define CLIENTID    "ExampleClientSub"
-#define TOPIC       "MQTT Examples"
+#define TOPIC       "South China Grid"
 #define PAYLOAD     "Hello World!"
-#define QOS         1
+#define QOS         2
 #define TIMEOUT     10000L
+
+#define CLIENT_CA_CERT_PATH "/home/jaylin/Downloads/certs/client/ca.crt"
+
+#define CLIENT_SIGN_CERT_PATH "/home/jaylin/Downloads/certs/client/client_sign.crt"
+#define CLIENT_SIGN_KEY_PATH "/home/jaylin/Downloads/certs/client/client_sign.key"
+
+#define CLIENT_ENC_CERT_PATH "/home/jaylin/Downloads/certs/client/client.crt"
+#define CLIENT_ENC_KEY_PATH "/home/jaylin/Downloads/certs/client/client.key"
 
 int disc_finished = 0;
 int subscribed = 0;
@@ -61,7 +69,7 @@ void connlost(void *context, char *cause)
 int msgarrvd(void *context, char *topicName, int topicLen, MQTTAsync_message *message)
 {
     printf("Message arrived\n");
-    printf("     topic: %s\n", topicName);
+    printf("     topic: %s qos : %d\n", topicName, message->msgid);
     printf("   message: %.*s\n", message->payloadlen, (char*)message->payload);
     MQTTAsync_freeMessage(&message);
     MQTTAsync_free(topicName);
@@ -110,8 +118,8 @@ void onConnect(void* context, MQTTAsync_successData* response)
 
 	printf("Subscribing to topic %s\nfor client %s using QoS%d\n\n"
            "Press Q<Enter> to quit\n\n", TOPIC, CLIENTID, QOS);
-	opts.onSuccess = onSubscribe;
-	opts.onFailure = onSubscribeFailure;
+	opts.onSuccess5 = onSubscribe;
+	opts.onFailure5 = onSubscribeFailure;
 	opts.context = client;
 	if ((rc = MQTTAsync_subscribe(client, TOPIC, QOS, &opts)) != MQTTASYNC_SUCCESS)
 	{
@@ -125,20 +133,45 @@ void asyncDeliveryComplete(void* context, MQTTAsync_token token)
 	printf("qos finished!");
 }
 
+void testConnected(void* context, char* cause)
+{
+	MQTTAsync c = (MQTTAsync)context;
+	nng_log_debug("Test", "testConnected is called! %s", cause);
+	MQTTAsync_responseOptions opts = MQTTAsync_responseOptions_initializer;
+	int rc;
+
+	printf("Successful connection\n");
+	// opts.onSuccess = onSubscribe;
+	// opts.onFailure = onSubscribeFailure;
+	opts.onSuccess5 = onSubscribe;
+	opts.onFailure5 = onSubscribeFailure;
+	opts.context = c;
+
+	// opts.onSuccess = onSubscribeSuccess;
+	// opts.onFailure = onSubscribeFailure;
+	// opts.context = NULL;
+	if ((rc = MQTTAsync_subscribe(c, "msg", 1, &opts)) != MQTTASYNC_SUCCESS)
+	{
+		printf("Failed to start subscribe, return code %d\n", rc);
+		finished = 1;
+	}
+}
+
 int main(int argc, char* argv[])
 {
 	MQTTAsync client;
 	MQTTAsync_createOptions create_opts = MQTTAsync_createOptions_initializer5;
-	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer;
-	MQTTAsync_disconnectOptions disc_opts = MQTTAsync_disconnectOptions_initializer;
+	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer5;
+	MQTTAsync_disconnectOptions disc_opts = MQTTAsync_disconnectOptions_initializer5;
 	int rc;
 	int ch;
 
 	// nng_log_set_logger(nng_system_logger);
 	nng_log_set_logger(nng_stderr_logger);
 	nng_log_set_level(NNG_LOG_DEBUG);
-	if ((rc = MQTTAsync_create(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, &create_opts))
-			!= MQTTASYNC_SUCCESS)
+	rc = MQTTAsync_createWithOptions(&client, ADDRESS, CLIENTID,
+		MQTTCLIENT_PERSISTENCE_NONE, NULL, &create_opts);
+	if (rc != MQTTASYNC_SUCCESS)
 	{
 		printf("Failed to create client, return code %d\n", rc);
 		rc = EXIT_FAILURE;
@@ -152,20 +185,37 @@ int main(int argc, char* argv[])
 		goto destroy_exit;
 	}
 	MQTTAsync_SSLOptions ssl_opts = MQTTAsync_SSLOptions_initializer;
-		ssl_opts.enableServerCertAuth = 1;  // 开启服务器证书认证
-		ssl_opts.sslVersion = MQTT_SSL_VERSION_DEFAULT;
+	ssl_opts.enableServerCertAuth = 1;  // 开启服务器证书认证
+	ssl_opts.sslVersion = MQTT_SSL_VERSION_DEFAULT;
+	ssl_opts.keyStore = CLIENT_SIGN_CERT_PATH;
+	ssl_opts.privateKey = CLIENT_SIGN_KEY_PATH;
+	ssl_opts.dkeyStore = CLIENT_ENC_CERT_PATH;
+	ssl_opts.dprivateKey = CLIENT_ENC_KEY_PATH;
+	ssl_opts.trustStore = CLIENT_CA_CERT_PATH;
 
-	conn_opts.keepAliveInterval = 20;
-	conn_opts.cleansession = 1;
-	conn_opts.onSuccess = onConnect;
-	conn_opts.onFailure = onConnectFailure;
-	conn_opts.context = client;
+	conn_opts.keepAliveInterval = 64;
+	conn_opts.scram             = true;
+	conn_opts.MQTTVersion       = MQTTVERSION_5;
+	conn_opts.onSuccess         = onConnect;
+	conn_opts.onFailure         = onConnectFailure;
+	conn_opts.onSuccess5        = onConnect;
+	conn_opts.onFailure5        = onConnectFailure;
+	conn_opts.username          = "admin";
+	conn_opts.password          = "public";
+	conn_opts.context           = NULL;
+	// 增加重连机制
+	// conn_opts.automaticReconnect = 1; // NO effects at all
+	conn_opts.maxRetryInterval = 60; // 单位秒，最大重连尝试间隔
+	// ssl选项
+	conn_opts.ssl = &ssl_opts;
 	if ((rc = MQTTAsync_connect(client, &conn_opts)) != MQTTASYNC_SUCCESS)
 	{
 		printf("Failed to start connect, return code %d\n", rc);
 		rc = EXIT_FAILURE;
 		goto destroy_exit;
 	}
+	if (MQTTAsync_setConnected(client, NULL, testConnected) != MQTTASYNC_SUCCESS)
+		printf("MQTTAsync_setConnected failed");
 
 	while (!subscribed && !finished)
 		#if defined(_WIN32)
