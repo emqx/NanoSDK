@@ -125,7 +125,7 @@ if (NNG_ENABLE_TLS)
 endif ()
 
 if (NNG_ENABLE_TLS)
-    set(NNG_TLS_ENGINES mbed wolf none)
+    set(NNG_TLS_ENGINES mbed wolf open none)
     # We assume Mbed for now.  (Someday replaced perhaps with Bear.)
     set(NNG_TLS_ENGINE mbed CACHE STRING "TLS engine to use.")
     set_property(CACHE NNG_TLS_ENGINE PROPERTY STRINGS ${NNG_TLS_ENGINES})
