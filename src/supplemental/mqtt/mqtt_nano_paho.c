@@ -6,14 +6,19 @@
 #include "core/nng_impl.h"
 #include "supplemental/mqtt/mqtt_msg.h"
 #include "mqtt_qos_db.h"
+#include "nng/mqtt/mqtt_client.h"
 
 #define URI_TCP "mqtt-tcp://"
 #define URI_WS "ws://"
 #define URI_WSS "wss://"
 #define URI_SSL "tls+mqtt-tcp://"
 
-static const char* UTF8_char_validate(int len, const char* data);
 
+#ifdef NNG_SUPP_TLS
+#include "nng/supplemental/tls/tls.h"
+#endif
+
+static const char* UTF8_char_validate(int len, const char* data);
 
 const char *MQTTAsync_strerror(int code)
 {
@@ -311,12 +316,12 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
 	uint8_t *        code;
     MQTTAsyncs *handle  = arg;
 
+    int rv = nng_aio_result(aio);
 	if (msg == NULL) {
-        nng_log_warn("publish", "NULL msg");
+        nng_log_debug("send_callback", "NULL msg rv %d", rv);
         return;
     }
 
-    int rv = nng_aio_result(aio);
     if (rv == 0 && handle->publish.onSuccess) {
         MQTTAsync_successData data;
         data.token = rv;
@@ -328,15 +333,15 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
         // data.alt.pub.message.retained = nng_mqtt_msg_get_publish_retain(msg);
         (*(handle->publish.onSuccess))(handle->publish.context, &data);
     } else if (rv == 0 && handle->publish.onSuccess5) {
-        // MQTTAsync_successData5 data = MQTTAsync_successData5_initializer;
-        // data.token = rv;
+        MQTTAsync_successData5 data = MQTTAsync_successData5_initializer;
+        data.token = rv;
         // data.alt.pub.destinationName = command->details.pub.destinationName;
         // data.alt.pub.message.payload = command->details.pub.payload;
         // data.alt.pub.message.payloadlen = command->details.pub.payloadlen;
         // data.alt.pub.message.qos = command->details.pub.qos;
         // data.alt.pub.message.retained = command->details.pub.retained;
         // data.properties = command->properties;
-        (*(handle->publish.onSuccess5))(handle->publish.context, NULL);
+        (*(handle->publish.onSuccess5))(handle->publish.context, &data);
     } else if (rv != 0 && handle->publish.onFailure5) {
         MQTTAsync_failureData5 data;
         data.token = handle->publish.token;
@@ -358,23 +363,38 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
         break;
 	case NNG_MQTT_SUBACK:
 		code = nng_mqtt_msg_get_suback_return_codes(msg, &count);
+		uint16_t pid = nng_mqtt_msg_get_suback_packet_id(msg);
 		nng_log_info("Send callback", "SUBACK reason codes are: ");
 		for (int i = 0; i < (int)count; ++i) {
-		nng_log_info("Topic result", "[%d] ", code[i]);
-            			
+			nng_log_info("Topic result", "[%d] ", code[i]);	
             if (code[i] <= 2 && handle->subscribe.onSuccess) {
                 MQTTAsync_successData data;
                 data.alt.qos = code[i];
-                data.token = handle->subscribe.token;
+                data.token = pid;
                 (*(handle->subscribe.onSuccess))(handle->subscribe.context, &data);
             } else if (code[i] > 2 && handle->publish.onFailure) {
                 MQTTAsync_failureData data;
                 data.code = code[i];
-                data.token = handle->subscribe.token;
+                data.token = pid;
                 (*(handle->subscribe.onFailure))(handle->subscribe.context, &data);
             }
+			if (code[i] <= 2 && handle->subscribe.onSuccess5) {
+				MQTTAsync_successData5 data;
+				data.reasonCode = code[i];
+				data.alt.sub.reasonCodeCount = count;
+				data.alt.sub.reasonCodes = code;
+				data.token = pid;
+				data.properties = nng_mqtt_msg_get_suback_property(msg);
+				(*(handle->subscribe.onSuccess5))(handle->subscribe.context, &data);
+            } else if (code[i] > 2 && handle->publish.onFailure5) {
+				MQTTAsync_failureData5 data = MQTTAsync_failureData5_initializer;
+				data.token = pid;
+				data.reasonCode = code[i];
+				data.message = NULL;
+				data.properties = nng_mqtt_msg_get_suback_property(msg);
+				(*(handle->subscribe.onFailure5))(handle->subscribe.context, &data);
+            }
         }
-
 		break;
 	case NNG_MQTT_UNSUBACK:
 		code = nng_mqtt_msg_get_unsuback_return_codes(
@@ -384,9 +404,9 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
 			printf("[%d] ", code[i]);
 		break;
 	case NNG_MQTT_PUBACK:
-        	token = nng_mqtt_msg_get_puback_packet_id(msg);
+		token = nng_mqtt_msg_get_puback_packet_id(msg);
 		nng_log_info("TRANSPORT", "PUBACK of %d received",
-                token);
+				token);
         if (handle->dc)
             handle->dc(handle->dcContext, token);
 		break;
@@ -462,9 +482,8 @@ MQTTAsync_createWithOptions(MQTTAsync *handle, const char *serverURI,
 
 	if (strstr(serverURI, "://") != NULL) {
 		if (strncmp(URI_TCP, serverURI, strlen(URI_TCP)) != 0
-#if defined(OPENSSL)
-		    && strncmp(URI_SSL, serverURI, strlen(URI_SSL)) != 0 &&
-		    strncmp(URI_WSS, serverURI, strlen(URI_WSS)) != 0
+#ifdef NNG_TLS_OPENSSL
+		    && strncmp(URI_SSL, serverURI, strlen(URI_SSL)) != 0
 #endif
 		) {
 			rc = MQTTASYNC_BAD_PROTOCOL;
@@ -485,8 +504,6 @@ MQTTAsync_createWithOptions(MQTTAsync *handle, const char *serverURI,
 	}
 	// To enable SCRAM open a MQTTv5 socket
     // here starts NanoSDK
-
-    	// To enable SCRAM open a MQTTv5 socket
 
     if ((m = nni_zalloc(sizeof(MQTTAsyncs))) == NULL)
 	{
@@ -626,10 +643,12 @@ disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 
 int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 {
+    int rv = 0;
     int rc = MQTTASYNC_SUCCESS;
 	MQTTAsyncs *m = handle;
     nng_socket *sock = m->sock;
     nng_dialer *dialer = m->dialer;
+    nng_tls_config *tls_cfg = NULL;
 
     // create a CONNECT message
 	/* CONNECT */
@@ -651,13 +670,12 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 		rc = MQTTASYNC_BAD_STRUCTURE;
 		goto exit;
 	}
-#ifdef OPENSSL
-	// if (m->ssl && options->ssl == NULL)
-	// {
-	// 	rc = MQTTASYNC_NULL_PARAMETER;
-	// 	goto exit;
-	// }
-	// To enable SCRAM, version must be MQTTv5
+#ifdef NNG_TLS_OPENSSL
+	if (m->ssl && options->ssl == NULL)
+	{
+		rc = MQTTASYNC_NULL_PARAMETER;
+		goto exit;
+	}
 #endif
 	if (options->MQTTVersion >= MQTTVERSION_5)
 		nng_mqtt_msg_set_connect_proto_version(
@@ -665,8 +683,9 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 	else
 		nng_mqtt_msg_set_connect_proto_version(
 		    connmsg, MQTT_PROTOCOL_VERSION_v311);
-    if (options->keepAliveInterval < 0 || options->keepAliveInterval > 0xFFFF)
+    if (options->keepAliveInterval < 0 || options->keepAliveInterval > 0xFFFF) {
         goto exit;
+    }
 	nng_mqtt_msg_set_connect_keep_alive(
 	    connmsg, (uint16_t) options->keepAliveInterval);
     if (options->username)
@@ -715,19 +734,9 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 			goto exit;
 		}
 	}
-	if (options->MQTTVersion >= MQTTVERSION_5)
-	{
-		rc = MQTTASYNC_WRONG_MQTT_VERSION;
-		goto exit;
-	}
 	if (options->MQTTVersion >= MQTTVERSION_5 && options->struct_version < 6)
 	{
 		rc = MQTTASYNC_BAD_STRUCTURE;
-		goto exit;
-	}
-	if (options->MQTTVersion >= MQTTVERSION_5 && options->cleansession != 0)
-	{
-		rc = MQTTASYNC_BAD_MQTT_OPTION;
 		goto exit;
 	}
 	if (options->MQTTVersion < MQTTVERSION_5 && options->struct_version >= 6)
@@ -785,67 +794,71 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 			// no will msg is set
 		}
 	}
-#ifdef OPENSSL
-    if (options->struct_version != 0 && options->ssl)
-	{
+    if (options->scram) {
         if (m->MQTTVersion >= MQTTVERSION_5) {
-            // Enable scram
-	        bool enable_scram = true;
-	        nng_dialer_set(*m->dialer, NNG_OPT_MQTT_ENABLE_SCRAM, &enable_scram, sizeof(bool));
-        }
-		if ((m->c->sslopts = malloc(sizeof(MQTTClient_SSLOptions))) == NULL)
-		{
-			rc = PAHO_MEMORY_ERROR;
+            // Enable scram by default if use MQTT V5
+            bool enable_scram = true;
+            nng_dialer_set(*m->dialer, NNG_OPT_MQTT_ENABLE_SCRAM, &enable_scram, sizeof(bool));
+        } else {
+            rc = MQTTASYNC_BAD_PROTOCOL;
+            nng_log_warn("Protocol Init Error", "Set Scram in MQTT v4");
 			goto exit;
-		}
-		memset(m->c->sslopts, '\0', sizeof(MQTTClient_SSLOptions));
-		m->c->sslopts->struct_version = options->ssl->struct_version;
-		if (options->ssl->trustStore)
-			m->c->sslopts->trustStore = MQTTStrdup(options->ssl->trustStore);
-		if (options->ssl->keyStore)
-			m->c->sslopts->keyStore = MQTTStrdup(options->ssl->keyStore);
-		if (options->ssl->privateKey)
-			m->c->sslopts->privateKey = MQTTStrdup(options->ssl->privateKey);
-		if (options->ssl->dprivateKey)
-			m->c->sslopts->dprivateKey = MQTTStrdup(options->ssl->dprivateKey);
-		if (options->ssl->dkeyStore)
-			m->c->sslopts->dkeyStore = MQTTStrdup(options->ssl->dkeyStore);
-		if (options->ssl->privateKeyPassword)
-			m->c->sslopts->privateKeyPassword = MQTTStrdup(options->ssl->privateKeyPassword);
-		if (options->ssl->enabledCipherSuites)
-			m->c->sslopts->enabledCipherSuites = MQTTStrdup(options->ssl->enabledCipherSuites);
-		m->c->sslopts->enableServerCertAuth = options->ssl->enableServerCertAuth;
-		if (m->c->sslopts->struct_version >= 1)
-			m->c->sslopts->sslVersion = options->ssl->sslVersion;
-		if (m->c->sslopts->struct_version >= 2)
-		{
-			m->c->sslopts->verify = options->ssl->verify;
-			if (options->ssl->CApath)
-				m->c->sslopts->CApath = MQTTStrdup(options->ssl->CApath);
-		}
-		if (m->c->sslopts->struct_version >= 3)
-		{
-			m->c->sslopts->ssl_error_cb = options->ssl->ssl_error_cb;
-			m->c->sslopts->ssl_error_context = options->ssl->ssl_error_context;
-		}
-		if (m->c->sslopts->struct_version >= 4)
-		{
-			m->c->sslopts->ssl_psk_cb = options->ssl->ssl_psk_cb;
-			m->c->sslopts->ssl_psk_context = options->ssl->ssl_psk_context;
-			m->c->sslopts->disableDefaultTrustStore = options->ssl->disableDefaultTrustStore;
-		}
-		if (m->c->sslopts->struct_version >= 5)
-		{
-			m->c->sslopts->protos = options->ssl->protos;
-			m->c->sslopts->protos_len = options->ssl->protos_len;
-		}
+        }
+    }
+#ifdef NNG_SUPP_TLS
+    if (options->struct_version != 0 && options->ssl) {
+        if ((rv = nng_tls_config_alloc(&tls_cfg, NNG_TLS_MODE_CLIENT)) != 0) {
+            rc = PAHO_MEMORY_ERROR;
+			goto exit;
+        }
+        // CA CERT
+		if (options->ssl->trustStore) {
+            file_load_data(options->ssl->trustStore, (void **) &m->ca);
+            if ((rv = nng_tls_config_ca_chain(tls_cfg, m->ca, NULL)) != 0) {
+                rc = MQTTASYNC_FAILURE;
+                nng_log_warn("SSL Init Error", "nng_tls_config_ca_chain set CA Cert %d", rv);
+                goto exit;
+            }
+        }
+        if (options->ssl->enableServerCertAuth == 1 &&
+            options->ssl->keyStore && options->ssl->privateKey) {
+            char *pass[2];
+            // pass[0] = options->ssl->keyStore;
+            // pass[1] = options->ssl->privateKey;
+            file_load_data(options->ssl->keyStore, (void **) &m->cert);
+            file_load_data(options->ssl->privateKey, (void **) &m->key);
+#ifdef NNG_TLS_OPENSSL_HAVE_GM
+            if(options->ssl->privateKeyPassword) {
+                nng_log_warn("TLS Init Error", "KeyPassword is not compatible with TASSL");  
+                rc = MQTTASYNC_FAILURE;
+                goto exit;
+            } else if (options->ssl->dkeyStore && options->ssl->dprivateKey) {
+                pass[0] = options->ssl->dkeyStore;
+                pass[1] = options->ssl->dprivateKey;
+            }
+#endif
+            nng_tls_config_auth_mode(tls_cfg, NNG_TLS_AUTH_MODE_REQUIRED);
+            if ((rv = nng_tls_config_own_cert(tls_cfg, m->cert, m->key, pass)) != 0) {
+                rc = MQTTASYNC_FAILURE;
+                nng_log_warn("TLS Init Error", "nng_tls_config_own_cert rv %d", rv);
+                goto exit;
+            }
+        } else if (options->ssl->enableServerCertAuth == 1) {
+            nng_log_warn("TLS Init Error", "Enable TLS but no client cert & key");
+            rc = MQTTASYNC_FAILURE;
+            goto exit;
+        } else {
+            nng_tls_config_auth_mode(tls_cfg, NNG_TLS_AUTH_MODE_NONE);
+        }
+        rv = nng_dialer_set_ptr(*m->dialer, NNG_OPT_TLS_CONFIG, tls_cfg);
+        nng_tls_config_free(tls_cfg);
 	}
 #else
-	// if (options->struct_version != 0 && options->ssl)
-	// {
-	// 	rc = MQTTASYNC_SSL_NOT_SUPPORTED;
-	// 	goto exit;
-	// }
+	if (options->struct_version != 0 && options->ssl)
+	{
+		rc = MQTTASYNC_SSL_NOT_SUPPORTED;
+		goto exit;
+	}
 #endif
     if (m->connectProps)
 	{
@@ -879,14 +892,24 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
         nng_mqttv5_msg_encode(connmsg);
     else
         nng_mqtt_msg_encode(connmsg);
+
 	if (nng_dialer_set_ptr(*dialer, NNG_OPT_MQTT_CONNMSG, connmsg) != 0) {
-        nng_log_warn("nng_dialer_set_ptr", "set failed");
+        nng_log_warn("nng_dialer_set_ptr", "set CONNECT in Async connect failed, \
+			possibly due to unwanted reconnect action");
         rc = MQTTASYNC_FAILURE;
         goto exit;
     }
 	nng_dialer_start(*dialer, NNG_FLAG_NONBLOCK);
     return rc;
 exit:
+#ifdef NNT_SUPP_TLS
+    if (tls_cfg != NULL)
+        nng_tls_config_free(tls_cfg);
+#endif
+    if (m->MQTTVersion >= MQTTVERSION_5)
+        nng_mqttv5_msg_encode(connmsg);
+    else
+        nng_mqtt_msg_encode(connmsg);
     nng_msg_free(connmsg);
 	return rc;
 }
@@ -925,7 +948,7 @@ int MQTTAsync_subscribeMany(MQTTAsync handle, int count, char *const *topic, con
 		nng_mqtt_topic_qos_array_set(topic_qos, i,
 		    topic[i], strlen(topic[i]), qos[i], 1, 1, 0);
 		nng_log_info("Performing subscription",
-		    "Bridge client subscribed topic %s (qos %d rap %d rh %d).",
+		    "client subscribed topic %s (qos %d rap %d rh %d).",
 		    topic[i], qos[i], 1, 1);
 	}
 
@@ -939,7 +962,7 @@ int MQTTAsync_subscribeMany(MQTTAsync handle, int count, char *const *topic, con
 		if (m->MQTTVersion >= MQTTVERSION_5) {
 			// if (response->properties) {
 				nng_log_warn("Incompatible paho API!",
-				    "preopertuy of paho is not support");
+				    "Setting Property with paho is not support");
 				// MQTTProperties_free(response->properties);
 			// }
 		}
@@ -1110,12 +1133,17 @@ void MQTTAsync_destroy(MQTTAsync *handle)
     if (m->shouldBeConnected == 1)
         nng_mqtt_disconnect(m->sock, MQTTREASONCODE_NORMAL_DISCONNECTION, NULL);
     nng_close(*sock);
-
     // free objects
     nng_mqtt_client_free(m->nanosdk_client, true);
     nng_free(m->sock, sizeof(nng_socket));
     m->sock = NULL;
     nng_free(m->dialer, sizeof(nng_dialer));
     m->dialer = NULL;
+    if (m->ca)
+        nng_free(m->ca, strlen(m->ca));
+    if (m->cert)
+        nng_free(m->cert, strlen(m->cert));
+    if (m->key)
+        nng_free(m->key, strlen(m->key));
     nng_free(m, sizeof(MQTTAsyncs));
 }
