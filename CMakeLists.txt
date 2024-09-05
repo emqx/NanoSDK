@@ -289,6 +289,8 @@ endif ()
 
 if (NNG_ENABLE_TLS)
     add_definitions(-DNNG_SUPP_TLS)
+    add_definitions(-DNNG_TLS_OPENSSL)
+    add_definitions(-DNNG_TLS_OPENSSL_HAVE_GM)
 endif ()
 
 if (NNG_ENABLE_SQLITE)
@@ -342,8 +344,6 @@ endif ()
 #  Build the tools
 
 add_subdirectory(docs/man)
-# add_subdirectory(demo/mqttv5_scram)
-# add_subdirectory(demo/paho)
 
 set(CPACK_PACKAGE_NAME ${PROJECT_NAME})
 set(CPACK_PACKAGE_VERSION ${NNG_PACKAGE_VERSION})
@@ -369,6 +369,7 @@ if (BUILD_DEMO)
     add_subdirectory(demo/mqtt_full)
   if (NNG_ENABLE_SCRAM)
     add_subdirectory(demo/mqttv5_scram)
+    add_subdirectory(demo/paho)
   endif()
   add_subdirectory(demo/rest)
   add_subdirectory(demo/http_client)
