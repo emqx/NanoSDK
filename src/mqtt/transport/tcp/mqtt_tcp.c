@@ -1553,15 +1553,21 @@ mqtt_tcptran_ep_connect(void *arg, nni_aio *aio)
 	if (nni_aio_begin(aio) != 0) {
 		return;
 	}
+
+	ep->backoff = 1000;
+	nni_msleep(ep->backoff);
+		/*
 	if (ep->backoff != 0) {
 		ep->backoff = ep->backoff * 2;
 		ep->backoff = ep->backoff > ep->backoff_max
 		    ? (nni_duration) (nni_random() % 1000)
 		    : ep->backoff;
+		ep->backoff = ep->backoff * 2;
 		nni_msleep(ep->backoff);
 	} else {
 		ep->backoff = nni_random()%2000;
 	}
+		*/
 	nni_mtx_lock(&ep->mtx);
 	if (ep->closed) {
 		nni_mtx_unlock(&ep->mtx);
