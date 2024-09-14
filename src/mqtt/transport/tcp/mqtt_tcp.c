@@ -93,6 +93,8 @@ struct mqtt_tcptran_ep {
 	void *               connmsg;
 	bool                 enable_scram;
 #ifdef SUPP_SCRAM
+	char *               scram_username;
+	char *               scram_password;
 	void *               scram_ctx;
 	nni_msg *            authmsg;
 #endif
@@ -1074,10 +1076,10 @@ mqtt_tcptran_pipe_start(
 		char *pwd2 = NULL, *username2 = NULL;
 		int   pwdsz, usernamesz;
 		if (ep->enable_scram == true &&
-		   ((pwd = (char *)nni_mqtt_msg_get_connect_password(connmsg)) != NULL) &&
-		   ((username = (char *)nni_mqtt_msg_get_connect_user_name(connmsg)) != NULL)) {
-			pwdsz = nni_mqtt_msg_get_connect_password_len(connmsg);
-			usernamesz = nni_mqtt_msg_get_connect_user_name_len(connmsg);
+		   ((pwd = ep->scram_password) != NULL) &&
+		   ((username = ep->scram_username) != NULL)) {
+			pwdsz = strlen(ep->scram_password);
+			usernamesz = strlen(ep->scram_username);
 			pwd2      = strndup(pwd, pwdsz);
 			username2 = strndup(username, usernamesz);
 			if (ep->scram_ctx) {
@@ -1635,6 +1637,66 @@ mqtt_tcptran_ep_set_connmsg(
 	return (rv);
 }
 
+#if SUPP_SCRAM
+
+static int
+mqtt_tcptran_ep_get_scram_username(void *arg, void *v, size_t *szp, nni_opt_type t)
+{
+	mqtt_tcptran_ep *ep = arg;
+	int              rv = 0;
+	if (ep->scram_username != NULL)
+		rv = nni_copyout_str(ep->scram_username, v, szp, t);
+	else
+		rv = NNG_EEXIST;
+
+	return (rv);
+}
+
+static int
+mqtt_tcptran_ep_set_scram_username(
+    void *arg, const void *v, size_t sz, nni_opt_type t)
+{
+	mqtt_tcptran_ep *ep = arg;
+	int              rv = 0;
+
+	nni_mtx_lock(&ep->mtx);
+	ep->scram_username = nng_alloc(sizeof(char) * (sz + 1));
+	strcpy(ep->scram_username, v);
+	nni_mtx_unlock(&ep->mtx);
+
+	return (rv);
+}
+
+static int
+mqtt_tcptran_ep_get_scram_password(void *arg, void *v, size_t *szp, nni_opt_type t)
+{
+	mqtt_tcptran_ep *ep = arg;
+	int              rv = 0;
+	if (ep->scram_password != NULL)
+		rv = nni_copyout_str(ep->scram_password, v, szp, t);
+	else
+		rv = NNG_EEXIST;
+
+	return (rv);
+}
+
+static int
+mqtt_tcptran_ep_set_scram_password(
+    void *arg, const void *v, size_t sz, nni_opt_type t)
+{
+	mqtt_tcptran_ep *ep = arg;
+	int              rv = 0;
+
+	nni_mtx_lock(&ep->mtx);
+	ep->scram_password = nng_alloc(sizeof(char) * (sz + 1));
+	strcpy(ep->scram_password, v);
+	nni_mtx_unlock(&ep->mtx);
+
+	return (rv);
+}
+
+#endif
+
 // NanoSDK use exponential backoff strategy as default
 // Backoff for random time that exponentially curving
 static int
@@ -1746,6 +1808,16 @@ static const nni_option mqtt_tcptran_ep_opts[] = {
 	    .o_name = NNG_OPT_MQTT_CONNMSG,
 	    .o_get  = mqtt_tcptran_ep_get_connmsg,
 	    .o_set  = mqtt_tcptran_ep_set_connmsg,
+	},
+	{
+	    .o_name = NNG_OPT_MQTT_SCRAM_USERNAME,
+	    .o_get  = mqtt_tcptran_ep_get_scram_username,
+	    .o_set  = mqtt_tcptran_ep_set_scram_username,
+	},
+	{
+	    .o_name = NNG_OPT_MQTT_SCRAM_PASSWORD,
+	    .o_get  = mqtt_tcptran_ep_get_scram_password,
+	    .o_set  = mqtt_tcptran_ep_set_scram_password,
 	},
 	{
 	    .o_name = NNG_OPT_MQTT_RECONNECT_BACKOFF_MAX,

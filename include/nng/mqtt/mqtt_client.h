@@ -57,6 +57,10 @@ extern "C" {
 
 #define NNG_OPT_MQTT_CONNMSG "mqtt-connect-msg"
 
+#define NNG_OPT_MQTT_SCRAM_USERNAME "mqtt-connect-scram-username"
+
+#define NNG_OPT_MQTT_SCRAM_PASSWORD "mqtt-connect-scram-password"
+
 #define NNG_OPT_MQTT_CONNECT_PROPERTY "mqtt-connack-property"
 
 #define NNG_OPT_MQTT_CONNECT_REASON "mqtt-connack-reason"
