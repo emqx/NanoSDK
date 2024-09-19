@@ -692,9 +692,9 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
     }
 	nng_mqtt_msg_set_connect_keep_alive(
 	    connmsg, (uint16_t) options->keepAliveInterval);
-    if (options->username)
+    if (!options->scram && options->username)
 	    nng_mqtt_msg_set_connect_user_name(connmsg, options->username);
-	if (options->password)
+	if (!options->scram && options->password)
         nng_mqtt_msg_set_connect_password(connmsg, options->password);
 	else if (options->struct_version >= 5 && options->binarypwd.data) {
         char *passwd = nni_zalloc(options->binarypwd.len + 1);
@@ -906,7 +906,7 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 	nng_dialer_start(*dialer, NNG_FLAG_NONBLOCK);
     return rc;
 exit:
-#ifdef NNT_SUPP_TLS
+#ifdef NNG_SUPP_TLS
     if (tls_cfg != NULL)
         nng_tls_config_free(tls_cfg);
 #endif
