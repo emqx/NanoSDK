@@ -1171,6 +1171,10 @@ mqtt_tcptran_ep_fini(void *arg)
     if (ep->connmsg)
         nni_msg_free(ep->connmsg);
 #ifdef SUPP_SCRAM
+	if (ep->scram_username)
+		nng_free(ep->scram_username, strlen(ep->scram_username));
+	if (ep->scram_password)
+		nng_free(ep->scram_password, strlen(ep->scram_password));
 	if (ep->authmsg)
 		nni_msg_free(ep->authmsg);
 	ep->authmsg = NULL;
@@ -1453,6 +1457,8 @@ mqtt_tcptran_dialer_init(void **dp, nng_url *url, nni_dialer *ndialer)
 #ifdef SUPP_SCRAM
 	ep->scram_ctx    = NULL;
 	ep->authmsg      = NULL;
+	ep->scram_username = NULL;
+	ep->scram_password = NULL;
 #endif
 
 	if ((rv != 0) ||
@@ -1644,10 +1650,13 @@ mqtt_tcptran_ep_get_scram_username(void *arg, void *v, size_t *szp, nni_opt_type
 {
 	mqtt_tcptran_ep *ep = arg;
 	int              rv = 0;
+
+	nni_mtx_lock(&ep->mtx);
 	if (ep->scram_username != NULL)
 		rv = nni_copyout_str(ep->scram_username, v, szp, t);
 	else
 		rv = NNG_EEXIST;
+	nni_mtx_unlock(&ep->mtx);
 
 	return (rv);
 }
@@ -1656,10 +1665,13 @@ static int
 mqtt_tcptran_ep_set_scram_username(
     void *arg, const void *v, size_t sz, nni_opt_type t)
 {
+	NNI_ARG_UNUSED(t);
 	mqtt_tcptran_ep *ep = arg;
 	int              rv = 0;
 
 	nni_mtx_lock(&ep->mtx);
+	if (ep->scram_username)
+		nng_free(ep->scram_username, strlen(ep->scram_username));
 	ep->scram_username = nng_alloc(sizeof(char) * (sz + 1));
 	strcpy(ep->scram_username, v);
 	nni_mtx_unlock(&ep->mtx);
@@ -1668,26 +1680,16 @@ mqtt_tcptran_ep_set_scram_username(
 }
 
 static int
-mqtt_tcptran_ep_get_scram_password(void *arg, void *v, size_t *szp, nni_opt_type t)
-{
-	mqtt_tcptran_ep *ep = arg;
-	int              rv = 0;
-	if (ep->scram_password != NULL)
-		rv = nni_copyout_str(ep->scram_password, v, szp, t);
-	else
-		rv = NNG_EEXIST;
-
-	return (rv);
-}
-
-static int
 mqtt_tcptran_ep_set_scram_password(
     void *arg, const void *v, size_t sz, nni_opt_type t)
 {
+	NNI_ARG_UNUSED(t);
 	mqtt_tcptran_ep *ep = arg;
 	int              rv = 0;
 
 	nni_mtx_lock(&ep->mtx);
+	if (ep->scram_password)
+		nng_free(ep->scram_password, strlen(ep->scram_password));
 	ep->scram_password = nng_alloc(sizeof(char) * (sz + 1));
 	strcpy(ep->scram_password, v);
 	nni_mtx_unlock(&ep->mtx);
@@ -1809,6 +1811,7 @@ static const nni_option mqtt_tcptran_ep_opts[] = {
 	    .o_get  = mqtt_tcptran_ep_get_connmsg,
 	    .o_set  = mqtt_tcptran_ep_set_connmsg,
 	},
+#ifdef SUPP_SCRAM
 	{
 	    .o_name = NNG_OPT_MQTT_SCRAM_USERNAME,
 	    .o_get  = mqtt_tcptran_ep_get_scram_username,
@@ -1816,9 +1819,10 @@ static const nni_option mqtt_tcptran_ep_opts[] = {
 	},
 	{
 	    .o_name = NNG_OPT_MQTT_SCRAM_PASSWORD,
-	    .o_get  = mqtt_tcptran_ep_get_scram_password,
+	    .o_get  = NULL,
 	    .o_set  = mqtt_tcptran_ep_set_scram_password,
 	},
+#endif
 	{
 	    .o_name = NNG_OPT_MQTT_RECONNECT_BACKOFF_MAX,
 	    .o_set  = mqtt_tcptran_ep_set_reconnect_backoff,
