@@ -137,6 +137,7 @@ struct scram_ctx {
 	char *pwd;
 	int   pwdsz;
 	char *salt;
+	int   saltsz;
 	char *salt_pwd;
 	const EVP_MD *digest;
 	int   digestsz;
@@ -187,18 +188,19 @@ scram_ctx_free(void *arg)
 }
 
 static int
-scram_ctx_update(void *arg, char *salt)
+scram_ctx_update(void *arg, char *salt, int saltsz)
 {
 	struct scram_ctx *ctx = arg;
 	int keysz = ctx->digestsz;
 
 	ctx->salt = salt;
+	ctx->saltsz = saltsz;
 	if (ctx->salt == NULL) {
 		return -1;
 	}
 
 	char *salt_pwd = nng_alloc(sizeof(char) * ctx->digestsz);
-	int rv = salt_password(ctx->pwd, ctx->pwdsz, ctx->salt, strlen(ctx->salt),
+	int rv = salt_password(ctx->pwd, ctx->pwdsz, ctx->salt, ctx->saltsz,
 			               ctx->iteration_cnt, ctx->digest, ctx->digestsz, salt_pwd);
 	if (rv != 1) {
 		nng_log_err("scram_ctx_update", "salt password failed %d???\n", rv);
@@ -257,7 +259,7 @@ scram_ctx_create(char *pwd, int pwdsz, int iteration_cnt, enum SCRAM_digest dig,
 		return NULL;
 	}
 	sprintf(saltstr, "%d", salt);
-	if (0 != (rv = scram_ctx_update(ctx, saltstr))) {
+	if (0 != (rv = scram_ctx_update(ctx, saltstr, strlen(saltstr)))) {
 		nng_log_info("scram_ctx_update", "error in updating ctx %d", rv);
 		nng_free(ctx, 0);
 		return NULL;
@@ -592,13 +594,14 @@ scram_handle_server_first_msg(void *arg, const char *msg, int len)
 	char *iteration_cnt    = get_comma_value(it, itend, &itnext, 2);
 	// parse done
 	ctx->server_first_msg = strndup(msg, len);
-	char *salt = nng_alloc(sizeof(char) * SCRAM_SALT_SZ);
-	memset(salt, 0, SCRAM_SALT_SZ);
-	if (0 == base64_decode(saltb64, strlen(saltb64), (unsigned char *)salt)) {
+	size_t saltsz = BASE64_DECODE_OUT_SIZE(strlen(saltb64));
+	char *salt = nng_alloc(sizeof(char) * saltsz);
+	memset(salt, 0, saltsz);
+	if (0 == (saltsz = base64_decode(saltb64, strlen(saltb64), (unsigned char *)salt))) {
 		return NULL;
 	}
 
-	scram_ctx_update(ctx, salt);
+	scram_ctx_update(ctx, salt, saltsz);
 	//ClientFinalMessageWithoutProof = client_final_message_without_proof(Nonce),
 	char *gh = gs_header();
 	size_t ghb64sz = BASE64_ENCODE_OUT_SIZE(strlen(gh)) + 1;
