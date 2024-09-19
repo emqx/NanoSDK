@@ -694,8 +694,12 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 	    connmsg, (uint16_t) options->keepAliveInterval);
     if (!options->scram && options->username)
 	    nng_mqtt_msg_set_connect_user_name(connmsg, options->username);
+	else if (options->scram && options->username)
+		nng_dialer_set_string(*dialer, NNG_OPT_MQTT_SCRAM_USERNAME, options->username);
 	if (!options->scram && options->password)
         nng_mqtt_msg_set_connect_password(connmsg, options->password);
+	else if (options->scram && options->password)
+		nng_dialer_set_string(*dialer, NNG_OPT_MQTT_SCRAM_PASSWORD, options->password);
 	else if (options->struct_version >= 5 && options->binarypwd.data) {
         char *passwd = nni_zalloc(options->binarypwd.len + 1);
         memcpy((void *)passwd, options->binarypwd.data, options->binarypwd.len);
