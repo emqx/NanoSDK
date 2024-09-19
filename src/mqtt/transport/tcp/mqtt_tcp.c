@@ -314,7 +314,7 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 	// only accept CONNACK/AUTH msg
 	if (((p->rxlen[0] & CMD_CONNACK) != CMD_CONNACK) &&
 	    ((p->rxlen[0] & CMD_AUTH_V5) != CMD_AUTH_V5)) {
-		log_error("Invalid type received %x %x", p->rxlen[0], p->rxlen[1]);
+		nng_log_err("Protocol error", "Invalid type received %x %x", p->rxlen[0], p->rxlen[1]);
 		rv = PROTOCOL_ERROR;
 		goto error;
 	}
@@ -368,34 +368,34 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 				if (prop == NULL) {
 					ep->reason_code = MQTT_ERR_MALFORMED;
 					rv = MQTT_ERR_PROTOCOL;
-					log_error("No property found in AUTH msg");
+					nng_log_warn("SCRAM process warning","No property found in AUTH msg");
 					goto mqtt_error;
 				}
 				uint8_t rc = nni_mqtt_msg_get_auth_reason_code(p->rxmsg);
 				if (rc != 0x18) {
 					ep->reason_code = MQTT_ERR_MALFORMED;
 					rv = MQTT_ERR_PROTOCOL;
-					log_error("Reason code in AUTH msg is invalid");
+					nng_log_warn("SCRAM process warning","Reason code in AUTH msg is invalid");
 					goto mqtt_error;
 				}
 				property_data *data = property_get_value(prop, AUTHENTICATION_DATA);
 				if (data == NULL || data->p_value.str.buf == NULL) {
 					ep->reason_code = MQTT_ERR_MALFORMED;
 					rv = MQTT_ERR_PROTOCOL;
-					log_error("No auth data property found in AUTH msg");
+					nng_log_warn("SCRAM process warning", "No auth data property found in AUTH msg");
 					goto mqtt_error;
 				}
-				log_debug("auth:server_first_msg:%.*s",
+				nng_log_debug("SCRAM process debug","auth:server_first_msg:%.*s",
 					data->p_value.str.length, (char *)data->p_value.str.buf);
 				char *client_final_msg = scram_handle_server_first_msg(
 					ep->scram_ctx, (char *)data->p_value.str.buf, data->p_value.str.length);
 				if (client_final_msg == NULL) {
 					ep->reason_code = MQTT_ERR_MALFORMED;
 					rv = MQTT_ERR_PROTOCOL;
-					log_error("Error in handle scram server_first_msg");
+					nng_log_warn("SCRAM process warning","Error in handle scram server_first_msg");
 					goto mqtt_error;
 				}
-				log_debug("auth:client_final_msg:%s", client_final_msg);
+				nng_log_debug("SCRAM process","auth:client_final_msg:%s", client_final_msg);
 				// TODO 0x19 Re-authenticate
 				// Prepare authmsg with client_final_msg
 				nni_msg *authmsg;
@@ -414,7 +414,7 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 				if (0 != nni_mqttv5_msg_encode(authmsg)) {
 					ep->reason_code = MQTT_ERR_MALFORMED;
 					rv = MQTT_ERR_PROTOCOL;
-					log_error("Error in encode auth msg with client_final_msg");
+					nng_log_warn("SCRAM process warning","Error in encode auth msg with client_final_msg");
 					goto mqtt_error;
 				}
 				if (ep->authmsg)
@@ -471,7 +471,7 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 						goto mqtt_error;
 					} else {
 						p->packmax = data->p_value.u32;
-						log_info("Set max packet size as %ld", p->packmax);
+						nng_log_info("MQTT V5","Set max packet size as %ld", p->packmax);
 					}
 				}
 				data = property_get_value(ep->property, PUBLISH_MAXIMUM_QOS);
@@ -482,22 +482,22 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 				data = property_get_value(ep->property, AUTHENTICATION_DATA);
 				if (data && data->p_value.str.buf && ep->scram_ctx) {
 					char *server_final_msg = (char *)data->p_value.str.buf;
-					log_debug("auth:server_final_msg:%.*s",
+					nng_log_debug("SCRAM process","auth:server_final_msg:%.*s",
 						data->p_value.str.length, server_final_msg);
 					char *result = scram_handle_server_final_msg(
 						ep->scram_ctx, server_final_msg, data->p_value.str.length);
 					if (result == NULL) {
-						log_error("Enhanced Authentication failed");
+						nng_log_warn("SCRAM process warning", "Enhanced Authentication failed");
 						rv = MQTT_ERR_PROTOCOL;
 						ep->reason_code = rv;
 						// Failed so closed the connection
 						goto error;
 					} else {
-						log_info("Enhanced Authentication Passed");
+						nng_log_info("SCRAM process","Enhanced Authentication Passed");
 					}
 				} else if (ep->scram_ctx) {
 					// We want a authenticate response. but not found
-					log_error("Enhanced Authentication failed");
+					nng_log_info("SCRAM process","Enhanced Authentication failed");
 					rv = MQTT_ERR_PROTOCOL;
 					ep->reason_code = rv;
 					goto error;
@@ -1098,7 +1098,7 @@ mqtt_tcptran_pipe_start(
 			property_append(prop, prop_auth_method);
 			property_append(prop, prop_auth_data);
 			nni_mqtt_msg_set_connect_property(connmsg, prop);
-			log_debug("auth:client_first_msg:%s", client_first_msg);
+			nng_log_debug("SCRAM process","auth:client_first_msg:%s", client_first_msg);
 			//property_free(prop_auth_method);
 			//property_free(prop_auth_data);
 		}
@@ -1665,9 +1665,9 @@ mqtt_tcptran_ep_set_enable_scram(void *arg, const void *v, size_t sz, nni_opt_ty
 		nni_mtx_lock(&ep->mtx);
 		ep->enable_scram = tmp;
 #ifdef SUPP_SCRAM
-		log_info("Auth SCRAM status: %s", tmp == 1 ? "Enabled":"Disabled");
+		nng_log_info("Scram Enabler", "Auth SCRAM status: %s", tmp == 1 ? "Enabled":"Disabled");
 #else
-		log_warn("Auth SCRAM Error. Try to compile with NNG_ENABLE_SCRAM");
+		nng_log_warn("Auth SCRAM Error", " Try to compile with NNG_ENABLE_SCRAM");
 #endif
 		nni_mtx_unlock(&ep->mtx);
 	}

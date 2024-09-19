@@ -3802,7 +3802,10 @@ property_dup(property **dup, const property *src)
 {
 	property *item = NULL;
 	property *list = property_alloc();
-	if (src == NULL || list == NULL) {
+	if (list == NULL)
+		return -2;
+	if (src == NULL) {
+		property_free(list);
 		return -1;
 	}
 
