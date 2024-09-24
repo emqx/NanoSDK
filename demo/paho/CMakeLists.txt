@@ -11,7 +11,7 @@ project(paho)
 if (BUILD_DEMO)
 else ()
 # Call this from your own project's makefile.
-  # find_package(nng CONFIG REQUIRED)
+  find_package(nng CONFIG REQUIRED)
 endif (BUILD_DEMO)
 
 find_package(Threads)
