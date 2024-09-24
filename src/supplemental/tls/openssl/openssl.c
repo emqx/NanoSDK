@@ -602,7 +602,9 @@ open_config_ca_chain(
 {
 	size_t len;
 	trace("start");
-
+	if (certs == NULL) {
+		nng_log_info("open_config_ca_chain", "NULL certs detected!");
+	}
 	len = strlen(certs);
 
 	BIO *bio = BIO_new_mem_buf(certs, len);
