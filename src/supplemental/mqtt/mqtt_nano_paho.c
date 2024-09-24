@@ -821,7 +821,9 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
         }
         // CA CERT
 		if (options->ssl->trustStore) {
-            file_load_data(options->ssl->trustStore, (void **) &m->ca);
+            if (file_load_data(options->ssl->trustStore, (void **) &m->ca) == 0) {
+				goto exit;
+			}
             if ((rv = nng_tls_config_ca_chain(tls_cfg, m->ca, NULL)) != 0) {
                 rc = MQTTASYNC_FAILURE;
                 nng_log_warn("SSL Init Error", "nng_tls_config_ca_chain set CA Cert %d", rv);
@@ -833,8 +835,10 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
             char *pass[2];
             // pass[0] = options->ssl->keyStore;
             // pass[1] = options->ssl->privateKey;
-            file_load_data(options->ssl->keyStore, (void **) &m->cert);
-            file_load_data(options->ssl->privateKey, (void **) &m->key);
+            if (file_load_data(options->ssl->keyStore, (void **) &m->cert) == 0)
+				goto exit;
+            if (file_load_data(options->ssl->privateKey, (void **) &m->key) == 0)
+				goto exit;
 #ifdef NNG_TLS_OPENSSL_HAVE_GM
             if(options->ssl->privateKeyPassword) {
                 nng_log_warn("TLS Init Error", "KeyPassword is not compatible with TASSL");  
