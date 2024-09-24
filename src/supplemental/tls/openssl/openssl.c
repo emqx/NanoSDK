@@ -4,6 +4,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <openssl/crypto.h>
+#include <openssl/x509v3.h>
+
 // Follow the suggestion from Sliepen. https://stackoverflow.com/questions/69079419/how-i-can-read-more-than-16384-bytes-using-openssl-tls
 #define OPEN_BUF_SZ 16000
 
@@ -526,6 +531,7 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 
 #ifdef NNG_TLS_OPENSSL_HAVE_GM
 	method = CNTLS_client_method();
+	nng_log_debug("open_config_init", "Using GM method %p", method);
 #endif
 
 	cfg->ctx = SSL_CTX_new(method);

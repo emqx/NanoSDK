@@ -1442,7 +1442,7 @@ mqtts_tcptran_dialer_init(void **dp, nng_url *url, nni_dialer *ndialer)
 	ep->scram_username = NULL;
 	ep->scram_password = NULL;
 #endif
-
+	nng_log_debug("mqtts_tcptran_dialer_init", "url scheme %s ", myurl.u_scheme);
 	if ((rv != 0) ||
 	    ((rv = nng_stream_dialer_alloc_url(&ep->dialer, &myurl)) != 0)) {
 		mqtts_tcptran_ep_fini(ep);
