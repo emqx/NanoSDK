@@ -324,7 +324,6 @@ endif ()
 #  Build the tools
 
 add_subdirectory(docs/man)
-add_subdirectory(demo/paho)
 
 set(CPACK_PACKAGE_NAME ${PROJECT_NAME})
 set(CPACK_PACKAGE_VERSION ${NNG_PACKAGE_VERSION})
