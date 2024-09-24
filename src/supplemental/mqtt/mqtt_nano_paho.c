@@ -419,7 +419,7 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
 		    handle->dc(handle->dcContext, token);
 		break;
 	default:
-		printf("Sending in async way is done.\n");
+		nng_log_debug("Send callback", "Sending in async way is done.\n");
 		break;
 	}
 	nng_log_debug("Send callback", "aio mqtt result %d \n", nng_aio_result(aio));
@@ -448,6 +448,10 @@ MQTTAsync_setCallbacks(MQTTAsync handle, void *context,
 		nng_mqtt_client *client = nng_mqtt_paho_client_alloc(
 		    *m->sock, &send_callback, &recv_callback, m);
 		m->nanosdk_client = client;
+		nng_log_debug("set callback done",
+		    "disconnected cb %p, msg arrived cb %p delivery complete "
+		    "cb %p",
+		    m->cl, m->ma, m->dc);
 	}
 
 	return rc;
@@ -533,8 +537,9 @@ MQTTAsync_createWithOptions(MQTTAsync *handle, const char *serverURI,
     if ((rc = nng_dialer_create(m->dialer, *m->sock, serverURI))) {
 		nng_log_warn("dialer", "Dialer init failed!");
         rc = MQTTASYNC_FAILURE;
-    }
-
+    } else {
+		nng_log_debug("MQTTAsync_createWithOptions", "dialer created!");
+	}
 exit:
 	return rc;
 }
@@ -656,6 +661,7 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 
     // create a CONNECT message
 	/* CONNECT */
+	nng_log_info("MQTTAsync_connect", "start async connect!");
 	nng_msg *connmsg = NULL;
     nng_dialer_get_ptr(*dialer, NNG_OPT_MQTT_CONNMSG, (void **)&connmsg);
     if (connmsg != NULL) {
@@ -694,12 +700,16 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 	    connmsg, (uint16_t) options->keepAliveInterval);
     if (!options->scram && options->username)
 	    nng_mqtt_msg_set_connect_user_name(connmsg, options->username);
-	else if (options->scram && options->username)
+	else if (options->scram && options->username) {
 		nng_dialer_set_string(*dialer, NNG_OPT_MQTT_SCRAM_USERNAME, options->username);
+		nng_log_debug("MQTTAsync_connect", "setting SCRAM username as %s", options->username);
+	}
 	if (!options->scram && options->password)
         nng_mqtt_msg_set_connect_password(connmsg, options->password);
-	else if (options->scram && options->password)
+	else if (options->scram && options->password) {
 		nng_dialer_set_string(*dialer, NNG_OPT_MQTT_SCRAM_PASSWORD, options->password);
+		nng_log_debug("MQTTAsync_connect", "setting SCRAM password as %s", options->password);
+	}
 	else if (options->struct_version >= 5 && options->binarypwd.data) {
         char *passwd = nni_zalloc(options->binarypwd.len + 1);
         memcpy((void *)passwd, options->binarypwd.data, options->binarypwd.len);
@@ -769,6 +779,7 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 	m->connectTimeout = options->connectTimeout;
 
     nng_mqtt_msg_set_connect_clean_session(connmsg, options->cleansession);
+	nng_log_debug("MQTTAsync_connect", "setting clean session %d", options->cleansession);
 
 	if (options->maxInflight > 0) {
         nni_lmq_resize((nni_lmq *)m->nanosdk_client->msgq, (size_t)options->maxInflight);
@@ -807,16 +818,20 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
             // Enable scram by default if use MQTT V5
             bool enable_scram = true;
             nng_dialer_set(*m->dialer, NNG_OPT_MQTT_ENABLE_SCRAM, &enable_scram, sizeof(bool));
-        } else {
+			nng_log_debug("MQTTAsync_connect", "SCRAM enabled %d", options->scram);
+		} else {
             rc = MQTTASYNC_BAD_PROTOCOL;
             nng_log_warn("Protocol Init Error", "Set Scram in MQTT v4");
 			goto exit;
         }
-    }
+    } else {
+		nng_log_debug("MQTTAsync_connect", "SCRAM disabled %d", options->scram);
+	}
 #ifdef NNG_SUPP_TLS
     if (options->struct_version != 0 && options->ssl) {
         if ((rv = nng_tls_config_alloc(&tls_cfg, NNG_TLS_MODE_CLIENT)) != 0) {
             rc = PAHO_MEMORY_ERROR;
+			nng_log_warn("MQTTAsync_connect", "Mem insufficient!");
 			goto exit;
         }
         // CA CERT
