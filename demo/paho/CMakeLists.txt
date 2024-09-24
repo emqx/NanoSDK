@@ -11,7 +11,7 @@ project(paho)
 if (BUILD_DEMO)
 else ()
 # Call this from your own project's makefile.
-  find_package(nng CONFIG REQUIRED)
+  # find_package(nng CONFIG REQUIRED)
 endif (BUILD_DEMO)
 
 find_package(Threads)
@@ -31,3 +31,4 @@ target_link_libraries(paho nng)
 target_link_libraries(paho ${CMAKE_THREAD_LIBS_INIT})
 
 target_compile_definitions(paho PRIVATE NNG_ELIDE_DEPRECATED)
+# SET_TARGET_PROPERTIES(paho PROPERTIES BUILD_RPATH "/usr/local/lib/")

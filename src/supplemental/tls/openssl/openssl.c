@@ -597,6 +597,7 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 
 #ifdef NNG_TLS_OPENSSL_HAVE_GM
 	method = CNTLS_client_method();
+	nng_log_debug("open_config_init", "Using GM method %p", method);
 #endif
 
 	cfg->ctx = SSL_CTX_new(method);
