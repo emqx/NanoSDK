@@ -1157,6 +1157,8 @@ void MQTTAsync_destroy(MQTTAsync *handle)
 {
 	MQTTAsyncs *m = *handle;
     nng_socket *sock = m->sock;
+	// stop dialer from reconnecting automatically
+	nng_dialer_close(*m->dialer);
     if (m->shouldBeConnected == 1)
         nng_mqtt_disconnect(m->sock, MQTTREASONCODE_NORMAL_DISCONNECTION, NULL);
     nng_close(*sock);

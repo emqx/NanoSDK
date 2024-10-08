@@ -838,7 +838,7 @@ nng_mqtt_client_recv_cb(void* arg)
 	int 			 rv = 0;
 
 	if (msg == NULL || (rv = nng_aio_result(aio)) != 0) {
-		nng_log_debug("RECV", "nng_mqtt_client recv aio report error %d", rv);
+		// nng_log_debug("RECV", "nng_mqtt_client recv aio report error %d", rv);
 		msg = NULL;
 	}
 	nng_recv_aio(client->sock, client->recv_aio);

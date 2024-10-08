@@ -27,6 +27,7 @@
 #endif
 
 #define ADDRESS     "tls+mqtt-tcp://123.60.191.138:2443"
+// #define ADDRESS     "mqtt-tcp://123.60.191.138:1883"
 #define CLIENTID    "ExampleClientSub"
 #define TOPIC       "South China Grid"
 #define PAYLOAD     "Hello World!"
@@ -159,6 +160,7 @@ void testConnected(void* context, char* cause)
 
 int main(int argc, char* argv[])
 {
+restart:
 	MQTTAsync client;
 	MQTTAsync_createOptions create_opts = MQTTAsync_createOptions_initializer5;
 	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer5;
@@ -208,6 +210,7 @@ int main(int argc, char* argv[])
 	conn_opts.maxRetryInterval = 60; // 单位秒，最大重连尝试间隔
 	// ssl选项
 	conn_opts.ssl = &ssl_opts;
+	// conn_opts.ssl = NULL;
 	if ((rc = MQTTAsync_connect(client, &conn_opts)) != MQTTASYNC_SUCCESS)
 	{
 		printf("Failed to start connect, return code %d\n", rc);
@@ -240,17 +243,21 @@ int main(int argc, char* argv[])
 		rc = EXIT_FAILURE;
 		goto destroy_exit;
 	}
- 	while (!disc_finished)
- 	{
-		#if defined(_WIN32)
-			Sleep(100);
-		#else
-			usleep(10000L);
-		#endif
- 	}
+ 	// while (!disc_finished)
+ 	// {
+	// 	#if defined(_WIN32)
+	// 		Sleep(100);
+	// 	#else
+	// 		usleep(10000L);
+	// 	#endif
+ 	// }
 
 destroy_exit:
 	MQTTAsync_destroy(&client);
+	finished = 0;
+ 	disc_finished = 0;
+	subscribed = 0;
+	goto restart;
 exit:
  	return rc;
 }
