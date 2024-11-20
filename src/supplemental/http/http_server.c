@@ -1392,6 +1392,7 @@ static struct content_map {
 	{ ".mpg", "video/mpeg" },
 	{ ".pdf", "application/pdf" },
 	{ ".png", "image/png" },
+	{ ".svg", "image/svg+xml" },
 	{ ".ps", "application/postscript" },
 	{ ".rtf", "text/rtf" },
 	{ ".text", "text/plain" },
