@@ -2194,6 +2194,68 @@ nng_cv_wake1(nng_cv *cv)
 	nni_cv_wake1(&cv->c);
 }
 
+struct nng_lmq {
+	nni_lmq q;
+};
+
+int
+nng_lmq_alloc(nng_lmq **qp, size_t sz)
+{
+	nng_lmq *q;
+
+	if ((q = NNI_ALLOC_STRUCT(q)) == NULL) {
+		return (NNG_ENOMEM);
+	}
+	nni_lmq_init(&q->q, sz);
+	*qp = q;
+	return (0);
+}
+
+void
+nng_lmq_free(nng_lmq *q)
+{
+	if (q != NULL) {
+		nni_lmq_fini(&q->q);
+		NNI_FREE_STRUCT(q);
+	}
+}
+
+size_t
+nng_lmq_len(nng_lmq *q)
+{
+	return nni_lmq_len(&q->q);
+}
+
+size_t
+nng_lmq_cap(nng_lmq *q)
+{
+	return nni_lmq_cap(&q->q);
+}
+
+int
+nng_lmq_put(nng_lmq *q, nng_msg *m)
+{
+	return nni_lmq_put(&q->q, m);
+}
+
+int
+nng_lmq_get(nng_lmq *q, nng_msg **mp)
+{
+	return nni_lmq_get(&q->q, mp);
+}
+
+bool
+nng_lmq_full(nng_lmq *q)
+{
+	return nni_lmq_full(&q->q);
+}
+
+bool
+nng_lmq_empty(nng_lmq *q)
+{
+	return nni_lmq_empty(&q->q);
+}
+
 uint32_t
 nng_random(void)
 {

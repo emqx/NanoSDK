@@ -1600,6 +1600,18 @@ NNG_DECL void nng_cv_wake(nng_cv *);
 // reduce the thundering herd problem, but care must be taken to ensure
 // that no waiter starves forever.
 NNG_DECL void nng_cv_wake1(nng_cv *);
+
+typedef struct nng_lmq nng_lmq;
+
+NNG_DECL int nng_lmq_alloc(nng_lmq **qp, size_t sz);
+NNG_DECL void nng_lmq_free(nng_lmq *q);
+NNG_DECL size_t nng_lmq_len(nng_lmq *q);
+NNG_DECL size_t nng_lmq_cap(nng_lmq *q);
+NNG_DECL int nng_lmq_put(nng_lmq *q, nng_msg *m);
+NNG_DECL int nng_lmq_get(nng_lmq *q, nng_msg **mp);
+NNG_DECL bool nng_lmq_full(nng_lmq *q);
+NNG_DECL bool nng_lmq_empty(nng_lmq *q);
+
 // Logging support.
 
 // Log levels.  These correspond to RFC 5424 (syslog) levels.
