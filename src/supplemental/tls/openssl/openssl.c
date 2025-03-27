@@ -1,8 +1,18 @@
+//
+// Copyright 2024 NanoMQ Team, Inc. <wangwei@emqx.io>
+//
+// This software is supplied under the terms of the MIT License, a
+// copy of which should be located in the distribution where this
+// file was obtained (LICENSE.txt).  A copy of the license may also be
+// found online at https://opensource.org/licenses/MIT.
+//
+
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -47,23 +57,6 @@
 #endif
 
 #ifdef OPEN_DEBUG
-#include <execinfo.h>
-static void
-print_trace()
-{
-	void  *array[10];
-	char **strings;
-	int    size, i;
-
-	size    = backtrace(array, 10);
-	strings = backtrace_symbols(array, size);
-	if (strings != NULL) {
-		printf("Obtained %d stack frames.\n", size);
-		for (i = 0; i < size; i++)
-			printf("%s\n", strings[i]);
-	}
-	free(strings);
-}
 
 static void
 print_hex(char *str, const uint8_t *data, size_t len)
@@ -76,11 +69,6 @@ print_hex(char *str, const uint8_t *data, size_t len)
 }
 
 #else
-
-static void
-print_trace()
-{
-}
 
 static void
 print_hex(char *str, const uint8_t *data, size_t len)
@@ -247,15 +235,16 @@ static int
 open_conn_handshake(nng_tls_engine_conn *ec)
 {
 	int rv;
-	print_trace();
 	if (ec->ok == 1)
 		return 0;
 	rv = SSL_do_handshake(ec->ssl);
 	if (rv != 0) {
 		rv = SSL_get_error(ec->ssl, rv);
-		if (rv != 0)
+		if (rv != 0) {
 			nng_log_warn("NNG-TLS-CONN-HANDSHAKE",
 				"openssl handshake still in process rv%d", rv);
+			ERR_print_errors_fp(stderr);
+		}
 	}
 	if (rv == SSL_ERROR_WANT_READ || rv == SSL_ERROR_WANT_WRITE) {
 		int ensz, sz;
@@ -289,6 +278,7 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 				continue;
 			}
 			sz = open_net_write(ec->tls, ec->rbuf, ensz);
+			nng_log_warn("NNG-TLS-CONN-HANDSHAKE", "tcp write want%d real%d", ensz, sz);
 			if (sz == 0 - SSL_ERROR_WANT_READ || sz == 0 - SSL_ERROR_WANT_WRITE)
 				return (NNG_EAGAIN);
 			else if (sz < 0)
@@ -690,7 +680,6 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	BIO *biocert = NULL;
 	X509 *xcert = NULL;
 	EVP_PKEY *pkey = NULL;
-	trace("start");
 
 #ifdef NNG_TLS_OPENSSL_HAVE_GM
 
@@ -737,6 +726,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 		rv = NNG_ENOMEM;
 		goto error;
 	}
+
 	xcert = PEM_read_bio_X509(biocert, NULL, 0, NULL);
 	if (!xcert) {
 		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load certificate from buffer");
@@ -748,6 +738,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 		rv = NNG_EINVAL;
 		goto error;
 	}
+	rv = 0;
 
 	len = strlen(key);
 	biokey = BIO_new_mem_buf(key, len);
