@@ -639,13 +639,13 @@ main(const int argc, const char **argv)
 	{
 		printf("Failed to create client, return code %d\n", rc);
 		rc = EXIT_FAILURE;
-		return;
+		return rc;
 	}
 	if ((rc = MQTTAsync_setCallbacks(client, client, connlost, msgarrvd, asyncDeliveryComplete)) != MQTTASYNC_SUCCESS)
 	{
 		printf("Failed to set callbacks, return code %d\n", rc);
 		rc = EXIT_FAILURE;
-		return;
+		return rc;
 	}
 	MQTTAsync_SSLOptions ssl_opts = MQTTAsync_SSLOptions_initializer;
 	ssl_opts.enableServerCertAuth = 1;  // 开启服务器证书认证
@@ -704,7 +704,7 @@ main(const int argc, const char **argv)
 destroy_exit:
 	MQTTAsync_destroy(&client);
 exit:
-	return;
+	return rc;
 	if (5 == argc && 0 == strcmp(argv[1], SUBSCRIBE)) {
 		cmd = SUBSCRIBE;
 	} else if (6 <= argc && 0 == strcmp(argv[1], PUBLISH)) {
