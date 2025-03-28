@@ -19,6 +19,16 @@
 #include <openssl/crypto.h>
 #include <openssl/x509v3.h>
 
+#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
+
+#include <openssl/engine.h>
+#include <openssl/conf.h>
+#include "cn_x509_api.h"
+#include "curl/curl.h"
+#include "cn_x509_error.h"
+
+#endif
+
 // Follow the suggestion from Sliepen. https://stackoverflow.com/questions/69079419/how-i-can-read-more-than-16384-bytes-using-openssl-tls
 #define OPEN_BUF_SZ 16000
 
@@ -853,9 +863,38 @@ int
 nng_tls_engine_init_open(void)
 {
 	int rv;
+
+#if NNG_TLS_OPENSSL_HAVE_GM_NW
+	ENGINE *en = ENGINE_by_id("easysec");
+	if (en == NULL) {
+		OpenSSL_add_all_algorithms();
+		OPENSSL_load_builtin_modules();
+		ENGINE_load_dynamic();
+		char openssl_cnf_path[] = "/root/nanosdk/extern/openssl.cnf";
+		if ((rv = CONF_modules_load_file(openssl_cnf_path, "openssl_conf", 0)) != 1) {
+			nng_log_info("NNG-TLS-GM-INIT",
+					"OpenSSL failed to load required configuration %d", rv);
+            ERR_print_errors_fp(stderr);
+			return NNG_ECRYPTO;
+        }
+        en = ENGINE_by_id("easysec");
+	}
+	if (en == NULL) {
+		nng_log_info("NNG-TLS-GM-INIT",
+				"OpenSSL failed to load easysec engine");
+		return NNG_ECRYPTO;
+	}
+	if(ENGINE_init(en) != 1){
+		nng_log_info("NNG-TLS-GM-INIT",
+				"OpenSSL failed to init easysec engine");
+		return NNG_ECRYPTO;
+    }
+
+#else
 	SSL_library_init();
 	SSL_load_error_strings();
 	rv = OpenSSL_add_ssl_algorithms();
+#endif
 
 #if OPENSSL_VERSION_MAJOR < 3
 	ERR_load_BIO_strings(); // deprecated since OpenSSL 3.0
