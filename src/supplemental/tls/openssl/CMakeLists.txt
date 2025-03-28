@@ -3,6 +3,7 @@ include(FindThreads)
 if (NNG_TLS_ENGINE STREQUAL "open")
     set(NNG_TLS_OPENSSL ON)
     set(NNG_TLS_OPENSSL_HAVE_GM ON)
+    set(NNG_TLS_OPENSSL_HAVE_GM_NW ON)
     message("Enable TASSL !!")
     message(NOTICE "
         ************************************************************
@@ -24,7 +25,20 @@ if (NNG_TLS_ENGINE STREQUAL "open")
         else()
             nng_find_package(OpenSSL)
         endif()
-        nng_link_libraries_public(OpenSSL::SSL OpenSSL::Crypto)
+		if(NNG_TLS_OPENSSL_HAVE_GM_NW)
+			message("==OPENSSL WITH GM FOR NW")
+			nng_include_directories(/root/nanosdk/extern/nw/include)
+			nng_link_libraries_public(
+				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcn_x509_common.so
+				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcn_x509_crypto.so
+				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcn_x509_engine.so
+				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcn_x509_proxy.so
+				${CMAKE_SOURCE_DIR}/extern/nw/lib/libssl.so
+				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcrypto.so
+				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcurl.so)
+		else()
+			nng_link_libraries_public(OpenSSL::SSL OpenSSL::Crypto)
+		endif()
     endif()
 
     nng_defines(NNG_TLS_ENGINE_INIT=nng_tls_engine_init_open)
