@@ -3,6 +3,7 @@ include(FindThreads)
 if (NNG_TLS_ENGINE STREQUAL "open")
     set(NNG_TLS_OPENSSL ON)
     set(NNG_TLS_OPENSSL_HAVE_GM ON)
+    set(NNG_TLS_OPENSSL_HAVE_GM_NW ON)
     message("Enable TASSL !!")
     message(NOTICE "
         ************************************************************
@@ -24,45 +25,21 @@ if (NNG_TLS_ENGINE STREQUAL "open")
         else()
             find_package(OpenSSL REQUIRED)
         endif()
-        nng_link_libraries_public(OpenSSL::SSL OpenSSL::Crypto)
+		if(NNG_TLS_OPENSSL_HAVE_GM_NW)
+			message("==OPENSSL WITH GM FOR NW")
+			nng_include_directories(/root/nanosdk/extern/nw/include)
+			nng_link_libraries_public(
+				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcn_x509_common.so
+				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcn_x509_crypto.so
+				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcn_x509_engine.so
+				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcn_x509_proxy.so
+				${CMAKE_SOURCE_DIR}/extern/nw/lib/libssl.so
+				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcrypto.so
+				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcurl.so)
+		else()
+			nng_link_libraries_public(OpenSSL::SSL OpenSSL::Crypto)
+		endif()
     endif()
-
-	#check_library_exists(wolfssl::wolfssl wolfSSL_CTX_LoadCRLBuffer "" NNG_WOLFSSL_HAVE_CRL)
-    #check_library_exists(wolfssl::wolfssl wolfSSL_get_verify_result "" NNG_WOLFSSL_HAVE_VERIFY)
-    #check_library_exists(wolfssl::wolfssl wolfSSL_CTX_set_default_passwd_cb "" NNG_WOLFSSL_HAVE_PASSWORD)
-    #check_library_exists(wolfssl::wolfssl wolfSSL_get_peer_certificate "" NNG_WOLFSSL_HAVE_PEER_CERT)
-    #check_library_exists(wolfssl::wolfssl wolfSSL_CTX_SetTmpDH "" NNG_WOLFSSL_HAVE_DH)
-    #check_library_exists(wolfssl::wolfssl wolfSSL_CTX_set_psk_client_callback "" NNG_WOLFSSL_HAVE_PSK)
-
-    #if (NNG_WOLFSSL_HAVE_DH)
-    #    nng_defines(NNG_WOLFSSL_HAVE_DH)
-    #else ()
-    #    message(STATUS "wolfSSL configured without DH support.")
-    #endif ()
-
-    #if (NNG_WOLFSSL_HAVE_CRL)
-    #    nng_defines(NNG_WOLFSSL_HAVE_CRL)
-    #else ()
-    #    message(STATUS "wolfSSL configured without CRL support.")
-    #endif ()
-
-    #if (NNG_WOLFSSL_HAVE_PASSWORD)
-    #    nng_defines(NNG_WOLFSSL_HAVE_PASSWORD)
-    #else ()
-    #    message(STATUS "wolfSSL configured without password support.")
-    #endif ()
-
-    #if (NNG_WOLFSSL_HAVE_PEER_CERT)
-    #    nng_defines(NNG_WOLFSSL_HAVE_PEER_CERT)
-    #else ()
-    #    message(STATUS "wolfSSL configured without peer cert chain support.")
-    #endif ()
-
-    #if (NNG_WOLFSSL_HAVE_PSK)
-    #    nng_defines(NNG_SUPP_TLS_PSK)
-    #else ()
-    #    message(STATUS "wolfSSL configured without pre-shared key (PSK) support.")
-    #endif()
 
     nng_defines(NNG_TLS_ENGINE_INIT=nng_tls_engine_init_open)
     nng_defines(NNG_TLS_ENGINE_FINI=nng_tls_engine_fini_open)
