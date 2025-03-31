@@ -579,6 +579,8 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 	}
 	rv = SSL_CTX_set_cipher_list(cfg->ctx, "ECC-SM4-SM3");
 	nng_log_info("NNG-TLS-CFG-INIT", "Setting suite returns %d", rv);
+
+	SSL_CTX_set_verify_depth(cfg->ctx, 1);
 #endif
 
 	SSL_CTX_set_verify(cfg->ctx, auth_mode, NULL);
@@ -647,17 +649,48 @@ open_config_ca_chain(
 {
 	size_t len;
 	trace("start");
-	if (certs == NULL) {
-		nng_log_info("open_config_ca_chain", "NULL certs detected!");
-	}
-	len = strlen(certs);
+	char *certs1 = (char *)certs;
 
-	BIO *bio = BIO_new_mem_buf(certs, len);
+#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
+	uint8_t certs1buf[8192] = {0};
+	int32_t certs1bufsz = 8192;
+	getX509CertChain(certs1buf, &certs1bufsz);
+	if (certs1bufsz != (int32_t)strlen((char *)certs1buf)) {
+		nng_log_err("NNG-TLS-CFG-CACHAIN", "Sign CA GM For NW is not standard PEM");
+		// TODO if so
+	}
+	certs1 = (char *)certs1buf;
+#endif
+	if (certs == NULL) {
+		nng_log_info("NNG-TLS-CFG-CACHAIN", "NULL certs detected!");
+	}
+	len = strlen(certs1);
+
+	BIO *bio = BIO_new_mem_buf(certs1, len);
 	if (!bio) {
 		nng_log_err("NNG-TLS-CFG-CACHAIN", "Failed to create BIO");
 		return (NNG_ENOMEM);
 	}
 
+#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
+	STACK_OF(X509_INFO) *skinfo;
+	skinfo = PEM_X509_INFO_read_bio(bio, NULL, NULL, NULL);
+	nng_log_info("NNG-TLS-CFG-CACHAIN", "cachain has %d items", sk_X509_INFO_num(skinfo));
+
+	X509_STORE *store = X509_STORE_new();
+	for (int i=0; i<sk_X509_INFO_num(skinfo); ++i) {
+		X509_INFO *item = sk_X509_INFO_value(skinfo, i);
+		if (item->x509)
+			X509_STORE_add_cert(store, item->x509);
+		if (item->crl)
+			X509_STORE_add_crl(store, item->crl);
+	}
+	SSL_CTX_set1_verify_cert_store(cfg->ctx, store);
+
+	if (skinfo)
+		sk_X509_INFO_pop_free(skinfo, X509_INFO_free);
+
+#else
 	X509 *cert = NULL;
 	X509_STORE *store = SSL_CTX_get_cert_store(cfg->ctx);
 
@@ -670,6 +703,7 @@ open_config_ca_chain(
 		}
 		X509_free(cert);
 	}
+#endif
 
 	BIO_free(bio);
 
