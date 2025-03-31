@@ -757,8 +757,8 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	}
 	nng_log_info("NNG-TLS-GM-OWN-CERT", "GM For NW id after load is %d", EVP_PKEY_id(key1));
 
-	char *dkey_store = ""; // encrypt cert
-	char *dkey_private = ""; // encrypt private key
+	char *enc_store = ""; // encrypt cert
+	char *enc_pkey = ""; // encrypt private key
 
 #else
 	if (pass == NULL) {
@@ -767,14 +767,14 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	}
 	char **encerts = (char **)pass;
 	nng_log_debug("OpenSSL", "pass path  %s  %s", (encerts[0]), (encerts[1]));
-	char *dkey_store = encerts[0]; // encrypt cert
-	char *dkey_private = encerts[1]; // encrypt private key
-	if (dkey_store == NULL || dkey_private == NULL) {
-		nng_log_err("NNG-TLS-GM-OWN-CERT", "Please provide GM dkey store and dkey private");
+	char *enc_store = encerts[0]; // encrypt cert
+	char *enc_pkey = encerts[1]; // encrypt private key
+	if (enc_store == NULL || enc_pkey == NULL) {
+		nng_log_err("NNG-TLS-GM-OWN-CERT", "Please provide GM enc cert and enc pkey");
 		return NNG_EINVAL;
 	}
 	nng_log_info("NNG-TLS-GM-OWN-CERT",
-			"SSL_TLCP start dkeyStore = %s dkey = %s", dkey_store, dkey_private);
+			"SSL_TLCP start encCert = %s encPkey = %s", enc_store, enc_pkey);
 #endif
 
 #else
@@ -848,14 +848,14 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 
 	// encrypt cert
 	if ((rv = SSL_CTX_use_enc_certificate_file(
-	         cfg->ctx, dkey_store, SSL_FILETYPE_PEM)) != 1) {
+	         cfg->ctx, enc_store, SSL_FILETYPE_PEM)) != 1) {
 		rv = NNG_EINVAL;
 		nng_log_err("NNG-TLS-GM-ENC-CRT", "Enc cert load failed");
 		goto error;
 	}
 	// encrypt private key
 	if ((rv = SSL_CTX_use_enc_PrivateKey_file(
-	         cfg->ctx, dkey_private, SSL_FILETYPE_PEM)) != 1) {
+	         cfg->ctx, enc_pkey, SSL_FILETYPE_PEM)) != 1) {
 		rv = NNG_EINVAL;
 		nng_log_err("NNG-TLS-GM-ENC-KEY", "Enc key load failed");
 		goto error;
