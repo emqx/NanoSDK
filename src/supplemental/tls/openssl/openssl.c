@@ -123,6 +123,9 @@ struct nng_tls_engine_config {
 	char        *server_name;
 	int          auth_mode;
 	nni_list     psks;
+#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
+	ENGINE      *en;
+#endif
 };
 
 static int open_conn_handshake(nng_tls_engine_conn *ec);
@@ -513,6 +516,7 @@ open_config_fini(nng_tls_engine_config *cfg)
 static int
 open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 {
+	int               rv;
 	int               auth_mode;
 	int               nng_auth;
 	const SSL_METHOD *method;
@@ -541,6 +545,41 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 		return (NNG_ENOMEM);
 	}
 	// Set max/min version TODO
+
+#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
+	ENGINE *en = ENGINE_by_id("easysec");
+	if (en == NULL) {
+		OpenSSL_add_all_algorithms();
+		OPENSSL_load_builtin_modules();
+		ENGINE_load_dynamic();
+		char openssl_cnf_path[] = "/root/nanosdk/extern/openssl.cnf";
+		if ((rv = CONF_modules_load_file(openssl_cnf_path, "openssl_conf", 0)) != 1) {
+			nng_log_info("NNG-TLS-GM-INIT",
+					"OpenSSL failed to load required configuration %d", rv);
+            ERR_print_errors_fp(stderr);
+			return NNG_ECRYPTO;
+        }
+        en = ENGINE_by_id("easysec");
+	}
+	if (en == NULL) {
+		nng_log_info("NNG-TLS-GM-INIT",
+				"OpenSSL failed to load easysec engine");
+		return NNG_ECRYPTO;
+	}
+	if(ENGINE_init(en) != 1){
+		nng_log_info("NNG-TLS-GM-INIT",
+				"OpenSSL failed to init easysec engine");
+		return NNG_ECRYPTO;
+    }
+	cfg->en = en;
+
+	if (1 != (rv = SSL_CTX_set_ssl_version(cfg->ctx, CNTLS_client_method()))) {
+		nng_log_err("NNG-TLS-CFG-INIT", "Error in set tls nw version %d", rv);
+		return (NNG_ENOMEM);
+	}
+	rv = SSL_CTX_set_cipher_list(cfg->ctx, "ECC-SM4-SM3");
+	nng_log_info("NNG-TLS-CFG-INIT", "Setting suite returns %d", rv);
+#endif
 
 	SSL_CTX_set_verify(cfg->ctx, auth_mode, NULL);
 	//SSL_CTX_set_mode(cfg->ctx, SSL_MODE_AUTO_RETRY);
@@ -864,37 +903,9 @@ nng_tls_engine_init_open(void)
 {
 	int rv;
 
-#if NNG_TLS_OPENSSL_HAVE_GM_NW
-	ENGINE *en = ENGINE_by_id("easysec");
-	if (en == NULL) {
-		OpenSSL_add_all_algorithms();
-		OPENSSL_load_builtin_modules();
-		ENGINE_load_dynamic();
-		char openssl_cnf_path[] = "/root/nanosdk/extern/openssl.cnf";
-		if ((rv = CONF_modules_load_file(openssl_cnf_path, "openssl_conf", 0)) != 1) {
-			nng_log_info("NNG-TLS-GM-INIT",
-					"OpenSSL failed to load required configuration %d", rv);
-            ERR_print_errors_fp(stderr);
-			return NNG_ECRYPTO;
-        }
-        en = ENGINE_by_id("easysec");
-	}
-	if (en == NULL) {
-		nng_log_info("NNG-TLS-GM-INIT",
-				"OpenSSL failed to load easysec engine");
-		return NNG_ECRYPTO;
-	}
-	if(ENGINE_init(en) != 1){
-		nng_log_info("NNG-TLS-GM-INIT",
-				"OpenSSL failed to init easysec engine");
-		return NNG_ECRYPTO;
-    }
-
-#else
 	SSL_library_init();
 	SSL_load_error_strings();
 	rv = OpenSSL_add_ssl_algorithms();
-#endif
 
 #if OPENSSL_VERSION_MAJOR < 3
 	ERR_load_BIO_strings(); // deprecated since OpenSSL 3.0
