@@ -729,9 +729,38 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	BIO *biocert = NULL;
 	X509 *xcert = NULL;
 	EVP_PKEY *pkey = NULL;
+	char *cert1 = cert;
+	char *key1 = key;
 
 #ifdef NNG_TLS_OPENSSL_HAVE_GM
 
+#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
+
+	char cert1buf[2048];
+	uint32_t cert1sz = 2048;
+	cert1 = cert1buf;
+	rv = getIdentityCert(1, cert1, &cert1sz);
+	if (cert1sz != strlen(cert1)) {
+		nng_log_err("NNG-TLS-GM-OWN-CERT", "Cert GM For NW is not standard PEM format");
+		// TODO if so
+	}
+	if (rv != 0) {
+		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GM For NW sign cert: %d", rv);
+		return NNG_EINVAL;
+	}
+
+	char keyname[] = "sign_key";
+	key1 = ENGINE_load_private_key(cfg->en, keyname, UI_OpenSSL(), NULL);
+	if (!key1) {
+		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GM For NW sign key");
+		return NNG_EINVAL;
+	}
+	nng_log_info("NNG-TLS-GM-OWN-CERT", "GM For NW id after load is %d", EVP_PKEY_id(key1));
+
+	char *dkey_store = ""; // encrypt cert
+	char *dkey_private = ""; // encrypt private key
+
+#else
 	if (pass == NULL) {
 		nng_log_err("NNG-TLS-GM-OWN-CERT", "Please provide GM certificates");
 		return NNG_EINVAL;
@@ -746,6 +775,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	}
 	nng_log_info("NNG-TLS-GM-OWN-CERT",
 			"SSL_TLCP start dkeyStore = %s dkey = %s", dkey_store, dkey_private);
+#endif
 
 #else
 
@@ -768,8 +798,8 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 
 #endif // NNG_TLS_OPENSSL_HAVE_GM
 
-	len = strlen(cert);
-	biocert = BIO_new_mem_buf(cert, len);
+	len = strlen(cert1);
+	biocert = BIO_new_mem_buf(cert1, len);
 	if (!biocert) {
 		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to create BIO");
 		rv = NNG_ENOMEM;
@@ -789,8 +819,8 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	}
 	rv = 0;
 
-	len = strlen(key);
-	biokey = BIO_new_mem_buf(key, len);
+	len = strlen(key1);
+	biokey = BIO_new_mem_buf(key1, len);
 	if (!biokey) {
 		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to create key BIO");
 		rv = NNG_ENOMEM;
