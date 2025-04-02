@@ -87,6 +87,8 @@ if (NOT NOLOG)
   add_definitions(-DENABLE_LOG)
 endif ()
 
+add_compile_definitions(NNG_TLS_OPENSSL_NW_CONF="${NNG_TLS_OPENSSL_NW_CONF}")
+
 # These are library targets.  The "nng" library is the main public library.
 # The "nng_testing" is a full build of the library for test cases
 # only, which is done statically and includes even portions of the code
