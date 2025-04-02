@@ -34,8 +34,12 @@ if (NNG_TLS_ENGINE STREQUAL "open")
 				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcn_x509_engine.so
 				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcn_x509_proxy.so
 				${CMAKE_SOURCE_DIR}/extern/nw/lib/libssl.so
-				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcrypto.so
-				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcurl.so)
+				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcrypto.so)
+
+			#nng_link_libraries_public(
+			#	${CMAKE_SOURCE_DIR}/extern/nw/libx86/libcn_x509_proxy.so
+			#	/root/TASSL/build/lib/libssl.so
+			#	/root/TASSL/build/lib/libcrypto.so)
 		else()
 			nng_link_libraries_public(OpenSSL::SSL OpenSSL::Crypto)
 		endif()

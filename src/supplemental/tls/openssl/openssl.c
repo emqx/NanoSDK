@@ -24,7 +24,6 @@
 #include <openssl/engine.h>
 #include <openssl/conf.h>
 #include "cn_x509_api.h"
-#include "curl/curl.h"
 #include "cn_x509_error.h"
 
 #endif
