@@ -552,7 +552,12 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 		OpenSSL_add_all_algorithms();
 		OPENSSL_load_builtin_modules();
 		ENGINE_load_dynamic();
-		char openssl_cnf_path[] = "/root/nanosdk/extern/nw/openssl.cnf";
+#ifdef NNG_TLS_OPENSSL_NW_CONF
+		char *openssl_cnf_path = NNG_TLS_OPENSSL_NW_CONF;
+#else
+		char openssl_cnf_path[] = "/etc/openssl/openssl.cnf";
+#endif
+		nng_log_warn("NNG-TLS-GM-INIT", "OpenSSL conf path: %s", openssl_cnf_path);
 		if ((rv = CONF_modules_load_file(openssl_cnf_path, "openssl_conf", 0)) != 1) {
 			nng_log_err("NNG-TLS-GM-INIT",
 					"OpenSSL failed to load required configuration %d", rv);
