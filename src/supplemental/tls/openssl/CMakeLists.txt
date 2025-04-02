@@ -27,7 +27,7 @@ if (NNG_TLS_ENGINE STREQUAL "open")
         endif()
 		if(NNG_TLS_OPENSSL_HAVE_GM_NW)
 			message("==OPENSSL CONF WITH GM FOR NW: " ${NNG_TLS_OPENSSL_NW_CONF})
-			nng_include_directories(/root/nanosdk/extern/nw/include)
+			nng_include_directories(${CMAKE_SOURCE_DIR}/extern/nw/include)
 			nng_link_libraries_public(
 				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcn_x509_common.so
 				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcn_x509_crypto.so
