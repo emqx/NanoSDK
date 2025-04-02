@@ -552,9 +552,9 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 		OpenSSL_add_all_algorithms();
 		OPENSSL_load_builtin_modules();
 		ENGINE_load_dynamic();
-		char openssl_cnf_path[] = "/root/nanosdk/extern/openssl.cnf";
+		char openssl_cnf_path[] = "/root/nanosdk/extern/nw/openssl.cnf";
 		if ((rv = CONF_modules_load_file(openssl_cnf_path, "openssl_conf", 0)) != 1) {
-			nng_log_info("NNG-TLS-GM-INIT",
+			nng_log_err("NNG-TLS-GM-INIT",
 					"OpenSSL failed to load required configuration %d", rv);
             ERR_print_errors_fp(stderr);
 			return NNG_ECRYPTO;
@@ -562,12 +562,12 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
         en = ENGINE_by_id("easysec");
 	}
 	if (en == NULL) {
-		nng_log_info("NNG-TLS-GM-INIT",
+		nng_log_err("NNG-TLS-GM-INIT",
 				"OpenSSL failed to load easysec engine");
 		return NNG_ECRYPTO;
 	}
 	if(ENGINE_init(en) != 1){
-		nng_log_info("NNG-TLS-GM-INIT",
+		nng_log_err("NNG-TLS-GM-INIT",
 				"OpenSSL failed to init easysec engine");
 		return NNG_ECRYPTO;
     }
