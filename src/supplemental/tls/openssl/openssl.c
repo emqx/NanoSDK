@@ -651,6 +651,7 @@ static int
 open_config_ca_chain(
     nng_tls_engine_config *cfg, const char *certs, const char *crl)
 {
+	int    rv;
 	size_t len;
 	trace("start");
 	char *certs1 = (char *)certs;
@@ -658,15 +659,13 @@ open_config_ca_chain(
 #ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
 	uint8_t certs1buf[8192] = {0};
 	int32_t certs1bufsz = 8192;
-	getX509CertChain(certs1buf, &certs1bufsz);
-	if (certs1bufsz != (int32_t)strlen((char *)certs1buf)) {
-		nng_log_err("NNG-TLS-CFG-CACHAIN", "Sign CA GM For NW is not standard PEM");
-		// TODO if so
-	}
+	rv = getX509CertChain(certs1buf, &certs1bufsz);
+	nng_log_info("NNG-TLS-CFG-CACHAIN", "CA GM For NW(%d)(%d):%s", certs1bufsz, strlen((char *)certs1buf), certs1buf);
 	certs1 = (char *)certs1buf;
 #endif
-	if (certs == NULL) {
-		nng_log_info("NNG-TLS-CFG-CACHAIN", "NULL certs detected!");
+
+	if (certs1 == NULL || rv != 0) {
+		nng_log_info("NNG-TLS-CFG-CACHAIN", "Failed to get ca chain! %d", rv);
 	}
 	len = strlen(certs1);
 
