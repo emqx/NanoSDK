@@ -117,7 +117,7 @@ file_load_data(const char *filepath, void **data)
 	size_t size;
 
 	if (nni_plat_file_get(filepath, data, &size) != 0) {
-		nng_log_info("file_load_data", "Read file failed!");
+		nng_log_info("file_load_data", "Read file %s failed!", filepath);
 		return 0;
 	}
 	size++;
