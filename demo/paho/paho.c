@@ -1,4 +1,3 @@
-
 #include <assert.h>
 #include <errno.h>
 #include <stdint.h>
@@ -65,7 +64,6 @@ void connlost(void *context, char *cause)
 	}
 }
 
-
 int msgarrvd(void *context, char *topicName, int topicLen, MQTTAsync_message *message)
 {
     printf("Message arrived\n");
@@ -74,6 +72,56 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTAsync_message *me
     MQTTAsync_freeMessage(&message);
     MQTTAsync_free(topicName);
     return 1;
+}
+
+void onDisconnectFailure5(void* context, MQTTAsync_failureData5* response)
+{
+	printf("Disconnect failed, rc %d\n", response->code);
+	disc_finished = 1;
+}
+
+void onDisconnect5(void* context, MQTTAsync_successData5* response)
+{
+	printf("Successful disconnection\n");
+	disc_finished = 1;
+}
+
+void onSubscribe5(void* context, MQTTAsync_successData5* response)
+{
+	printf("Subscribe succeeded\n");
+	subscribed = 1;
+}
+
+void onSubscribeFailure5(void* context, MQTTAsync_failureData5* response)
+{
+	printf("Subscribe failed, rc %d\n", response->code);
+	finished = 1;
+}
+
+void onConnectFailure5(void* context, MQTTAsync_failureData5* response)
+{
+	printf("Connect failed, rc %d\n", response->code);
+	finished = 1;
+}
+
+void onConnect5(void* context, MQTTAsync_successData5* response)
+{
+	MQTTAsync client = (MQTTAsync)context;
+	MQTTAsync_responseOptions opts = MQTTAsync_responseOptions_initializer;
+	int rc;
+
+	printf("Successful connection\n");
+
+	printf("Subscribing to topic %s\nfor client %s using QoS%d\n\n"
+           "Press Q<Enter> to quit\n\n", TOPIC, CLIENTID, QOS);
+	opts.onSuccess5 = onSubscribe5;
+	opts.onFailure5 = onSubscribeFailure5;
+	opts.context = client;
+	if ((rc = MQTTAsync_subscribe(client, TOPIC, QOS, &opts)) != MQTTASYNC_SUCCESS)
+	{
+		printf("Failed to start subscribe, return code %d\n", rc);
+		finished = 1;
+	}
 }
 
 void onDisconnectFailure(void* context, MQTTAsync_failureData* response)
@@ -100,13 +148,11 @@ void onSubscribeFailure(void* context, MQTTAsync_failureData* response)
 	finished = 1;
 }
 
-
 void onConnectFailure(void* context, MQTTAsync_failureData* response)
 {
 	printf("Connect failed, rc %d\n", response->code);
 	finished = 1;
 }
-
 
 void onConnect(void* context, MQTTAsync_successData* response)
 {
@@ -118,8 +164,8 @@ void onConnect(void* context, MQTTAsync_successData* response)
 
 	printf("Subscribing to topic %s\nfor client %s using QoS%d\n\n"
            "Press Q<Enter> to quit\n\n", TOPIC, CLIENTID, QOS);
-	opts.onSuccess5 = onSubscribe;
-	opts.onFailure5 = onSubscribeFailure;
+	opts.onSuccess = onSubscribe;
+	opts.onFailure = onSubscribeFailure;
 	opts.context = client;
 	if ((rc = MQTTAsync_subscribe(client, TOPIC, QOS, &opts)) != MQTTASYNC_SUCCESS)
 	{
@@ -143,8 +189,8 @@ void testConnected(void* context, char* cause)
 	printf("Successful connection\n");
 	// opts.onSuccess = onSubscribe;
 	// opts.onFailure = onSubscribeFailure;
-	opts.onSuccess5 = onSubscribe;
-	opts.onFailure5 = onSubscribeFailure;
+	opts.onSuccess5 = onSubscribe5;
+	opts.onFailure5 = onSubscribeFailure5;
 	opts.context = c;
 
 	// opts.onSuccess = onSubscribeSuccess;
@@ -198,8 +244,8 @@ int main(int argc, char* argv[])
 	conn_opts.MQTTVersion       = MQTTVERSION_5;
 	conn_opts.onSuccess         = onConnect;
 	conn_opts.onFailure         = onConnectFailure;
-	conn_opts.onSuccess5        = onConnect;
-	conn_opts.onFailure5        = onConnectFailure;
+	conn_opts.onSuccess5        = onConnect5;
+	conn_opts.onFailure5        = onConnectFailure5;
 	conn_opts.username          = "admin";
 	conn_opts.password          = "public";
 	conn_opts.context           = NULL;
