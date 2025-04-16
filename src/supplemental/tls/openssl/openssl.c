@@ -520,7 +520,6 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 	int               nng_auth;
 	const SSL_METHOD *method;
 	trace("start");
-	pkiLibraryInit();
 
 	cfg->mode = mode;
 	// TODO NNI_LIST_INIT(&cfg->psks, psk, node);
@@ -547,6 +546,7 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 	// Set max/min version TODO
 
 #ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
+	pkiLibraryInit();
 	ENGINE *en = ENGINE_by_id("easysec");
 	if (en == NULL) {
 		OpenSSL_add_all_algorithms();
