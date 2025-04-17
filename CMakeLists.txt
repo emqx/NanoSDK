@@ -289,8 +289,6 @@ else ()
     set(NNG_PLATFORM_POSIX ON)
 endif ()
 
-set(NNG_TLS_OPENSSL_HAVE_GM_NW ON)
-
 if (NNG_ENABLE_TLS)
     add_definitions(-DNNG_SUPP_TLS)
     add_definitions(-DNNG_TLS_OPENSSL)
