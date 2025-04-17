@@ -290,7 +290,7 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 				continue;
 			}
 			sz = open_net_write(ec->tls, ec->rbuf, ensz);
-			nng_log_warn("NNG-TLS-CONN-HANDSHAKE", "tcp write want%d real%d", ensz, sz);
+			nng_log_info("NNG-TLS-CONN-HANDSHAKE", "tcp write want%d real%d", ensz, sz);
 			if (sz == 0 - SSL_ERROR_WANT_READ || sz == 0 - SSL_ERROR_WANT_WRITE)
 				return (NNG_EAGAIN);
 			else if (sz < 0)
@@ -560,22 +560,22 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 		nng_log_warn("NNG-TLS-GM-INIT", "OpenSSL conf path: %s", openssl_cnf_path);
 		if ((rv = CONF_modules_load_file(openssl_cnf_path, "openssl_conf", 0)) != 1) {
 			nng_log_err("NNG-TLS-GM-INIT",
-					"OpenSSL failed to load required configuration %d", rv);
-            ERR_print_errors_fp(stderr);
+				"OpenSSL failed to load required configuration %d", rv);
+			ERR_print_errors_fp(stderr);
 			return NNG_ECRYPTO;
-        }
-        en = ENGINE_by_id("easysec");
+		}
+		en = ENGINE_by_id("easysec");
 	}
 	if (en == NULL) {
 		nng_log_err("NNG-TLS-GM-INIT",
-				"OpenSSL failed to load easysec engine");
+			"OpenSSL failed to load easysec engine");
 		return NNG_ECRYPTO;
 	}
 	if(ENGINE_init(en) != 1){
 		nng_log_err("NNG-TLS-GM-INIT",
-				"OpenSSL failed to init easysec engine");
+			"OpenSSL failed to init easysec engine");
 		return NNG_ECRYPTO;
-    }
+	}
 	cfg->en = en;
 
 	if (1 != (rv = SSL_CTX_set_ssl_version(cfg->ctx, CNTLS_client_method()))) {
@@ -795,7 +795,6 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	nng_log_info("NNG-TLS-GM-OWN-CERT", "GM For NW id after load is %d", EVP_PKEY_id(pkey));
 
 	char enc_store[2048]; // encrypt cert
-
 	uint32_t enc_store_sz = 2048;
 	rv = getIdentityCert(2, (uint8_t *)enc_store, &enc_store_sz);
 	if (rv != X509_NO_ERROR) {
@@ -803,7 +802,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 		return NNG_EINVAL;
 	}
 	nng_log_info("NNG-TLS-GM-OWN-CERT", "Enc Cert GM For NW(%d)(%d):%s",
-			enc_store_sz, strlen(enc_store), enc_store);
+		enc_store_sz, strlen(enc_store), enc_store);
 
 	char keyname2[] = "enc__key";
 	EVP_PKEY *enc_pkey; // encrypt private key
@@ -827,7 +826,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 		return NNG_EINVAL;
 	}
 	nng_log_info("NNG-TLS-GM-OWN-CERT",
-			"SSL_TLCP start encCert = %s enckey = %s", enc_store, enc_key);
+		"SSL_TLCP start encCert = %s enckey = %s", enc_store, enc_key);
 #endif // NNG_TLS_OPENSSL_HAVE_GM_NW
 
 #else
@@ -1025,7 +1024,6 @@ int
 nng_tls_engine_init_open(void)
 {
 	int rv;
-
 	SSL_library_init();
 	SSL_load_error_strings();
 	rv = OpenSSL_add_ssl_algorithms();
