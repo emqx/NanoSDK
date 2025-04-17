@@ -70,11 +70,12 @@
 static int msgarrvd(void* context, char* topicName, int topicLen, MQTTAsync_message* message)
 {
 	printf("Message arrived\n");
-    printf("     topic: %s\n", topicName);
+    printf("     topic: %.*s\n", topicLen, topicName);
     printf("   message: %.*s\n", message->payloadlen, (char*)message->payload);
 
 	MQTTAsync_freeMessage(&message);
 	MQTTAsync_free(topicName);
+	(void) context;
 	return 1;
 }
 
@@ -507,42 +508,50 @@ void onSubscribe(void* context, MQTTAsync_successData5* response)
 	printf("Subscribe succeeded\n");
 	printf("Sub packet id %d\n", response->token);
 	printf("Sub packet topic count %d\n", response->alt.sub.reasonCodeCount);
-	for (size_t i = 0; i < response->alt.sub.reasonCodeCount; i++)
+	for (int i = 0; i < response->alt.sub.reasonCodeCount; i++)
 	{
 		printf ("Sub result %d\n", response->alt.sub.reasonCodes[i]);
 	}
 	
 	subscribed = 1;
+	(void) context;
 }
 
 void onSubscribeFailure(void* context, MQTTAsync_failureData5* response)
 {
 	printf("Subscribe failed, rc %d\n", response->code);
 	finished = 1;
+	(void) context;
 }
 
 void onConnect(void* context, MQTTAsync_successData* response)
 {
 	MQTTAsync client = (MQTTAsync)context;
 	printf("Successful connection\n");
+	(void) client;
+	(void) response;
 }
 
 void onConnectFailure(void* context, MQTTAsync_failureData* response)
 {
 	printf("Connect failed, rc %d\n", response->code);
 	finished = 1;
+	(void) context;
 }
 
 void onDisconnectFailure(void* context, MQTTAsync_failureData* response)
 {
 	printf("Disconnect failed, rc %d\n", response->code);
 	disc_finished = 1;
+	(void) context;
 }
 
 void onDisconnect(void* context, MQTTAsync_successData* response)
 {
 	printf("Successful disconnection\n");
 	disc_finished = 1;
+	(void) response;
+	(void) context;
 }
 
 void testConnected(void* context, char* cause)
@@ -576,18 +585,20 @@ void onSendFailure5(void* context, MQTTAsync_failureData5* response)
 {
 	MQTTAsync client = (MQTTAsync)context;
 	MQTTAsync_disconnectOptions opts = MQTTAsync_disconnectOptions_initializer;
-	int rc;
 
 	printf("Message send failed token %d error code %d\n", response->token, response->code);
+	(void) opts;
+	(void) client;
 }
 
 void onSendSuccess5(void* context, MQTTAsync_successData5* response)
 {
 	MQTTAsync client = (MQTTAsync)context;
 	MQTTAsync_disconnectOptions opts = MQTTAsync_disconnectOptions_initializer;
-	int rc;
 
 	printf("Message delivery %d confirmed\n", response->token);
+	(void) opts;
+	(void) client;
 }
 
 void connlost(void *context, char *cause)
@@ -612,6 +623,7 @@ void asyncDeliveryComplete(void* context, MQTTAsync_token token)
 {
 	printf("qos finished!");
 	nng_log_debug("Delivery report", "QoS id %d", token);
+	(void) context;
 }
 
 int
@@ -621,7 +633,6 @@ main(const int argc, const char **argv)
 
 	const char *exe = argv[0];
 	int rc;
-	int ch;
 	const char *cmd;
 	int   istls = 0;
 	const char  *ca = NULL, *cert = NULL, *key = NULL, *pwd = NULL;
