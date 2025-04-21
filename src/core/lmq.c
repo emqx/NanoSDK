@@ -117,6 +117,18 @@ nni_lmq_get(nni_lmq *lmq, nng_msg **mp)
 }
 
 int
+nni_lmq_head(nni_lmq *lmq, nng_msg **mp)
+{
+	nng_msg *msg;
+	if (lmq->lmq_len == 0) {
+		return (NNG_EAGAIN);
+	}
+	msg = lmq->lmq_msgs[lmq->lmq_get];
+	*mp = msg;
+	return (0);
+}
+
+int
 nni_lmq_resize(nni_lmq *lmq, size_t cap)
 {
 	nng_msg  *msg;

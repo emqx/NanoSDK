@@ -2244,6 +2244,12 @@ nng_lmq_get(nng_lmq *q, nng_msg **mp)
 	return nni_lmq_get(&q->q, mp);
 }
 
+int
+nng_lmq_head(nng_lmq *q, nng_msg **mp)
+{
+	return nni_lmq_head(&q->q, mp);
+}
+
 bool
 nng_lmq_full(nng_lmq *q)
 {

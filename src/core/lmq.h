@@ -33,6 +33,7 @@ extern size_t nni_lmq_len(nni_lmq *);
 extern size_t nni_lmq_cap(nni_lmq *);
 extern int    nni_lmq_put(nni_lmq *lmq, nng_msg *msg);
 extern int    nni_lmq_get(nni_lmq *lmq, nng_msg **mp);
+extern int    nni_lmq_head(nni_lmq *lmq, nng_msg **mp);
 extern int    nni_lmq_resize(nni_lmq *, size_t);
 extern bool   nni_lmq_full(nni_lmq *);
 extern bool   nni_lmq_empty(nni_lmq *);

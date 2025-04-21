@@ -1609,6 +1609,7 @@ NNG_DECL size_t nng_lmq_len(nng_lmq *q);
 NNG_DECL size_t nng_lmq_cap(nng_lmq *q);
 NNG_DECL int nng_lmq_put(nng_lmq *q, nng_msg *m);
 NNG_DECL int nng_lmq_get(nng_lmq *q, nng_msg **mp);
+NNG_DECL int nng_lmq_head(nng_lmq *q, nng_msg **mp);
 NNG_DECL bool nng_lmq_full(nng_lmq *q);
 NNG_DECL bool nng_lmq_empty(nng_lmq *q);
 
