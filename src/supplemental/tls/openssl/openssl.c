@@ -546,7 +546,9 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 	// Set max/min version TODO
 
 #ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
+	nng_log_info("NNG-TLS-CFG-INIT", "pkiLibraryInit start");
 	pkiLibraryInit();
+	nng_log_info("NNG-TLS-CFG-INIT", "pkiLibraryInit end");
 	ENGINE *en = ENGINE_by_id("easysec");
 	if (en == NULL) {
 		OpenSSL_add_all_algorithms();
@@ -660,6 +662,7 @@ open_config_ca_chain(
 #ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
 	uint8_t certs1buf[8192] = {0};
 	int32_t certs1bufsz = 8192;
+	nng_log_info("NNG-TLS-CFG-CACHAIN", "getX509CertChain start");
 	rv = getX509CertChain(certs1buf, &certs1bufsz);
 	nng_log_info("NNG-TLS-CFG-CACHAIN", "CA GM For NW(%d)(%d):%s", certs1bufsz, strlen((char *)certs1buf), certs1buf);
 	certs1 = (char *)certs1buf;
@@ -778,6 +781,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	uint8_t cert1buf[2048];
 	uint32_t cert1sz = 2048;
 	cert1 = (char *)cert1buf;
+	nng_log_info("NNG-TLS-GM-OWN-CERT", "getIdentityCert start 1");
 	rv = getIdentityCert(1, cert1buf, &cert1sz);
 	nng_log_info("NNG-TLS-GM-OWN-CERT", "Sign Cert GM For NW(%d)(%d):%s",
 			cert1sz, strlen(cert1), cert1);
@@ -796,6 +800,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 
 	char enc_store[2048]; // encrypt cert
 	uint32_t enc_store_sz = 2048;
+	nng_log_info("NNG-TLS-GM-OWN-CERT", "getIdentityCert start 2");
 	rv = getIdentityCert(2, (uint8_t *)enc_store, &enc_store_sz);
 	if (rv != X509_NO_ERROR) {
 		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GM For NW enc cert");
@@ -806,6 +811,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 
 	char keyname2[] = "enc__key";
 	EVP_PKEY *enc_pkey; // encrypt private key
+	nng_log_info("NNG-TLS-GM-OWN-CERT", "ENGINE_load_private_key start");
 	enc_pkey = ENGINE_load_private_key(cfg->en, keyname2, UI_OpenSSL(), NULL);
 	if (!enc_pkey) {
 		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GM For NW enc key");
