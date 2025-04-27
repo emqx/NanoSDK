@@ -831,11 +831,17 @@ nng_mqtt_client_recv_cb(void* arg)
 	nng_mqtt_client *client = (nng_mqtt_client *) arg;
 	nng_aio *        aio    = client->recv_aio;
 	nng_msg *        msg    = nng_aio_get_msg(aio);
-	int 			 rv;
+	int 			 rv = 0;
 
-	if (msg == NULL || (rv = nng_aio_result(aio)) != 0) {
+	if (msg == NULL) {
+		nni_plat_printf("aio recv error! msg == NULL");
+	}
+
+	rv = nng_aio_result(aio);
+	if (rv != 0) {
 		nni_plat_printf("aio recv error! %d", rv);
 	}
+
 	nng_recv_aio(client->sock, client->recv_aio);
 	client->recv_cb(client, msg, client->obj);
 
@@ -975,7 +981,11 @@ nng_mqtt_subscribe(nng_socket sock, nng_mqtt_topic_qos *sbs, size_t count, prope
 		return (NNG_ECLOSED);	// connection shall be closed this time
 	msg = nng_aio_get_msg(aio);
 	if (msg) {
-		uint8_t *code = nng_mqtt_msg_get_suback_return_codes(msg, &count);
+		uint32_t tmp_count = (uint32_t)count;
+		uint8_t *code = nng_mqtt_msg_get_suback_return_codes(msg, &tmp_count);
+		if (code == NULL) {
+			nni_plat_println("get suback return code. code == NULL!");
+		}
 		nng_msg_free(msg);
 	}
 	nng_aio_free(aio);
