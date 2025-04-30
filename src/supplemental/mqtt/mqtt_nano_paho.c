@@ -628,6 +628,8 @@ connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
     }
 }
 
+static char disconnected_cause[16];
+
 static void
 disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 {
@@ -638,12 +640,13 @@ disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 	// property *prop;
 	// nng_pipe_get_ptr(p, NNG_OPT_MQTT_DISCONNECT_PROPERTY, &prop);
 	// nng_socket_get?
-	printf("%s: disconnected! RC [%d] \n", __FUNCTION__, reason);
+	nng_log_warn("NANO-PAHO-DISCONNECT-CB", "disconnected! RC [%d]", reason);
     m->shouldBeConnected = 0;
 	(void) ev;
+	sprintf(disconnected_cause, "%d", reason);
     if (m->cl)
     {
-        m->cl(m->clContext, NULL);
+        m->cl(m->clContext, disconnected_cause);
     }
 }
 
