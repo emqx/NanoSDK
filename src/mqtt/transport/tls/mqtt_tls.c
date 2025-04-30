@@ -449,7 +449,7 @@ mqtts_tcptran_pipe_nego_cb(void *arg)
 			property_free(ep->property);
 			ep->property = NULL;
 			property *prop = nni_mqtt_msg_get_connack_property(p->rxmsg);
-			if (property_dup((property **) &ep->property, prop) != 0) {
+			if (prop && property_dup((property **) &ep->property, prop) != 0) {
 				log_warn("Malformed packet found in Property!");
 				rv = MQTT_ERR_PROTOCOL;
 				ep->reason_code = rv;
@@ -522,6 +522,7 @@ mqtts_tcptran_pipe_nego_cb(void *arg)
 			ep->property = NULL;
 		}
 		ep->reason_code = nni_mqtt_msg_get_connack_return_code(p->rxmsg);
+		nng_log_warn("MQTT-TLS-TCP-NEGO-CB", "Connack rc %d", ep->reason_code);
 	}
 
 mqtt_error:
