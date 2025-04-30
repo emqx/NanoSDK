@@ -540,6 +540,11 @@ MQTTAsync_createWithOptions(MQTTAsync *handle, const char *serverURI,
     } else {
 		nng_log_debug("MQTTAsync_createWithOptions", "dialer created!");
 	}
+	if (clientId)
+		m->clientId = strdup(clientId);
+	else
+		m->clientId = NULL;
+
 exit:
 	return rc;
 }
@@ -721,7 +726,10 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 	}
     if (options->retryInterval > 0) {
         nng_duration retryInterval = options->retryInterval * 1000;
-	    nng_socket_set_ms(*m->sock, NNG_OPT_MQTT_RETRY_INTERVAL, retryInterval);
+        nng_socket_set_ms(*m->sock, NNG_OPT_MQTT_RETRY_INTERVAL, retryInterval);
+    }
+    if (m->clientId) {
+        nng_mqtt_msg_set_connect_client_id(connmsg, m->clientId);
     }
 
 	if (options->will) /* check validity of will options structure */
@@ -1191,7 +1199,11 @@ void MQTTAsync_destroy(MQTTAsync *handle)
         nng_free(m->ca, strlen(m->ca));
     if (m->cert)
         nng_free(m->cert, strlen(m->cert));
-    if (m->key)
+    if (m->key) {
         nng_free(m->key, strlen(m->key));
+	}
+	if (m->clientId) {
+		nng_free(m->clientId, strlen(m->clientId));
+	}
     nng_free(m, sizeof(MQTTAsyncs));
 }

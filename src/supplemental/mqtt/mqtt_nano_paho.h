@@ -123,6 +123,7 @@ typedef struct MQTTAsync_struct
 	int websocket;
     int MQTTVersion; /**< the version of MQTT being used */
 	// Clients* c;
+	char *clientId;
 
 	/* "Global", to the client, callback definitions */
 	MQTTAsync_connectionLost* cl;
