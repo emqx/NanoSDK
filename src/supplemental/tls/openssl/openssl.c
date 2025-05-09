@@ -290,7 +290,7 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 				continue;
 			}
 			sz = open_net_write(ec->tls, ec->rbuf, ensz);
-			nng_log_info("NNG-TLS-CONN-HANDSHAKE", "tcp write want%d real%d", ensz, sz);
+			nng_log_debug("NNG-TLS-CONN-HANDSHAKE", "tcp write want%d real%d", ensz, sz);
 			if (sz == 0 - SSL_ERROR_WANT_READ || sz == 0 - SSL_ERROR_WANT_WRITE)
 				return (NNG_EAGAIN);
 			else if (sz < 0)
@@ -548,7 +548,6 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 #ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
 	nng_log_info("NNG-TLS-CFG-INIT", "pkiLibraryInit start");
 	pkiLibraryInit();
-	nng_log_info("NNG-TLS-CFG-INIT", "pkiLibraryInit end");
 	ENGINE *en = ENGINE_by_id("easysec");
 	if (en == NULL) {
 		OpenSSL_add_all_algorithms();
@@ -664,7 +663,7 @@ open_config_ca_chain(
 	int32_t certs1bufsz = 8192;
 	nng_log_info("NNG-TLS-CFG-CACHAIN", "getX509CertChain start");
 	rv = getX509CertChain(certs1buf, &certs1bufsz);
-	nng_log_info("NNG-TLS-CFG-CACHAIN", "CA GM For NW(%d)(%d):%s", certs1bufsz, strlen((char *)certs1buf), certs1buf);
+	nng_log_info("NNG-TLS-CFG-CACHAIN", "CA GMNW(%d)(%d)", certs1bufsz, strlen((char *)certs1buf));
 	certs1 = (char *)certs1buf;
 #endif
 
@@ -783,38 +782,37 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	cert1 = (char *)cert1buf;
 	nng_log_info("NNG-TLS-GM-OWN-CERT", "getIdentityCert start 1");
 	rv = getIdentityCert(1, cert1buf, &cert1sz);
-	nng_log_info("NNG-TLS-GM-OWN-CERT", "Sign Cert GM For NW(%d)(%d):%s",
-			cert1sz, strlen(cert1), cert1);
+	nng_log_info("NNG-TLS-GM-OWN-CERT", "Sign Cert GMNW(%d)(%d)", cert1sz, strlen(cert1));
 	if (rv != 0) {
-		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GM For NW sign cert: %d", rv);
+		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GMNW sign cert: %d", rv);
 		return NNG_EINVAL;
 	}
 
 	char keyname[] = "sign_key";
 	pkey = ENGINE_load_private_key(cfg->en, keyname, UI_OpenSSL(), NULL);
 	if (!pkey) {
-		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GM For NW sign key");
+		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GMNW sign key");
 		return NNG_EINVAL;
 	}
-	nng_log_info("NNG-TLS-GM-OWN-CERT", "GM For NW id after load is %d", EVP_PKEY_id(pkey));
+	nng_log_info("NNG-TLS-GM-OWN-CERT", "GMNW id after load is %d", EVP_PKEY_id(pkey));
 
 	char enc_store[2048]; // encrypt cert
 	uint32_t enc_store_sz = 2048;
 	nng_log_info("NNG-TLS-GM-OWN-CERT", "getIdentityCert start 2");
 	rv = getIdentityCert(2, (uint8_t *)enc_store, &enc_store_sz);
 	if (rv != X509_NO_ERROR) {
-		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GM For NW enc cert");
+		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GMNW enc cert");
 		return NNG_EINVAL;
 	}
-	nng_log_info("NNG-TLS-GM-OWN-CERT", "Enc Cert GM For NW(%d)(%d):%s",
-		enc_store_sz, strlen(enc_store), enc_store);
+	nng_log_info("NNG-TLS-GM-OWN-CERT", "Enc Cert GMNW(%d)(%d)",
+		enc_store_sz, strlen(enc_store));
 
 	char keyname2[] = "enc__key";
 	EVP_PKEY *enc_pkey; // encrypt private key
 	nng_log_info("NNG-TLS-GM-OWN-CERT", "ENGINE_load_private_key start");
 	enc_pkey = ENGINE_load_private_key(cfg->en, keyname2, UI_OpenSSL(), NULL);
 	if (!enc_pkey) {
-		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GM For NW enc key");
+		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GMNW enc key");
 		return NNG_EINVAL;
 	}
 
@@ -824,7 +822,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 		return NNG_EINVAL;
 	}
 	char **encerts = (char **)pass;
-	nng_log_debug("OpenSSL", "pass path  %s  %s", (encerts[0]), (encerts[1]));
+	nng_log_debug("OpenSSL", "pass path %s %s", (encerts[0]), (encerts[1]));
 	char *enc_store = encerts[0]; // encrypt cert
 	char *enc_key = encerts[1]; // encrypt private key
 	if (enc_store == NULL || enc_key == NULL) {

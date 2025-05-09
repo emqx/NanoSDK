@@ -522,7 +522,7 @@ mqtts_tcptran_pipe_nego_cb(void *arg)
 			ep->property = NULL;
 		}
 		ep->reason_code = nni_mqtt_msg_get_connack_return_code(p->rxmsg);
-		nng_log_warn("MQTT-TLS-TCP-NEGO-CB", "Connack rc %d", ep->reason_code);
+		nng_log_debug("MQTT-TLS-TCP-NEGO-CB", "Connack rc %d", ep->reason_code);
 	}
 
 mqtt_error:

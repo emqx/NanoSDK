@@ -847,7 +847,6 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
         }
 #ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
 		// CA CERT
-		nng_log_info("MQTTAsync_connect", "nng_tls_config_ca_cert start");
 		if ((rv = nng_tls_config_ca_chain(tls_cfg, m->ca, NULL)) != 0) {
 			rc = MQTTASYNC_FAILURE;
 			nng_log_warn("SSL Init Error", "nng_tls_config_ca_chain set CA Cert %d", rv);
@@ -855,7 +854,6 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 		}
 		char *pass[2] = { NULL };
 		nng_tls_config_auth_mode(tls_cfg, NNG_TLS_AUTH_MODE_REQUIRED);
-		nng_log_info("MQTTAsync_connect", "nng_tls_config_own_cert start");
 		if ((rv = nng_tls_config_own_cert(tls_cfg, m->cert, m->key, (char *)pass)) != 0) {
 			rc = MQTTASYNC_FAILURE;
 			nng_log_warn("TLS Init Error", "nng_tls_config_own_cert rv %d", rv);
