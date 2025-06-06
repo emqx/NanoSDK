@@ -957,6 +957,15 @@ mqtt_tcptran_pipe_send(void *arg, nni_aio *aio)
 		nni_aio_finish_error(aio, rv);
 		return;
 	}
+	if (nni_aio_list_active(aio)) {
+		nni_msg *msg = nni_aio_get_msg(aio);
+		if (msg != NULL)
+			nni_msg_free(msg);
+		nni_mtx_unlock(&p->mtx);
+		nni_plat_println("Warning!aio reuse case");
+		nni_aio_finish_error(aio, rv);
+		return;
+	}
 	nni_list_append(&p->sendq, aio);
 	if (nni_list_first(&p->sendq) == aio) {
 		mqtt_tcptran_pipe_send_start(p);
