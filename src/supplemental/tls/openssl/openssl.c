@@ -670,6 +670,7 @@ open_config_ca_chain_std(
 {
 	int    rv = 0;
 	size_t len;
+	NNI_ARG_UNUSED(crl);
 
 	if (certs == NULL) {
 		nng_log_warn("NNG-TLS-CFG-CACHAIN", "Failed to get ca chain! %d", rv);
@@ -715,6 +716,8 @@ open_config_ca_chain_gm_nw(
 	int    rv = 0;
 	size_t len;
 	char  *certs1 = NULL;
+	NNI_ARG_UNUSED(crl);
+	NNI_ARG_UNUSED(certs);
 
 	uint8_t certs1buf[8192] = {0};
 	int32_t certs1bufsz = 8192;
@@ -812,7 +815,187 @@ open_get_password(char *passwd, int size, int rw, void *ctx)
 #endif
 
 static int
-open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
+open_config_own_cert_std(nng_tls_engine_config *cfg, const char *cert,
+    const char *key, const char *pass)
+{
+	int len;
+	int rv = 0;
+	BIO *biokey = NULL;
+	BIO *biocert = NULL;
+	X509 *xcert = NULL;
+	EVP_PKEY *pkey = NULL;
+
+	NNI_ARG_UNUSED(pass);
+
+	len = strlen(cert);
+	biocert = BIO_new_mem_buf(cert, len);
+	if (!biocert) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to create BIO");
+		rv = NNG_ENOMEM;
+		goto error;
+	}
+	xcert = PEM_read_bio_X509(biocert, NULL, 0, NULL);
+	if (!xcert) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load certificate from buffer");
+		rv = NNG_EINVAL;
+		goto error;
+	}
+	if (SSL_CTX_use_certificate(cfg->ctx, xcert) <= 0) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to set certificate to SSL_CTX");
+		rv = NNG_EINVAL;
+		goto error;
+	}
+	rv = 0;
+
+	len = strlen(key);
+	biokey = BIO_new_mem_buf(key, len);
+	if (!biokey) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to create key BIO");
+		rv = NNG_ENOMEM;
+		goto error;
+	}
+	pkey = PEM_read_bio_PrivateKey(biokey, NULL, NULL, NULL);
+	if (!pkey) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load key from buffer");
+		rv = NNG_EINVAL;
+		goto error;
+	}
+	if (SSL_CTX_use_PrivateKey(cfg->ctx, pkey) <= 0) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to set key to SSL_CTX");
+		rv = NNG_EINVAL;
+		goto error;
+	}
+
+	// Verify
+	if (SSL_CTX_check_private_key(cfg->ctx) != 1) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to check key in SSL_CTX");
+		rv = NNG_ECRYPTO;
+		goto error;
+	}
+
+error:
+	if (xcert)
+		X509_free(xcert);
+	if (biocert)
+		BIO_free(biocert);
+	if (pkey)
+		EVP_PKEY_free(pkey);
+	if (biokey)
+		BIO_free(biokey);
+
+	return rv;
+}
+
+#ifdef NNG_TLS_OPENSSL_HAVE_GM
+static int
+open_config_own_cert_gm(nng_tls_engine_config *cfg, const char *cert,
+    const char *key, const char *pass)
+{
+	int len;
+	int rv = 0;
+	BIO *biokey = NULL;
+	BIO *biocert = NULL;
+	X509 *xcert = NULL;
+	EVP_PKEY *pkey = NULL;
+
+	if (pass == NULL) {
+		nng_log_err("NNG-TLS-GM-OWN-CERT", "Please provide GM certificates");
+		return NNG_EINVAL;
+	}
+
+	char **encerts = (char **)pass;
+	char *enc_store = encerts[0]; // encrypt cert
+	char *enc_key = encerts[1]; // encrypt private key
+	if (enc_store == NULL || enc_key == NULL) {
+		nng_log_err("NNG-TLS-GM-OWN-CERT", "Please provide GM enc cert and enc key");
+		return NNG_EINVAL;
+	}
+	nng_log_info("NNG-TLS-GM-OWN-CERT",
+		"SSL_TLCP start encCert = %s encKey = %s", enc_store, enc_key);
+
+	len = strlen(cert);
+	biocert = BIO_new_mem_buf(cert, len);
+	if (!biocert) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to create BIO");
+		rv = NNG_ENOMEM;
+		goto error;
+	}
+	xcert = PEM_read_bio_X509(biocert, NULL, 0, NULL);
+	if (!xcert) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load certificate from buffer");
+		rv = NNG_EINVAL;
+		goto error;
+	}
+	if (SSL_CTX_use_certificate(cfg->ctx, xcert) <= 0) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to set certificate to SSL_CTX");
+		rv = NNG_EINVAL;
+		goto error;
+	}
+	rv = 0;
+
+	len = strlen(key);
+	biokey = BIO_new_mem_buf(key, len);
+	if (!biokey) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to create key BIO");
+		rv = NNG_ENOMEM;
+		goto error;
+	}
+	pkey = PEM_read_bio_PrivateKey(biokey, NULL, NULL, NULL);
+	if (!pkey) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load key from buffer");
+		rv = NNG_EINVAL;
+		goto error;
+	}
+	if (SSL_CTX_use_PrivateKey(cfg->ctx, pkey) <= 0) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to set key to SSL_CTX");
+		rv = NNG_EINVAL;
+		goto error;
+	}
+
+	if (SSL_CTX_check_private_key(cfg->ctx) != 1) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to check key in SSL_CTX");
+		rv = NNG_ECRYPTO;
+		goto error;
+	}
+
+	// encrypt cert
+	if ((rv = SSL_CTX_use_enc_certificate_file(
+	         cfg->ctx, enc_store, SSL_FILETYPE_PEM)) != 1) {
+		rv = NNG_EINVAL;
+		nng_log_err("NNG-TLS-GM-ENC-CRT", "Enc cert load failed");
+		goto error;
+	}
+	// encrypt private key
+	if ((rv = SSL_CTX_use_enc_PrivateKey_file(
+	         cfg->ctx, enc_key, SSL_FILETYPE_PEM)) != 1) {
+		rv = NNG_EINVAL;
+		nng_log_err("NNG-TLS-GM-ENC-KEY", "Enc key load failed");
+		goto error;
+	}
+	if ((rv = SSL_CTX_check_enc_private_key(cfg->ctx)) != 1) {
+		rv = NNG_ECRYPTO;
+		nng_log_err("NNG-TLS-GM-ENC-CHECK", "check key failed");
+		goto error;
+	}
+	rv = 0;
+
+error:
+	if (xcert)
+		X509_free(xcert);
+	if (biocert)
+		BIO_free(biocert);
+	if (pkey)
+		EVP_PKEY_free(pkey);
+	if (biokey)
+		BIO_free(biokey);
+
+	return rv;
+}
+#endif // NNG_TLS_OPENSSL_HAVE_GM
+
+#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
+static int
+open_config_own_cert_gm_nw(nng_tls_engine_config *cfg, const char *cert,
     const char *key, const char *pass)
 {
 	int len;
@@ -823,14 +1006,11 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	X509 *xcert = NULL;
 	X509 *xenccert = NULL;
 	EVP_PKEY *pkey = NULL;
-	char *cert1 = (char *)cert;
+	char *cert1 = NULL;
+	NNI_ARG_UNUSED(pass);
+	NNI_ARG_UNUSED(cert);
+	NNI_ARG_UNUSED(key);
 
-	nng_tls_mode mode = cfg->mode;
-
-#ifdef NNG_TLS_OPENSSL_HAVE_GM
-#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
-
-if (mode == NNG_TLS_MODE_CLIENT_GM) {
 	uint8_t cert1buf[2048];
 	uint32_t cert1sz = 2048;
 	cert1 = (char *)cert1buf;
@@ -870,42 +1050,6 @@ if (mode == NNG_TLS_MODE_CLIENT_GM) {
 		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GMNW enc key");
 		return NNG_EINVAL;
 	}
-}
-
-#else // NNG_TLS_OPENSSL_HAVE_GM_NW
-	if (pass == NULL) {
-		nng_log_err("NNG-TLS-GM-OWN-CERT", "Please provide GM certificates");
-		return NNG_EINVAL;
-	}
-	char **encerts = (char **)pass;
-	nng_log_debug("OpenSSL", "pass path %s %s", (encerts[0]), (encerts[1]));
-	char *enc_store = encerts[0]; // encrypt cert
-	char *enc_key = encerts[1]; // encrypt private key
-	if (enc_store == NULL || enc_key == NULL) {
-		nng_log_err("NNG-TLS-GM-OWN-CERT", "Please provide GM enc cert and enc key");
-		return NNG_EINVAL;
-	}
-	nng_log_info("NNG-TLS-GM-OWN-CERT",
-		"SSL_TLCP start encCert = %s enckey = %s", enc_store, enc_key);
-#endif // NNG_TLS_OPENSSL_HAVE_GM_NW
-#endif // NNG_TLS_OPENSSL_HAVE_GM
-
-#if NNG_OPENSSL_HAVE_PASSWORD
-	char *dup = NULL;
-	if (pass != NULL) {
-		if ((dup = nng_strdup(pass)) == NULL) {
-			return (NNG_ENOMEM);
-		}
-	}
-	if (cfg->pass != NULL) {
-		nng_strfree(cfg->pass);
-	}
-	cfg->pass = dup;
-	SSL_CTX_set_default_passwd_cb_userdata(cfg->ctx, cfg);
-	SSL_CTX_set_default_passwd_cb(cfg->ctx, open_get_password);
-#else
-	(void) pass;
-#endif
 
 	len = strlen(cert1);
 	biocert = BIO_new_mem_buf(cert1, len);
@@ -914,7 +1058,6 @@ if (mode == NNG_TLS_MODE_CLIENT_GM) {
 		rv = NNG_ENOMEM;
 		goto error;
 	}
-
 	xcert = PEM_read_bio_X509(biocert, NULL, 0, NULL);
 	if (!xcert) {
 		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load certificate from buffer");
@@ -928,38 +1071,6 @@ if (mode == NNG_TLS_MODE_CLIENT_GM) {
 	}
 	rv = 0;
 
-#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
-if (mode == NNG_TLS_MODE_CLIENT) { // Enabled GM But user want to use std tls
-	len = strlen(key);
-	biokey = BIO_new_mem_buf(key, len);
-	if (!biokey) {
-		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to create key BIO");
-		rv = NNG_ENOMEM;
-		goto error;
-	}
-	pkey = PEM_read_bio_PrivateKey(biokey, NULL, NULL, NULL);
-	if (!pkey) {
-		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load key from buffer");
-		rv = NNG_EINVAL;
-		goto error;
-	}
-}
-#else
-	len = strlen(key);
-	biokey = BIO_new_mem_buf(key, len);
-	if (!biokey) {
-		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to create key BIO");
-		rv = NNG_ENOMEM;
-		goto error;
-	}
-	pkey = PEM_read_bio_PrivateKey(biokey, NULL, NULL, NULL);
-	if (!pkey) {
-		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load key from buffer");
-		rv = NNG_EINVAL;
-		goto error;
-	}
-#endif
-
 	if (SSL_CTX_use_PrivateKey(cfg->ctx, pkey) <= 0) {
 		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to set key to SSL_CTX");
 		rv = NNG_EINVAL;
@@ -972,9 +1083,6 @@ if (mode == NNG_TLS_MODE_CLIENT) { // Enabled GM But user want to use std tls
 		goto error;
 	}
 
-#ifdef NNG_TLS_OPENSSL_HAVE_GM
-#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
-if (mode == NNG_TLS_MODE_CLIENT_GM) {
 	len = strlen(enc_store);
 	bioenccert = BIO_new_mem_buf(enc_store, len);
 	if (!bioenccert) {
@@ -983,54 +1091,30 @@ if (mode == NNG_TLS_MODE_CLIENT_GM) {
 		goto error;
 	}
 
+	// encrypt cert
 	xenccert = PEM_read_bio_X509(bioenccert, NULL, 0, NULL);
 	if (!xenccert) {
 		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load enc certificate from buffer");
 		rv = NNG_EINVAL;
 		goto error;
 	}
-
-	// encrypt cert
 	if ((rv = SSL_CTX_use_enc_certificate(cfg->ctx, xenccert)) != 1) {
 		rv = NNG_EINVAL;
 		nng_log_err("NNG-TLS-GM-ENC-CRT", "Enc cert load failed");
 		goto error;
 	}
-
+	// encrypt private key
 	if ((rv = SSL_CTX_use_enc_PrivateKey(cfg->ctx, enc_pkey)) != 1) {
 		rv = NNG_EINVAL;
 		nng_log_err("NNG-TLS-GM-ENC-KEY", "Enc key load failed");
 		goto error;
 	}
-}
-#else // NNG_TLS_OPENSSL_HAVE_GM_NW
-	// encrypt cert
-	if ((rv = SSL_CTX_use_enc_certificate_file(
-	         cfg->ctx, enc_store, SSL_FILETYPE_PEM)) != 1) {
-		rv = NNG_EINVAL;
-		nng_log_err("NNG-TLS-GM-ENC-CRT", "Enc cert load failed");
-		goto error;
-	}
-	// encrypt private key
-	if ((rv = SSL_CTX_use_enc_PrivateKey_file(
-	         cfg->ctx, enc_key, SSL_FILETYPE_PEM)) != 1) {
-		rv = NNG_EINVAL;
-		nng_log_err("NNG-TLS-GM-ENC-KEY", "Enc key load failed");
-		goto error;
-	}
-#endif // NNG_TLS_OPENSSL_HAVE_GM_NW
-if (mode == NNG_TLS_MODE_CLIENT_GM) {
 	if ((rv = SSL_CTX_check_enc_private_key(cfg->ctx)) != 1) {
 		rv = NNG_ECRYPTO;
 		nng_log_err("NNG-TLS-GM-ENC-CHECK", "check key failed");
 		goto error;
 	}
 	rv = 0;
-}
-
-#endif // NNG_TLS_OPENSSL_HAVE_GM
-	NNI_ARG_UNUSED(key);
-	NNI_ARG_UNUSED(pass);
 
 error:
 	if (xcert)
@@ -1046,8 +1130,50 @@ error:
 	if (biokey)
 		BIO_free(biokey);
 
-	trace("end");
 	return rv;
+}
+#endif // NNG_TLS_OPENSSL_HAVE_GM_NW
+
+static int
+open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
+    const char *key, const char *pass)
+{
+	int rv;
+	nng_tls_mode mode = cfg->mode;
+	if (mode == NNG_TLS_MODE_CLIENT) {
+#if defined(NNG_TLS_OPENSSL_HAVE_GM)
+		rv = open_config_own_cert_gm(cfg, cert, key, pass);
+#else
+		rv = open_config_own_cert_std(cfg, cert, key, pass);
+#endif
+#if defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
+	} else if (mode == NNG_TLS_MODE_CLIENT_GM_NW) {
+		rv = open_config_own_cert_gm_nw(cfg, cert, key, pass);
+#endif
+	}
+	if (rv != 0) {
+		return rv;
+	}
+
+#if NNG_OPENSSL_HAVE_PASSWORD
+#if defined(NNG_TLS_OPENSSL_HAVE_GM) && !defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
+	nng_log_err("NNG-TLS-GM-OWN-CERT", "In GM Mode. Password is NOT working.");
+#else
+	char *dup = NULL;
+	if (pass != NULL) {
+		if ((dup = nng_strdup(pass)) == NULL) {
+			return (NNG_ENOMEM);
+		}
+	}
+	if (cfg->pass != NULL) {
+		nng_strfree(cfg->pass);
+	}
+	cfg->pass = dup;
+	SSL_CTX_set_default_passwd_cb_userdata(cfg->ctx, cfg);
+	SSL_CTX_set_default_passwd_cb(cfg->ctx, open_get_password);
+#endif
+#endif
+	return 0;
 }
 
 static int
