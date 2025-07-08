@@ -214,8 +214,8 @@ open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 	case NNG_TLS_MODE_CLIENT:
 		nng_log_info("NNG-TLS-CONN-INIT", "SSL Client Mode");
 		break;
-	case NNG_TLS_MODE_CLIENT_GM:
-		nng_log_info("NNG-TLS-CONN-INIT", "SSL Client GM Mode");
+	case NNG_TLS_MODE_CLIENT_GM_NW:
+		nng_log_info("NNG-TLS-CONN-INIT", "SSL Client GM NW Mode");
 		break;
 	default:
 		nng_log_err("NNG-TLS-CONN-INIT", "Unknown TLS MODE");
@@ -544,7 +544,7 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 		auth_mode = SSL_VERIFY_PEER;
 		nng_auth  = NNG_TLS_AUTH_MODE_REQUIRED;
 #ifdef NNG_TLS_OPENSSL_HAVE_GM
-	} else if (mode == NNG_TLS_MODE_CLIENT_GM) {
+	} else if (mode == NNG_TLS_MODE_CLIENT_GM_NW) {
 		method = CNTLS_client_method();
 		auth_mode = SSL_VERIFY_PEER;
 		nng_auth  = NNG_TLS_AUTH_MODE_REQUIRED;
@@ -593,7 +593,7 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 	}
 	cfg->en = en;
 
-if (mode == NNG_TLS_MODE_CLIENT_GM) {
+if (mode == NNG_TLS_MODE_CLIENT_GM_NW) {
 	if (1 != (rv = SSL_CTX_set_ssl_version(cfg->ctx, CNTLS_client_method()))) {
 		nng_log_err("NNG-TLS-CFG-INIT", "Error in set tls nw version %d", rv);
 		return (NNG_ENOMEM);
