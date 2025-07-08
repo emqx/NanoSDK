@@ -840,80 +840,87 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 	}
 #ifdef NNG_SUPP_TLS
     if (options->struct_version != 0 && options->ssl) {
-        if ((rv = nng_tls_config_alloc(&tls_cfg, NNG_TLS_MODE_CLIENT)) != 0) {
+        nng_tls_mode mode = options->ssl->is_GMNW ? NNG_TLS_MODE_CLIENT_GM_NW : NNG_TLS_MODE_CLIENT;
+        if ((rv = nng_tls_config_alloc(&tls_cfg, mode)) != 0) {
             rc = PAHO_MEMORY_ERROR;
 			nng_log_warn("MQTTAsync_connect", "Mem insufficient!");
 			goto exit;
         }
+		if (options->ssl->is_GMNW) {
 #ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
-		// CA CERT
-		if ((rv = nng_tls_config_ca_chain(tls_cfg, m->ca, NULL)) != 0) {
-			rc = MQTTASYNC_FAILURE;
-			nng_log_warn("SSL Init Error", "nng_tls_config_ca_chain set CA Cert %d", rv);
-			goto exit;
-		}
-		char *pass[2] = { NULL };
-		nng_tls_config_auth_mode(tls_cfg, NNG_TLS_AUTH_MODE_REQUIRED);
-		if ((rv = nng_tls_config_own_cert(tls_cfg, m->cert, m->key, (char *)pass)) != 0) {
-			rc = MQTTASYNC_FAILURE;
-			nng_log_warn("TLS Init Error", "nng_tls_config_own_cert rv %d", rv);
-			goto exit;
-		}
-#else
-        // CA CERT
-		if (options->ssl->trustStore) {
-            if (file_load_data(options->ssl->trustStore, (void **) &m->ca) == 0) {
+			// CA CERT
+			if ((rv = nng_tls_config_ca_chain(tls_cfg, m->ca, NULL)) != 0) {
+				rc = MQTTASYNC_FAILURE;
+				nng_log_warn("SSL Init Error", "nng_tls_config_ca_chain set CA Cert %d", rv);
 				goto exit;
 			}
-            if ((rv = nng_tls_config_ca_chain(tls_cfg, m->ca, NULL)) != 0) {
-                rc = MQTTASYNC_FAILURE;
-                nng_log_warn("SSL Init Error", "nng_tls_config_ca_chain set CA Cert %d", rv);
-                goto exit;
-            }
-        }
-        if (options->ssl->enableServerCertAuth == 1 &&
-            options->ssl->keyStore && options->ssl->privateKey) {
-            char *pass[2];
-            // pass[0] = options->ssl->keyStore;
-            // pass[1] = options->ssl->privateKey;
-            if (file_load_data(options->ssl->keyStore, (void **) &m->cert) == 0)
+			char *pass[2] = { NULL };
+			nng_tls_config_auth_mode(tls_cfg, NNG_TLS_AUTH_MODE_REQUIRED);
+			if ((rv = nng_tls_config_own_cert(tls_cfg, m->cert, m->key, (char *)pass)) != 0) {
+				rc = MQTTASYNC_FAILURE;
+				nng_log_warn("TLS Init Error", "nng_tls_config_own_cert rv %d", rv);
 				goto exit;
-            if (file_load_data(options->ssl->privateKey, (void **) &m->key) == 0)
-				goto exit;
-#ifdef NNG_TLS_OPENSSL_HAVE_GM
-            if(options->ssl->privateKeyPassword) {
-                nng_log_warn("TLS Init Error", "KeyPassword is not compatible with TASSL");  
-                rc = MQTTASYNC_FAILURE;
-                goto exit;
-            } else if (options->ssl->dkeyStore && options->ssl->dprivateKey) {
-                pass[0] = options->ssl->dkeyStore;
-                pass[1] = options->ssl->dprivateKey;
-            }
+			}
+#else
+			nng_log_warn("TLS Init Warn", "Please compile with GM when is_GMNW=true");
 #endif
-            nng_tls_config_auth_mode(tls_cfg, NNG_TLS_AUTH_MODE_REQUIRED);
-            if ((rv = nng_tls_config_own_cert(tls_cfg, m->cert, m->key, (char *)pass)) != 0) {
-                rc = MQTTASYNC_FAILURE;
-                nng_log_warn("TLS Init Error", "nng_tls_config_own_cert rv %d", rv);
-                goto exit;
-            }
-        } else if (options->ssl->enableServerCertAuth == 1) {
-            nng_log_warn("TLS Init Error", "Enable TLS but no client cert & key");
-            rc = MQTTASYNC_FAILURE;
-            goto exit;
-        } else {
-            nng_tls_config_auth_mode(tls_cfg, NNG_TLS_AUTH_MODE_NONE);
-        }
-#endif // NNG_TLS_OPENSSL_HAVE_GM_NW
+		} else {
+			// STD TLS or GM TLS
+	        // CA Chain
+			if (options->ssl->trustStore) {
+				if (file_load_data(options->ssl->trustStore, (void **) &m->ca) == 0) {
+					goto exit;
+				}
+				if ((rv = nng_tls_config_ca_chain(tls_cfg, m->ca, NULL)) != 0) {
+					rc = MQTTASYNC_FAILURE;
+					nng_log_warn("SSL Init Error", "nng_tls_config_ca_chain set CA Cert %d", rv);
+					goto exit;
+				}
+			}
+			if (options->ssl->enableServerCertAuth == 1 &&
+					options->ssl->keyStore && options->ssl->privateKey) {
+				char *pass[2];
+				// pass[0] = options->ssl->keyStore;
+				// pass[1] = options->ssl->privateKey;
+				if (file_load_data(options->ssl->keyStore, (void **) &m->cert) == 0)
+					goto exit;
+				if (file_load_data(options->ssl->privateKey, (void **) &m->key) == 0)
+					goto exit;
+#if defined(NNG_TLS_OPENSSL_HAVE_GM) && !defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
+				if(options->ssl->privateKeyPassword) {
+					nng_log_warn("TLS Init Error", "KeyPassword is not compatible with TASSL");
+					rc = MQTTASYNC_FAILURE;
+					goto exit;
+				} else if (options->ssl->dkeyStore && options->ssl->dprivateKey) {
+					pass[0] = options->ssl->dkeyStore;
+					pass[1] = options->ssl->dprivateKey;
+				}
+#endif
+				nng_tls_config_auth_mode(tls_cfg, NNG_TLS_AUTH_MODE_REQUIRED);
+				if ((rv = nng_tls_config_own_cert(tls_cfg, m->cert, m->key, (char *)pass)) != 0) {
+					rc = MQTTASYNC_FAILURE;
+					nng_log_warn("TLS Init Error", "nng_tls_config_own_cert rv %d", rv);
+					goto exit;
+				}
+			} else if (options->ssl->enableServerCertAuth == 1) {
+				nng_log_warn("TLS Init Error", "Enable TLS but no client cert & key");
+				rc = MQTTASYNC_FAILURE;
+				goto exit;
+			} else {
+				nng_tls_config_auth_mode(tls_cfg, NNG_TLS_AUTH_MODE_NONE);
+			}
+		}
+
         rv = nng_dialer_set_ptr(*m->dialer, NNG_OPT_TLS_CONFIG, tls_cfg);
         nng_tls_config_free(tls_cfg);
 	}
-#else
+#else // NNG_SUPP_TLS
 	if (options->struct_version != 0 && options->ssl)
 	{
 		rc = MQTTASYNC_SSL_NOT_SUPPORTED;
 		goto exit;
 	}
-#endif
+#endif // NNG_SUPP_TLS
     if (m->connectProps)
 	{
 		MQTTProperties_free(m->connectProps);
