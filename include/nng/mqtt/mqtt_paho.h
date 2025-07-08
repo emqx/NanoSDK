@@ -424,7 +424,7 @@ typedef struct MQTTAsync_responseOptions MQTTAsync_callOptions;
 #define MQTTAsync_SSLOptions_initializer                                      \
 	{ { 'M', 'Q', 'T', 'S' }, 5, NULL, NULL, NULL, NULL, NULL, NULL,      \
 		NULL, 1, MQTT_SSL_VERSION_DEFAULT, 0, NULL, NULL, NULL, NULL, \
-		NULL, 0, NULL, 0 }
+		NULL, 0, NULL, 0, false }
 /**
  * The data for a length delimited string
  */
@@ -1128,6 +1128,13 @@ typedef struct {
 	 * Exists only if struct_version >= 5
 	 */
 	unsigned int protos_len;
+
+	/**
+	 * Switch type of TLS connection.
+	 * Create a GMNW TLS connection when is_GMNW is ture.
+	 * Or a standard TLS connection when is_GMNW is false.
+	 */
+	bool is_GMNW;
 } MQTTAsync_SSLOptions;
 
 /**
