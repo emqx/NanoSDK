@@ -665,26 +665,63 @@ open_config_auth_mode(nng_tls_engine_config *cfg, nng_tls_auth_mode mode)
 }
 
 static int
-open_config_ca_chain(
+open_config_ca_chain_std(
     nng_tls_engine_config *cfg, const char *certs, const char *crl)
 {
 	int    rv = 0;
 	size_t len;
-	trace("start");
-	char *certs1 = (char *)certs;
-	nng_tls_mode mode = cfg->mode;
 
-#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
-	if (mode == NNG_TLS_MODE_CLIENT_GM) {
-		uint8_t certs1buf[8192] = {0};
-		int32_t certs1bufsz = 8192;
-		nng_log_info("NNG-TLS-CFG-CACHAIN", "getX509CertChain start");
-		rv = getX509CertChain(certs1buf, &certs1bufsz);
-		nng_log_info("NNG-TLS-CFG-CACHAIN", "CA GMNW(%d)(%d)", certs1bufsz, strlen((char *)certs1buf));
-		certs1 = (char *)certs1buf;
+	if (certs == NULL) {
+		nng_log_warn("NNG-TLS-CFG-CACHAIN", "Failed to get ca chain! %d", rv);
+		return (NNG_EINVAL);
 	}
-#endif
+	len = strlen(certs);
 
+	BIO *bio = BIO_new_mem_buf(certs, len);
+	if (!bio) {
+		nng_log_err("NNG-TLS-CFG-CACHAIN", "Failed to create BIO");
+		return (NNG_ENOMEM);
+	}
+
+	X509 *cert = NULL;
+	X509_STORE *store = SSL_CTX_get_cert_store(cfg->ctx);
+	while ((cert = PEM_read_bio_X509(bio, NULL, 0, NULL)) != NULL) {
+		if (X509_STORE_add_cert(store, cert) == 0) {
+			nng_log_err("NNG-TLS-CFG-CACHAIN", "Failed to add certificate to store");
+			X509_free(cert);
+			BIO_free(bio);
+			return (NNG_ECRYPTO);
+		}
+		X509_free(cert);
+	}
+	BIO_free(bio);
+	return (0);
+}
+
+#if defined(NNG_TLS_OPENSSL_HAVE_GM)
+static int
+open_config_ca_chain_gm(
+    nng_tls_engine_config *cfg, const char *certs, const char *crl)
+{
+	return open_config_ca_chain_std(cfg, certs, crl);
+}
+#endif // NNG_TLS_OPENSSL_HAVE_GM
+
+#if defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
+static int
+open_config_ca_chain_gm_nw(
+    nng_tls_engine_config *cfg, const char *certs, const char *crl)
+{
+	int    rv = 0;
+	size_t len;
+	char  *certs1 = NULL;
+
+	uint8_t certs1buf[8192] = {0};
+	int32_t certs1bufsz = 8192;
+	nng_log_info("NNG-TLS-CFG-CACHAIN", "getX509CertChain start");
+	rv = getX509CertChain(certs1buf, &certs1bufsz);
+	nng_log_info("NNG-TLS-CFG-CACHAIN", "CA GMNW(%d)(%d)", certs1bufsz, strlen((char *)certs1buf));
+	certs1 = (char *)certs1buf;
 	if (certs1 == NULL || rv != 0) {
 		nng_log_warn("NNG-TLS-CFG-CACHAIN", "Failed to get ca chain! %d", rv);
 		return (NNG_EINVAL);
@@ -697,78 +734,57 @@ open_config_ca_chain(
 		return (NNG_ENOMEM);
 	}
 
-#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
-	if (mode == NNG_TLS_MODE_CLIENT_GM) {
-		STACK_OF(X509_INFO) *skinfo;
-		skinfo = PEM_X509_INFO_read_bio(bio, NULL, NULL, NULL);
-		nng_log_info("NNG-TLS-CFG-CACHAIN",
-				"cachain has %d items", sk_X509_INFO_num(skinfo));
+	STACK_OF(X509_INFO) *skinfo;
+	skinfo = PEM_X509_INFO_read_bio(bio, NULL, NULL, NULL);
+	nng_log_info("NNG-TLS-CFG-CACHAIN",
+			"cachain has %d items", sk_X509_INFO_num(skinfo));
 
-		X509_STORE *store = X509_STORE_new();
-		for (int i=0; i<sk_X509_INFO_num(skinfo); ++i) {
-			X509_INFO *item = sk_X509_INFO_value(skinfo, i);
-			if (item->x509)
-				X509_STORE_add_cert(store, item->x509);
-			if (item->crl)
-				X509_STORE_add_crl(store, item->crl);
-		}
-		SSL_CTX_set1_verify_cert_store(cfg->ctx, store);
-
-		if (skinfo)
-			sk_X509_INFO_pop_free(skinfo, X509_INFO_free);
-	} else {
-		// Works for both mode_server and mode_client. As same as the non-gm mode
-		X509 *cert = NULL;
-		X509_STORE *store = SSL_CTX_get_cert_store(cfg->ctx);
-
-		while ((cert = PEM_read_bio_X509(bio, NULL, 0, NULL)) != NULL) {
-			if (X509_STORE_add_cert(store, cert) == 0) {
-				nng_log_err("NNG-TLS-CFG-CACHAIN", "Failed to add certificate to store");
-				X509_free(cert);
-				BIO_free(bio);
-			return (NNG_ECRYPTO);
-			}
-			X509_free(cert);
-		}
+	X509_STORE *store = X509_STORE_new();
+	for (int i=0; i<sk_X509_INFO_num(skinfo); ++i) {
+		X509_INFO *item = sk_X509_INFO_value(skinfo, i);
+		if (item->x509)
+			X509_STORE_add_cert(store, item->x509);
+		if (item->crl)
+			X509_STORE_add_crl(store, item->crl);
 	}
+	SSL_CTX_set1_verify_cert_store(cfg->ctx, store);
 
-#else
-	X509 *cert = NULL;
-	X509_STORE *store = SSL_CTX_get_cert_store(cfg->ctx);
-
-	while ((cert = PEM_read_bio_X509(bio, NULL, 0, NULL)) != NULL) {
-		if (X509_STORE_add_cert(store, cert) == 0) {
-			nng_log_err("NNG-TLS-CFG-CACHAIN", "Failed to add certificate to store");
-			X509_free(cert);
-			BIO_free(bio);
-			return (NNG_ECRYPTO);
-		}
-		X509_free(cert);
-	}
-#endif
+	if (skinfo)
+		sk_X509_INFO_pop_free(skinfo, X509_INFO_free);
 
 	BIO_free(bio);
+	return (0);
+}
+#endif // NNG_TLS_OPENSSL_HAVE_GM_NW
 
-	if (crl == NULL) {
-		trace("end without crl");
-		return (0);
+static int
+open_config_ca_chain(
+    nng_tls_engine_config *cfg, const char *certs, const char *crl)
+{
+	int rv;
+	nng_tls_mode mode = cfg->mode;
+	if (mode == NNG_TLS_MODE_CLIENT) {
+#if defined(NNG_TLS_OPENSSL_HAVE_GM)
+		rv = open_config_ca_chain_gm(cfg, certs, crl);
+#else
+		rv = open_config_ca_chain_std(cfg, certs, crl);
+#endif
+#if defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
+	} else if (mode == NNG_TLS_MODE_CLIENT_GM_NW) {
+		rv = open_config_ca_chain_gm_nw(cfg, certs, crl);
+#endif
+	}
+	if (rv != 0) {
+		return rv;
 	}
 
 #ifdef NNG_OPENSSL_HAVE_CRL
-	log_warn("CRL is NOT supported yet");
-	/* TODO
-	len = strlen(crl);
-	rv  = wolfSSL_CTX_LoadCRLBuffer(
-	    cfg->ctx, (void *) crl, len, SSL_FILETYPE_PEM);
-	if (rv != SSL_SUCCESS) {
-	        return (NNG_ECRYPTO);
+	if (crl != NULL) {
+		log_warn("CRL is NOT supported yet");
+		return (0);
 	}
-	*/
-#else
 #endif
-	trace("end");
-
-	return (0);
+	return 0;
 }
 
 #if NNG_OPENSSL_HAVE_PASSWORD
