@@ -207,8 +207,20 @@ open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 		return (NNG_ENOMEM); // most likely
 	}
 
-	nng_log_debug("NNG-TLS-CONN-INIT", "%s",
-			cfg->mode == NNG_TLS_MODE_SERVER ? "SSL Server Mode":"SSL Client Mode");
+	switch (cfg->mode) {
+	case NNG_TLS_MODE_SERVER:
+		nng_log_info("NNG-TLS-CONN-INIT", "SSL Server Mode");
+		break;
+	case NNG_TLS_MODE_CLIENT:
+		nng_log_info("NNG-TLS-CONN-INIT", "SSL Client Mode");
+		break;
+	case NNG_TLS_MODE_CLIENT_GM:
+		nng_log_info("NNG-TLS-CONN-INIT", "SSL Client GM Mode");
+		break;
+	default:
+		nng_log_err("NNG-TLS-CONN-INIT", "Unknown TLS MODE");
+		return NNG_EINVAL;
+	}
 
 	ec->rbio = BIO_new(BIO_s_mem());
 	ec->wbio = BIO_new(BIO_s_mem());
@@ -218,10 +230,10 @@ open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 	}
 	SSL_set_bio(ec->ssl, ec->rbio, ec->wbio);
 
-	if (cfg->mode == NNG_TLS_MODE_CLIENT)
-		SSL_set_connect_state(ec->ssl);
-	else
+	if (cfg->mode == NNG_TLS_MODE_SERVER)
 		SSL_set_accept_state(ec->ssl);
+	else
+		SSL_set_connect_state(ec->ssl);
 
 	ec->wnext = NULL;
 
@@ -527,16 +539,18 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 		method    = SSLv23_server_method();
 		auth_mode = SSL_VERIFY_NONE;
 		nng_auth  = NNG_TLS_AUTH_MODE_NONE;
-	} else {
+	} else if (mode == NNG_TLS_MODE_CLIENT) {
 		method    = SSLv23_client_method();
 		auth_mode = SSL_VERIFY_PEER;
 		nng_auth  = NNG_TLS_AUTH_MODE_REQUIRED;
-	}
-
 #ifdef NNG_TLS_OPENSSL_HAVE_GM
-	method = CNTLS_client_method();
-	nng_log_debug("open_config_init", "Using GM method %p", method);
+	} else if (mode == NNG_TLS_MODE_CLIENT_GM) {
+		method = CNTLS_client_method();
+		auth_mode = SSL_VERIFY_PEER;
+		nng_auth  = NNG_TLS_AUTH_MODE_REQUIRED;
+		nng_log_debug("open_config_init", "Using GM method %p", method);
 #endif
+	}
 
 	cfg->ctx = SSL_CTX_new(method);
 	if (cfg->ctx == NULL) {
@@ -579,15 +593,16 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 	}
 	cfg->en = en;
 
+if (mode == NNG_TLS_MODE_CLIENT_GM) {
 	if (1 != (rv = SSL_CTX_set_ssl_version(cfg->ctx, CNTLS_client_method()))) {
 		nng_log_err("NNG-TLS-CFG-INIT", "Error in set tls nw version %d", rv);
 		return (NNG_ENOMEM);
 	}
 	rv = SSL_CTX_set_cipher_list(cfg->ctx, "ECC-SM4-SM3");
 	nng_log_info("NNG-TLS-CFG-INIT", "Setting suite returns %d", rv);
-
 	SSL_CTX_set_verify_depth(cfg->ctx, 1);
-#endif
+}
+#endif // NNG_TLS_OPENSSL_HAVE_GM_NW
 
 	SSL_CTX_set_verify(cfg->ctx, auth_mode, NULL);
 	//SSL_CTX_set_mode(cfg->ctx, SSL_MODE_AUTO_RETRY);
@@ -653,22 +668,26 @@ static int
 open_config_ca_chain(
     nng_tls_engine_config *cfg, const char *certs, const char *crl)
 {
-	int    rv;
+	int    rv = 0;
 	size_t len;
 	trace("start");
 	char *certs1 = (char *)certs;
+	nng_tls_mode mode = cfg->mode;
 
 #ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
-	uint8_t certs1buf[8192] = {0};
-	int32_t certs1bufsz = 8192;
-	nng_log_info("NNG-TLS-CFG-CACHAIN", "getX509CertChain start");
-	rv = getX509CertChain(certs1buf, &certs1bufsz);
-	nng_log_info("NNG-TLS-CFG-CACHAIN", "CA GMNW(%d)(%d)", certs1bufsz, strlen((char *)certs1buf));
-	certs1 = (char *)certs1buf;
+	if (mode == NNG_TLS_MODE_CLIENT_GM) {
+		uint8_t certs1buf[8192] = {0};
+		int32_t certs1bufsz = 8192;
+		nng_log_info("NNG-TLS-CFG-CACHAIN", "getX509CertChain start");
+		rv = getX509CertChain(certs1buf, &certs1bufsz);
+		nng_log_info("NNG-TLS-CFG-CACHAIN", "CA GMNW(%d)(%d)", certs1bufsz, strlen((char *)certs1buf));
+		certs1 = (char *)certs1buf;
+	}
 #endif
 
 	if (certs1 == NULL || rv != 0) {
-		nng_log_info("NNG-TLS-CFG-CACHAIN", "Failed to get ca chain! %d", rv);
+		nng_log_warn("NNG-TLS-CFG-CACHAIN", "Failed to get ca chain! %d", rv);
+		return (NNG_EINVAL);
 	}
 	len = strlen(certs1);
 
@@ -679,22 +698,39 @@ open_config_ca_chain(
 	}
 
 #ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
-	STACK_OF(X509_INFO) *skinfo;
-	skinfo = PEM_X509_INFO_read_bio(bio, NULL, NULL, NULL);
-	nng_log_info("NNG-TLS-CFG-CACHAIN", "cachain has %d items", sk_X509_INFO_num(skinfo));
+	if (mode == NNG_TLS_MODE_CLIENT_GM) {
+		STACK_OF(X509_INFO) *skinfo;
+		skinfo = PEM_X509_INFO_read_bio(bio, NULL, NULL, NULL);
+		nng_log_info("NNG-TLS-CFG-CACHAIN",
+				"cachain has %d items", sk_X509_INFO_num(skinfo));
 
-	X509_STORE *store = X509_STORE_new();
-	for (int i=0; i<sk_X509_INFO_num(skinfo); ++i) {
-		X509_INFO *item = sk_X509_INFO_value(skinfo, i);
-		if (item->x509)
-			X509_STORE_add_cert(store, item->x509);
-		if (item->crl)
-			X509_STORE_add_crl(store, item->crl);
+		X509_STORE *store = X509_STORE_new();
+		for (int i=0; i<sk_X509_INFO_num(skinfo); ++i) {
+			X509_INFO *item = sk_X509_INFO_value(skinfo, i);
+			if (item->x509)
+				X509_STORE_add_cert(store, item->x509);
+			if (item->crl)
+				X509_STORE_add_crl(store, item->crl);
+		}
+		SSL_CTX_set1_verify_cert_store(cfg->ctx, store);
+
+		if (skinfo)
+			sk_X509_INFO_pop_free(skinfo, X509_INFO_free);
+	} else {
+		// Works for both mode_server and mode_client. As same as the non-gm mode
+		X509 *cert = NULL;
+		X509_STORE *store = SSL_CTX_get_cert_store(cfg->ctx);
+
+		while ((cert = PEM_read_bio_X509(bio, NULL, 0, NULL)) != NULL) {
+			if (X509_STORE_add_cert(store, cert) == 0) {
+				nng_log_err("NNG-TLS-CFG-CACHAIN", "Failed to add certificate to store");
+				X509_free(cert);
+				BIO_free(bio);
+			return (NNG_ECRYPTO);
+			}
+			X509_free(cert);
+		}
 	}
-	SSL_CTX_set1_verify_cert_store(cfg->ctx, store);
-
-	if (skinfo)
-		sk_X509_INFO_pop_free(skinfo, X509_INFO_free);
 
 #else
 	X509 *cert = NULL;
@@ -773,16 +809,19 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	EVP_PKEY *pkey = NULL;
 	char *cert1 = (char *)cert;
 
-#ifdef NNG_TLS_OPENSSL_HAVE_GM
+	nng_tls_mode mode = cfg->mode;
 
+#ifdef NNG_TLS_OPENSSL_HAVE_GM
 #ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
 
+if (mode == NNG_TLS_MODE_CLIENT_GM) {
 	uint8_t cert1buf[2048];
 	uint32_t cert1sz = 2048;
 	cert1 = (char *)cert1buf;
 	nng_log_info("NNG-TLS-GM-OWN-CERT", "getIdentityCert start 1");
 	rv = getIdentityCert(1, cert1buf, &cert1sz);
-	nng_log_info("NNG-TLS-GM-OWN-CERT", "Sign Cert GMNW(%d)(%d)", cert1sz, strlen(cert1));
+	nng_log_info("NNG-TLS-GM-OWN-CERT",
+			"Sign Cert GMNW(%d)(%d)", cert1sz, strlen(cert1));
 	if (rv != 0) {
 		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GMNW sign cert: %d", rv);
 		return NNG_EINVAL;
@@ -794,7 +833,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GMNW sign key");
 		return NNG_EINVAL;
 	}
-	nng_log_info("NNG-TLS-GM-OWN-CERT", "GMNW id after load is %d", EVP_PKEY_id(pkey));
+	nng_log_info("NNG-TLS-GM-OWN-CERT", "GMNW id after load is%d", EVP_PKEY_id(pkey));
 
 	char enc_store[2048]; // encrypt cert
 	uint32_t enc_store_sz = 2048;
@@ -815,8 +854,9 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GMNW enc key");
 		return NNG_EINVAL;
 	}
+}
 
-#else
+#else // NNG_TLS_OPENSSL_HAVE_GM_NW
 	if (pass == NULL) {
 		nng_log_err("NNG-TLS-GM-OWN-CERT", "Please provide GM certificates");
 		return NNG_EINVAL;
@@ -832,8 +872,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	nng_log_info("NNG-TLS-GM-OWN-CERT",
 		"SSL_TLCP start encCert = %s enckey = %s", enc_store, enc_key);
 #endif // NNG_TLS_OPENSSL_HAVE_GM_NW
-
-#else
+#endif // NNG_TLS_OPENSSL_HAVE_GM
 
 #if NNG_OPENSSL_HAVE_PASSWORD
 	char *dup = NULL;
@@ -851,8 +890,6 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 #else
 	(void) pass;
 #endif
-
-#endif // NNG_TLS_OPENSSL_HAVE_GM
 
 	len = strlen(cert1);
 	biocert = BIO_new_mem_buf(cert1, len);
@@ -876,7 +913,21 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	rv = 0;
 
 #ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
-
+if (mode == NNG_TLS_MODE_CLIENT) { // Enabled GM But user want to use std tls
+	len = strlen(key);
+	biokey = BIO_new_mem_buf(key, len);
+	if (!biokey) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to create key BIO");
+		rv = NNG_ENOMEM;
+		goto error;
+	}
+	pkey = PEM_read_bio_PrivateKey(biokey, NULL, NULL, NULL);
+	if (!pkey) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load key from buffer");
+		rv = NNG_EINVAL;
+		goto error;
+	}
+}
 #else
 	len = strlen(key);
 	biokey = BIO_new_mem_buf(key, len);
@@ -907,6 +958,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 
 #ifdef NNG_TLS_OPENSSL_HAVE_GM
 #ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
+if (mode == NNG_TLS_MODE_CLIENT_GM) {
 	len = strlen(enc_store);
 	bioenccert = BIO_new_mem_buf(enc_store, len);
 	if (!bioenccert) {
@@ -934,7 +986,8 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 		nng_log_err("NNG-TLS-GM-ENC-KEY", "Enc key load failed");
 		goto error;
 	}
-#else
+}
+#else // NNG_TLS_OPENSSL_HAVE_GM_NW
 	// encrypt cert
 	if ((rv = SSL_CTX_use_enc_certificate_file(
 	         cfg->ctx, enc_store, SSL_FILETYPE_PEM)) != 1) {
@@ -950,12 +1003,14 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 		goto error;
 	}
 #endif // NNG_TLS_OPENSSL_HAVE_GM_NW
+if (mode == NNG_TLS_MODE_CLIENT_GM) {
 	if ((rv = SSL_CTX_check_enc_private_key(cfg->ctx)) != 1) {
 		rv = NNG_ECRYPTO;
 		nng_log_err("NNG-TLS-GM-ENC-CHECK", "check key failed");
 		goto error;
 	}
 	rv = 0;
+}
 
 #endif // NNG_TLS_OPENSSL_HAVE_GM
 	NNI_ARG_UNUSED(key);
