@@ -543,7 +543,7 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 		method    = SSLv23_client_method();
 		auth_mode = SSL_VERIFY_PEER;
 		nng_auth  = NNG_TLS_AUTH_MODE_REQUIRED;
-#ifdef NNG_TLS_OPENSSL_HAVE_GM
+#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
 	} else if (mode == NNG_TLS_MODE_CLIENT_GM_NW) {
 		method = CNTLS_client_method();
 		auth_mode = SSL_VERIFY_PEER;
@@ -699,14 +699,14 @@ open_config_ca_chain_std(
 	return (0);
 }
 
-#if defined(NNG_TLS_OPENSSL_HAVE_GM)
+#if defined(NNG_TLS_OPENSSL_HAVE_GM) && !defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
 static int
 open_config_ca_chain_gm(
     nng_tls_engine_config *cfg, const char *certs, const char *crl)
 {
 	return open_config_ca_chain_std(cfg, certs, crl);
 }
-#endif // NNG_TLS_OPENSSL_HAVE_GM
+#endif
 
 #if defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
 static int
@@ -767,7 +767,7 @@ open_config_ca_chain(
 	int rv;
 	nng_tls_mode mode = cfg->mode;
 	if (mode == NNG_TLS_MODE_CLIENT) {
-#if defined(NNG_TLS_OPENSSL_HAVE_GM)
+#if defined(NNG_TLS_OPENSSL_HAVE_GM) && !defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
 		rv = open_config_ca_chain_gm(cfg, certs, crl);
 #else
 		rv = open_config_ca_chain_std(cfg, certs, crl);
@@ -886,7 +886,7 @@ error:
 	return rv;
 }
 
-#ifdef NNG_TLS_OPENSSL_HAVE_GM
+#if defined(NNG_TLS_OPENSSL_HAVE_GM) && !defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
 static int
 open_config_own_cert_gm(nng_tls_engine_config *cfg, const char *cert,
     const char *key, const char *pass)
@@ -1141,7 +1141,7 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	int rv;
 	nng_tls_mode mode = cfg->mode;
 	if (mode == NNG_TLS_MODE_CLIENT) {
-#if defined(NNG_TLS_OPENSSL_HAVE_GM)
+#if defined(NNG_TLS_OPENSSL_HAVE_GM) && !defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
 		rv = open_config_own_cert_gm(cfg, cert, key, pass);
 #else
 		rv = open_config_own_cert_std(cfg, cert, key, pass);
