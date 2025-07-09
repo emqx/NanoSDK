@@ -1014,7 +1014,7 @@ open_config_own_cert_gm_nw(nng_tls_engine_config *cfg, const char *cert,
 	uint8_t cert1buf[2048];
 	uint32_t cert1sz = 2048;
 	cert1 = (char *)cert1buf;
-	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "getIdentityCert start 1");
+	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "getIdentityCert sign start");
 	rv = getIdentityCert(1, cert1buf, &cert1sz);
 	nng_log_info("NNG-TLS-OWN-CERT-GMNW",
 			"Sign Cert GMNW(%d)(%d)", cert1sz, strlen(cert1));
@@ -1024,6 +1024,7 @@ open_config_own_cert_gm_nw(nng_tls_engine_config *cfg, const char *cert,
 	}
 
 	char keyname[] = "sign_key";
+	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "ENGINE_load_private_key %s start", keyname);
 	pkey = ENGINE_load_private_key(cfg->en, keyname, UI_OpenSSL(), NULL);
 	if (!pkey) {
 		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to get GMNW sign key");
@@ -1033,7 +1034,7 @@ open_config_own_cert_gm_nw(nng_tls_engine_config *cfg, const char *cert,
 
 	char enc_store[2048]; // encrypt cert
 	uint32_t enc_store_sz = 2048;
-	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "getIdentityCert start 2");
+	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "getIdentityCert enc start");
 	rv = getIdentityCert(2, (uint8_t *)enc_store, &enc_store_sz);
 	if (rv != X509_NO_ERROR) {
 		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to get GMNW enc cert");
@@ -1044,7 +1045,7 @@ open_config_own_cert_gm_nw(nng_tls_engine_config *cfg, const char *cert,
 
 	char keyname2[] = "enc__key";
 	EVP_PKEY *enc_pkey; // encrypt private key
-	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "ENGINE_load_private_key start");
+	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "ENGINE_load_private_key %s start", keyname2);
 	enc_pkey = ENGINE_load_private_key(cfg->en, keyname2, UI_OpenSSL(), NULL);
 	if (!enc_pkey) {
 		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to get GMNW enc key");
