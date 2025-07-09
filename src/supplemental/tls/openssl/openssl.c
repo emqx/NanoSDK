@@ -721,25 +721,25 @@ open_config_ca_chain_gm_nw(
 
 	uint8_t certs1buf[8192] = {0};
 	int32_t certs1bufsz = 8192;
-	nng_log_info("NNG-TLS-CFG-CACHAIN", "getX509CertChain start");
+	nng_log_info("NNG-TLS-CFG-CACHAIN-GMNW", "getX509CertChain start");
 	rv = getX509CertChain(certs1buf, &certs1bufsz);
-	nng_log_info("NNG-TLS-CFG-CACHAIN", "CA GMNW(%d)(%d)", certs1bufsz, strlen((char *)certs1buf));
+	nng_log_info("NNG-TLS-CFG-CACHAIN-GMNW", "CA GMNW(%d)(%d)", certs1bufsz, strlen((char *)certs1buf));
 	certs1 = (char *)certs1buf;
 	if (certs1 == NULL || rv != 0) {
-		nng_log_warn("NNG-TLS-CFG-CACHAIN", "Failed to get ca chain! %d", rv);
-		return (NNG_EINVAL);
+		nng_log_warn("NNG-TLS-CFG-CACHAIN-GMNW", "Failed to get ca chain! %d", rv);
+		//return (NNG_EINVAL);
 	}
 	len = strlen(certs1);
 
 	BIO *bio = BIO_new_mem_buf(certs1, len);
 	if (!bio) {
-		nng_log_err("NNG-TLS-CFG-CACHAIN", "Failed to create BIO");
+		nng_log_err("NNG-TLS-CFG-CACHAIN-GMNW", "Failed to create BIO");
 		return (NNG_ENOMEM);
 	}
 
 	STACK_OF(X509_INFO) *skinfo;
 	skinfo = PEM_X509_INFO_read_bio(bio, NULL, NULL, NULL);
-	nng_log_info("NNG-TLS-CFG-CACHAIN",
+	nng_log_info("NNG-TLS-CFG-CACHAIN-GMNW",
 			"cachain has %d items", sk_X509_INFO_num(skinfo));
 
 	X509_STORE *store = X509_STORE_new();
@@ -1014,71 +1014,71 @@ open_config_own_cert_gm_nw(nng_tls_engine_config *cfg, const char *cert,
 	uint8_t cert1buf[2048];
 	uint32_t cert1sz = 2048;
 	cert1 = (char *)cert1buf;
-	nng_log_info("NNG-TLS-GM-OWN-CERT", "getIdentityCert start 1");
+	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "getIdentityCert start 1");
 	rv = getIdentityCert(1, cert1buf, &cert1sz);
-	nng_log_info("NNG-TLS-GM-OWN-CERT",
+	nng_log_info("NNG-TLS-OWN-CERT-GMNW",
 			"Sign Cert GMNW(%d)(%d)", cert1sz, strlen(cert1));
 	if (rv != 0) {
-		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GMNW sign cert: %d", rv);
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to get GMNW sign cert: %d", rv);
 		return NNG_EINVAL;
 	}
 
 	char keyname[] = "sign_key";
 	pkey = ENGINE_load_private_key(cfg->en, keyname, UI_OpenSSL(), NULL);
 	if (!pkey) {
-		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GMNW sign key");
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to get GMNW sign key");
 		return NNG_EINVAL;
 	}
-	nng_log_info("NNG-TLS-GM-OWN-CERT", "GMNW id after load is%d", EVP_PKEY_id(pkey));
+	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "GMNW id after load is%d", EVP_PKEY_id(pkey));
 
 	char enc_store[2048]; // encrypt cert
 	uint32_t enc_store_sz = 2048;
-	nng_log_info("NNG-TLS-GM-OWN-CERT", "getIdentityCert start 2");
+	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "getIdentityCert start 2");
 	rv = getIdentityCert(2, (uint8_t *)enc_store, &enc_store_sz);
 	if (rv != X509_NO_ERROR) {
-		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GMNW enc cert");
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to get GMNW enc cert");
 		return NNG_EINVAL;
 	}
-	nng_log_info("NNG-TLS-GM-OWN-CERT", "Enc Cert GMNW(%d)(%d)",
+	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "Enc Cert GMNW(%d)(%d)",
 		enc_store_sz, strlen(enc_store));
 
 	char keyname2[] = "enc__key";
 	EVP_PKEY *enc_pkey; // encrypt private key
-	nng_log_info("NNG-TLS-GM-OWN-CERT", "ENGINE_load_private_key start");
+	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "ENGINE_load_private_key start");
 	enc_pkey = ENGINE_load_private_key(cfg->en, keyname2, UI_OpenSSL(), NULL);
 	if (!enc_pkey) {
-		nng_log_err("NNG-TLS-GM-OWN-CERT", "Failed to get GMNW enc key");
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to get GMNW enc key");
 		return NNG_EINVAL;
 	}
 
 	len = strlen(cert1);
 	biocert = BIO_new_mem_buf(cert1, len);
 	if (!biocert) {
-		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to create BIO");
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to create sign cert BIO");
 		rv = NNG_ENOMEM;
 		goto error;
 	}
 	xcert = PEM_read_bio_X509(biocert, NULL, 0, NULL);
 	if (!xcert) {
-		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load certificate from buffer");
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to load sign certificate from bio");
 		rv = NNG_EINVAL;
 		goto error;
 	}
 	if (SSL_CTX_use_certificate(cfg->ctx, xcert) <= 0) {
-		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to set certificate to SSL_CTX");
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to set sign certificate to SSL_CTX");
 		rv = NNG_EINVAL;
 		goto error;
 	}
 	rv = 0;
 
 	if (SSL_CTX_use_PrivateKey(cfg->ctx, pkey) <= 0) {
-		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to set key to SSL_CTX");
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to set key to SSL_CTX");
 		rv = NNG_EINVAL;
 		goto error;
 	}
 
 	if (SSL_CTX_check_private_key(cfg->ctx) != 1) {
-		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to check key in SSL_CTX");
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to check sign key");
 		rv = NNG_ECRYPTO;
 		goto error;
 	}
@@ -1086,7 +1086,7 @@ open_config_own_cert_gm_nw(nng_tls_engine_config *cfg, const char *cert,
 	len = strlen(enc_store);
 	bioenccert = BIO_new_mem_buf(enc_store, len);
 	if (!bioenccert) {
-		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to create enc BIO");
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to create enc BIO");
 		rv = NNG_ENOMEM;
 		goto error;
 	}
@@ -1094,24 +1094,24 @@ open_config_own_cert_gm_nw(nng_tls_engine_config *cfg, const char *cert,
 	// encrypt cert
 	xenccert = PEM_read_bio_X509(bioenccert, NULL, 0, NULL);
 	if (!xenccert) {
-		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load enc certificate from buffer");
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to load enc from BIO");
 		rv = NNG_EINVAL;
 		goto error;
 	}
 	if ((rv = SSL_CTX_use_enc_certificate(cfg->ctx, xenccert)) != 1) {
 		rv = NNG_EINVAL;
-		nng_log_err("NNG-TLS-GM-ENC-CRT", "Enc cert load failed");
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Enc cert load failed");
 		goto error;
 	}
 	// encrypt private key
 	if ((rv = SSL_CTX_use_enc_PrivateKey(cfg->ctx, enc_pkey)) != 1) {
 		rv = NNG_EINVAL;
-		nng_log_err("NNG-TLS-GM-ENC-KEY", "Enc key load failed");
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Enc key load failed");
 		goto error;
 	}
 	if ((rv = SSL_CTX_check_enc_private_key(cfg->ctx)) != 1) {
 		rv = NNG_ECRYPTO;
-		nng_log_err("NNG-TLS-GM-ENC-CHECK", "check key failed");
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "check enc key failed");
 		goto error;
 	}
 	rv = 0;
