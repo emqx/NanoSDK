@@ -645,7 +645,7 @@ main(const int argc, const char **argv)
 	MQTTAsync_disconnectOptions disc_opts = MQTTAsync_disconnectOptions_initializer;
 	MQTTAsync_responseOptions pub_opts = MQTTAsync_responseOptions_initializer;
 
-	rc = MQTTAsync_createWithOptions(&client, ADDRESS2, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL, &create_opts);
+	rc = MQTTAsync_createWithOptions(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL, &create_opts);
 	if (rc != MQTTASYNC_SUCCESS)
 	{
 		printf("Failed to create client, return code %d\n", rc);
@@ -667,8 +667,8 @@ main(const int argc, const char **argv)
 	ssl_opts.dprivateKey = CLIENT_ENC_KEY_PATH;
 	ssl_opts.trustStore = CLIENT_CA_CERT_PATH;
 
-	conn_opts.keepAliveInterval = 64;
-	conn_opts.scram             = true;
+	conn_opts.keepAliveInterval = 14;
+	conn_opts.scram             = false;
 	conn_opts.MQTTVersion       = MQTTVERSION_5;
 	conn_opts.onSuccess         = onConnect;
 	conn_opts.onFailure         = onConnectFailure;
@@ -680,7 +680,8 @@ main(const int argc, const char **argv)
 	conn_opts.minRetryInterval = 3; // 单位秒，重连间隔次数，每次重新连接失败时，重试间隔都会加倍，直到最大间隔
 	conn_opts.maxRetryInterval = 60; // 单位秒，最大重连尝试间隔
 	// ssl选项
-	conn_opts.ssl = &ssl_opts;
+	// conn_opts.ssl = &ssl_opts;
+	conn_opts.ssl = NULL;
 	if (MQTTAsync_connect(client, &conn_opts) != MQTTASYNC_SUCCESS) {
 		printf("MQTTAsync_connect failed");
 	}
@@ -711,7 +712,7 @@ main(const int argc, const char **argv)
 		rc = EXIT_FAILURE;
 		goto destroy_exit;
 	}
-	nng_msleep(8600);
+	nng_msleep(18600);
 destroy_exit:
 	MQTTAsync_destroy(&client);
 exit:

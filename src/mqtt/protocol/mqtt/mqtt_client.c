@@ -1103,8 +1103,11 @@ mqtt_recv_cb(void *arg)
 			if ((cached_msg = nni_id_get(
 			         &p->recv_unack, packet_id)) != NULL) {
 				// packetid already exists.
-				// sth wrong with the broker replace old with new
-				log_error("packet id %d duplicates, old msg lost", packet_id);
+				// sth wrong with the broker
+				// replace old with new
+				nng_log_warn("PROTOCOL: mqtt_recv_cb",
+				    "ERROR: overwrite packet id %d",
+				    packet_id);
 				nni_msg_free(cached_msg);
 #ifdef NNG_ENABLE_STATS
 				nni_stat_inc(&s->msg_recv_drop, 1);
