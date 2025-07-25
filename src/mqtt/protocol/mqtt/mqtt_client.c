@@ -424,6 +424,7 @@ mqtt_pipe_fini(void *arg)
 	mqtt_pipe_t *p = arg;
 	nni_msg *    msg;
 
+	nng_log_info("PROTOCOL: mqtt_pipe_fini", "pipe %p is finit", p);
 	if ((msg = nni_aio_get_msg(&p->recv_aio)) != NULL) {
 		nni_aio_set_msg(&p->recv_aio, NULL);
 		nni_msg_free(msg);
@@ -589,6 +590,7 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 		nni_aio_bump_count(
 		    aio, nni_msg_header_len(msg) + nni_msg_len(msg));
 		nni_pipe_send(p->pipe, &p->send_aio);
+		nng_log_info("PROTOCOL: mqtt_send_msg", "msg %p type %x is sent", msg, ptype);
 		nni_mtx_unlock(&s->mtx);
 		if (0 == qos && ptype != NNG_MQTT_SUBSCRIBE &&
 		    ptype != NNG_MQTT_UNSUBSCRIBE) {
@@ -637,6 +639,7 @@ mqtt_pipe_start(void *arg)
 	mqtt_ctx_t  *c = NULL;
 
 	nni_mtx_lock(&s->mtx);
+	nng_log_info("PROTOCOL: mqtt_pipe_start", "nano pipe %p is created!", p);
 	nni_atomic_set_bool(&p->closed, false);
 	s->mqtt_pipe       = p;
 	s->disconnect_code = SUCCESS;
@@ -646,6 +649,7 @@ mqtt_pipe_start(void *arg)
 	if ((c = nni_list_first(&s->send_queue)) != NULL) {
 		nni_list_remove(&s->send_queue, c);
 		nni_pipe_recv(p->pipe, &p->recv_aio);
+		nng_log_info("PROTOCOL: mqtt_pipe_start", "send cached ctx");
 		mqtt_send_msg(c->saio, c);
 		c->saio = NULL;
 		nni_sleep_aio(s->retry, &p->time_aio);
@@ -677,6 +681,7 @@ mqtt_pipe_close(void *arg)
 	mqtt_sock_t *s = p->mqtt_sock;
 
 	nni_mtx_lock(&s->mtx);
+	nng_log_info("PROTOCOL: mqtt_pipe_close", "pipe %p is closed", p);
 	nni_atomic_set_bool(&p->closed, true);
 	s->mqtt_pipe = NULL;
 	nni_aio_close(&p->send_aio);
@@ -732,6 +737,7 @@ mqtt_timer_cb(void *arg)
 		// send pingreq
 		nni_msg_clone(p->pingmsg);
 		nni_aio_set_msg(&p->send_aio, p->pingmsg);
+		nng_log_info("PROTOCOL: mqtt_timer_cb", "send PINGREQ");
 		nni_pipe_send(p->pipe, &p->send_aio);
 		p->pingcnt ++;
 		nni_mtx_unlock(&s->mtx);
@@ -811,6 +817,7 @@ mqtt_timer_cb(void *arg)
 static void
 mqtt_send_cb(void *arg)
 {
+	int rv = 0;
 	mqtt_pipe_t *p   = arg;
 	mqtt_sock_t *s   = p->mqtt_sock;
 	mqtt_ctx_t * c   = NULL;
@@ -848,6 +855,8 @@ mqtt_send_cb(void *arg)
 	}
 	if (nni_lmq_get(&p->send_messages, &msg) == 0) {
 		p->busy = true;
+		nng_log_info("PROTOCOL: mqtt_send_cb",
+			"send cached msg %p", msg);
 		nni_aio_set_msg(&p->send_aio, msg);
 		nni_pipe_send(p->pipe, &p->send_aio);
 		nni_mtx_unlock(&s->mtx);
@@ -873,6 +882,8 @@ mqtt_recv_cb(void *arg)
 		log_warn("MQTT client recv error %d!", rv);
 		s->disconnect_code = 0x8B; // TODO hardcode, Different with code in v5
 		nni_pipe_close(p->pipe);
+		nng_log_warn("PROTOCOL: mqtt_recv_cb",
+			"Warning! close connection. transport recv rv: %d ", rv);
 		return;
 	}
 
@@ -888,6 +899,8 @@ mqtt_recv_cb(void *arg)
 			nni_stat_inc(&s->msg_recv_drop, 1);
 #endif
 		}
+		nng_log_warn("PROTOCOL: mqtt_recv_cb",
+			"Warning! pipe is alread closed");
 		nni_mtx_unlock(&s->mtx);
 		return;
 	}
@@ -926,6 +939,8 @@ mqtt_recv_cb(void *arg)
 	} else if (s->mqtt_ver == MQTT_PROTOCOL_VERSION_v5) {
 		rv = nni_mqttv5_msg_decode(msg);
 		if (rv != MQTT_SUCCESS) {
+			nng_log_warn("PROTOCOL: mqtt_recv_cb",
+			"Warning! MQTTv5 decode failed rv: %d ", rv);
 			// Msg should be clear if decode failed. We reuse it to send disconnect.
 			// Or it would encode a malformed packet.
 #ifdef NNG_ENABLE_STATS
@@ -963,7 +978,7 @@ mqtt_recv_cb(void *arg)
 		}
 	} else {
 		rv = PROTOCOL_ERROR;
-		nni_plat_println("Invalid mqtt version");
+		nng_log_err("PROTOCOL: mqtt_recv_cb", "Invalid mqtt version");
 		nni_mtx_unlock(&s->mtx);
 		nni_msg_free(msg);
 		// close pipe directly
@@ -983,6 +998,8 @@ mqtt_recv_cb(void *arg)
 	s->timeleft = s->keepalive;
 
 	// state transitions
+	nng_log_info("PROTOCOL: mqtt_recv_cb",
+			"msg type %x is received", packet_type);
 	switch (packet_type) {
 	case NNG_MQTT_CONNACK:
 		// never reach here
@@ -1094,7 +1111,9 @@ mqtt_recv_cb(void *arg)
 #endif
 				// nni_id_remove(&pipe->nano_qos_db, pid);
 			}
-			nni_id_set(&p->recv_unack, packet_id, msg);
+			rv = nni_id_set(&p->recv_unack, packet_id, msg);
+			nng_log_info("PROTOCOL: mqtt_recv_cb",
+				"Qos msg in hash %d ", packet_id);
 		}
 		break;
 	case NNG_MQTT_DISCONNECT:
@@ -1259,6 +1278,8 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 	nni_mtx_lock(&s->mtx);
 	msg   = nni_aio_get_msg(aio);
 	if (msg == NULL) {
+		nng_log_err("PROTOCOL: mqtt_ctx_send",
+				"Got NULL msgfrom APP");
 		nni_mtx_unlock(&s->mtx);
 		nni_aio_set_msg(aio, NULL);
 		nni_aio_finish_error(aio, NNG_EPROTO);
@@ -1304,6 +1325,8 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 	}
 	p = s->mqtt_pipe;
 	if (p == NULL) {
+		nng_log_info("PROTOCOL: mqtt_ctx_send",
+				"send msg while disconnected");
 		// connection is lost or not established yet
 #if defined(NNG_SUPP_SQLITE)
 		nni_mqtt_sqlite_option *sqlite =
@@ -1329,6 +1352,8 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 			nni_mtx_unlock(&s->mtx);
 			log_warn("client sending msg while disconnected! cached");
 		} else {
+			nng_log_err("PROTOCOL: mqtt_ctx_send",
+				"msg lost due to disconnected pipe");
 			nni_msg_free(msg);
 			nni_mtx_unlock(&s->mtx);
 #ifdef NNG_ENABLE_STATS
@@ -1341,6 +1366,8 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 		}
 		return;
 	}
+	nng_log_info("PROTOCOL: mqtt_ctx_send",
+				"start send msg %p type %x", msg, ptype);
 	mqtt_send_msg(aio, ctx);
 	log_trace("client sending msg now");
 	return;
