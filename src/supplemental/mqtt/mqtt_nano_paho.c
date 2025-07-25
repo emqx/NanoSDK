@@ -1022,7 +1022,7 @@ int MQTTAsync_subscribeMany(MQTTAsync handle, int count, char *const *topic, con
 		response->token         = m->subscribe.token; // msg id
 		if (m->MQTTVersion >= MQTTVERSION_5) {
 			// if (response->properties) {
-				nng_log_warn("Incompatible paho API!",
+				nng_log_warn("reminder:",
 				    "Setting Property with paho is not support");
 				// MQTTProperties_free(response->properties);
 			// }

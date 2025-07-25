@@ -148,6 +148,8 @@ open_net_read(void *ctx, char *buf, int len) {
 	rv = nng_tls_engine_recv(ctx, (uint8_t *) buf, &sz);
 	if (rv == 0)
 		nng_log_debug("NNG-TLS-NET-RD", "Read From TCP %ld/%d rv%d", sz, len, rv);
+	else
+		nng_log_info("NNG-TLS-NET-RD", "Read From TCP %ld/%d rv%d", sz, len, rv);
 	trace("end");
 	switch (rv) {
 	case 0:
@@ -175,6 +177,8 @@ open_net_write(void *ctx, const char *buf, int len) {
 
 	rv = nng_tls_engine_send(ctx, (const uint8_t *) buf, &sz);
 	nng_log_debug("NNG-TLS-NET-WR", "Sent To TCP %ld/%d rv%d", sz, len, rv);
+	if (rv != 0)
+		nng_log_info("NNG-TLS-NET-WR", "Sent To TCP %ld/%d rv%d", sz, len, rv);
 	trace("end");
 	switch (rv) {
 	case 0:
@@ -248,6 +252,8 @@ open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 static void
 open_conn_close(nng_tls_engine_conn *ec)
 {
+	nng_log_warn("NNG-TLS-CONN-HANDSHAKE",
+				"openssl conn closed");
 	trace("start");
 	if (ec->wnext)
 		nng_free(ec->wnext, 0);
@@ -337,8 +343,11 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 		rv = NNG_EAGAIN;
 		goto readopenssl;
 	}
-	else if (rv < 0)
+	else if (rv < 0) {
+		nng_log_info("NNG-TLS-CONN-RECV", "read err rv %d", rv);
 		return (NNG_ECLOSED);
+	}
+		
 
 	int written = 0;
 	while ((ensz = BIO_write(ec->rbio, ec->wbuf + written, rv - written)) > 0) {
@@ -415,6 +424,7 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 			trace("end3");
 			return (NNG_EAGAIN);
 		} else {
+			nng_log_info("NNG-TLS-CONN-SEND", "write err rv %d", rv);
 			return (NNG_ECLOSED);
 		}
 	}
