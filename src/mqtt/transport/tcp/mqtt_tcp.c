@@ -161,6 +161,8 @@ mqtt_tcptran_pipe_init(void *arg, nni_pipe *npipe)
 {
 	mqtt_tcptran_pipe *p = arg;
 
+	nng_log_info("TRANSPORT: mqtt_tcptran_pipe_init",
+				"pipe %p init", p);
 	p->npipe = npipe;
 	nni_atomic_init_bool(&p->closed);
 	nni_atomic_set_bool(&p->closed, false);
@@ -198,6 +200,8 @@ mqtt_tcptran_pipe_fini(void *arg)
 
 	nni_msg_free(p->rxmsg);
 	nni_mtx_fini(&p->mtx);
+	nng_log_info("TRANSPORT: mqtt_tcptran_pipe_fini",
+				"pipe %p finit", p);
 
 	NNI_FREE_STRUCT(p);
 }
@@ -473,7 +477,7 @@ mqtt_tcptran_pipe_nego_cb(void *arg)
 						goto mqtt_error;
 					} else {
 						p->packmax = data->p_value.u32;
-						nng_log_info("MQTT V5","Set max packet size as %ld", p->packmax);
+						nng_log_info("TRANSPORT: nego_cb","V5 Set max packet size as %ld", p->packmax);
 					}
 				}
 				data = property_get_value(ep->property, PUBLISH_MAXIMUM_QOS);
@@ -603,6 +607,8 @@ mqtt_tcptran_pipe_send_cb(void *arg)
 		// usable, with a partial transfer.
 		// The protocol should see this error, and close the
 		// pipe itself, we hope.
+		nng_log_info("TRANSPORT: mqtt_tcptran_pipe_send_cb",
+				"send aio error %d on pipe %p", rv, p);
 		nni_aio_list_remove(aio);
 		nni_mtx_unlock(&p->mtx);
 		nni_aio_finish_error(aio, rv);
@@ -681,6 +687,8 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 	if ((rv = nni_aio_result(rxaio)) != 0) {
 		log_info("aio result %s", nng_strerror(rv));
 		rv = SERVER_UNAVAILABLE;
+		nng_log_warn("TRANSPORT: mqtt_tcptran_pipe_recv_cb",
+				"recv error %d on pipe %p", rv, p);
 		goto recv_error;
 	}
 
@@ -716,6 +724,8 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 		// the caller will shut down the pipe.
 		if ((len > p->rcvmax) && (p->rcvmax > 0)) {
 			rv = PACKET_TOO_LARGE;
+			nng_log_warn("TRANSPORT: mqtt_tcptran_pipe_recv_cb",
+				"recv msg max over limit");
 			goto recv_error;
 		}
 
@@ -825,7 +835,8 @@ mqtt_tcptran_pipe_recv_cb(void *arg)
 	default:
 		break;
 	}
-
+	nng_log_info("TRANSPORT: mqtt_tcptran_pipe_recv_cb",
+			"recv msg type %x", type);
 	if (ack == true) {
 		// alloc a msg here costs memory. However we must do it for the
 		// sake of compatibility with nng.
@@ -878,6 +889,8 @@ mqtt_tcptran_pipe_send_cancel(nni_aio *aio, void *arg, int rv)
 	mqtt_tcptran_pipe *p = arg;
 
 	nni_mtx_lock(&p->mtx);
+	nng_log_warn("TRANSPORT: mqtt_tcptran_pipe_send_cancel",
+				"msg send canceled!");
 	if (!nni_aio_list_active(aio)) {
 		nni_mtx_unlock(&p->mtx);
 		return;
@@ -940,6 +953,8 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 	// check max packet size
 	if (nni_msg_header_len(msg) + nni_msg_len(msg) > p->packmax) {
 		txaio = p->txaio;
+		nng_log_warn("TRANSPORT: mqtt_tcptran_pipe_send_start",
+				"msg size exceed max limit!");
 		nni_aio_finish_error(txaio, UNSPECIFIED_ERROR);
 		return;
 	}
@@ -963,6 +978,8 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 
 	nni_aio_set_iov(txaio, niov, iov);
 	nng_stream_send(p->conn, txaio);
+	nng_log_info("TRANSPORT: mqtt_tcptran_pipe_send_start",
+				"msg %p sent to stack!", msg);
 }
 
 static void
@@ -972,6 +989,8 @@ mqtt_tcptran_pipe_send(void *arg, nni_aio *aio)
 	int                rv;
 
 	if (nni_aio_begin(aio) != 0) {
+		nng_log_err("TRANSPORT: mqtt_tcptran_pipe_send",
+				"msg send canceled due to error aio!");
 		return;
 	}
 	if (nni_atomic_get_bool(&p->closed)) {
@@ -982,6 +1001,8 @@ mqtt_tcptran_pipe_send(void *arg, nni_aio *aio)
 	if ((rv = nni_aio_schedule(aio, mqtt_tcptran_pipe_send_cancel, p)) != 0) {
 		nni_mtx_unlock(&p->mtx);
 		nni_aio_finish_error(aio, rv);
+		nng_log_err("TRANSPORT: mqtt_tcptran_pipe_send",
+				"aio schedule failed!");
 		return;
 	}
 	nni_list_append(&p->sendq, aio);
@@ -997,6 +1018,8 @@ mqtt_tcptran_pipe_recv_cancel(nni_aio *aio, void *arg, int rv)
 	mqtt_tcptran_pipe *p = arg;
 
 	nni_mtx_lock(&p->mtx);
+	nng_log_err("TRANSPORT: mqtt_tcptran_pipe_recv_cancel",
+				"msg recv canceled!");
 	if (!nni_aio_list_active(aio)) {
 		nni_mtx_unlock(&p->mtx);
 		return;
