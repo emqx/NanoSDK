@@ -318,8 +318,10 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
     MQTTAsyncs *handle  = arg;
 
     int rv = nng_aio_result(aio);
+	nng_log_debug("send_callback", "enter cb! msg %p rv %d", msg, rv);
 	if (msg == NULL) {
-        nng_log_debug("send_callback", "NULL msg rv %d", rv);
+        nng_log_debug("send_callback",
+			"NULL msg rv %d, will push cb to user in next ver", rv);
         return;
     }
 
@@ -422,7 +424,7 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
 		nng_log_debug("Send callback", "Sending in async way is done.\n");
 		break;
 	}
-	nng_log_debug("Send callback", "aio mqtt result %d \n", nng_aio_result(aio));
+	nng_log_debug("Send callback", "cb ends, aio result %d \n", nng_aio_result(aio));
 	nng_msg_free(msg);
 }
 
@@ -1072,8 +1074,10 @@ int MQTTAsync_send(MQTTAsync handle, const char *destinationName, int payloadlen
 	MQTTAsyncs *m = handle;
 	nng_mqtt_client *client = m->nanosdk_client;
 
-	if (m == NULL)
+	if (m == NULL) {
+		nng_log_warn("Paho", "NULL handle & Context!");
 		return MQTTASYNC_FAILURE;
+	}
 	if (!UTF8_validateString(destinationName))
 		rc = MQTTASYNC_BAD_UTF8_STRING;
 	else if (qos < 0 || qos > 2)
@@ -1116,8 +1120,7 @@ int MQTTAsync_send(MQTTAsync handle, const char *destinationName, int payloadlen
 	nng_mqtt_msg_set_publish_payload(
 	    pubmsg, (uint8_t *) payload, payloadlen);
 	nng_mqtt_msg_set_publish_topic(pubmsg, destinationName);
-    if (nng_mqtt_publish_async(client, pubmsg) < 0)
-        rc = MQTTASYNC_FAILURE;
+    rc = nng_mqtt_publish_async(client, pubmsg);
 exit:
 	return rc;
 }
@@ -1131,6 +1134,8 @@ int MQTTAsync_sendMessage(MQTTAsync handle, const char *destinationName, const M
 	if (message == NULL)
 	{
 		rc = MQTTASYNC_NULL_PARAMETER;
+		nng_log_warn("MQTTAsync_sendMessage",
+			"NULL msg detected!");
 		goto exit;
 	}
 	if (strncmp(message->struct_id, "MQTM", 4) != 0 ||

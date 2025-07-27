@@ -1270,6 +1270,8 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 	uint16_t     packet_id;
 
 	if (nni_aio_begin(aio) != 0) {
+		nng_log_err("PROTOCOL: mqtt_ctx_send",
+				"msg send abort due to error aio use");
 		return;
 	}
 
