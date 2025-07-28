@@ -1284,10 +1284,12 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 	msg   = nni_aio_get_msg(aio);
 	if (msg == NULL) {
 		nng_log_err("PROTOCOL: mqtt_ctx_send",
-				"Got NULL msgfrom APP");
+				"Got NULL msg from Application, disconneted!");
 		nni_mtx_unlock(&s->mtx);
 		nni_aio_set_msg(aio, NULL);
-		nni_aio_finish_error(aio, NNG_EPROTO);
+		nni_aio_finish_error(aio, NNG_ECLOSED);
+		p = s->mqtt_pipe;
+		nni_pipe_close(p->pipe);
 		return;
 	}
 	//set pid

@@ -277,7 +277,7 @@ exit:
 }
 
 static void
-recv_callback(nng_mqtt_client *client, nng_msg *msg, void *arg)
+recv_callback(nng_mqtt_client *client, nng_msg *msg, void *arg, int rv)
 {
 	nng_aio    *aio = client->recv_aio;
 	uint32_t    count, len;
@@ -305,19 +305,18 @@ recv_callback(nng_mqtt_client *client, nng_msg *msg, void *arg)
 		printf("Sending in async way is done.\n");
 		break;
 	}
-	nng_log_debug("test", "aio mqtt result %d \n", nng_aio_result(aio));
+	nng_log_debug("test", "aio mqtt result %d \n", rv);
 	nng_msg_free(msg);
 }
 
 static void
-send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
+send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg, int rv) {
 	nng_aio *        aio    = client->send_aio;
 	uint32_t         count;
 	uint16_t         token;
 	uint8_t *        code;
     MQTTAsyncs *handle  = arg;
 
-    int rv = nng_aio_result(aio);
 	nng_log_debug("send_callback", "enter cb! msg %p rv %d", msg, rv);
 	if (msg == NULL) {
         nng_log_debug("send_callback",
@@ -998,18 +997,20 @@ int MQTTAsync_subscribeMany(MQTTAsync handle, int count, char *const *topic, con
 		}
 		else if (m->MQTTVersion < MQTTVERSION_5)
 		{
-			if (response->struct_version >= 1 && (response->onFailure5 || response->onSuccess5))
+			if (response->struct_version >= 1 &&
+			    (response->onFailure5 || response->onSuccess5))
 				rc = MQTTASYNC_BAD_MQTT_OPTION;
 		}
 	}
 	if (rc != MQTTASYNC_SUCCESS)
 		return rc;
 
+	nng_mtx_lock(client->mtx);
 	nng_mqtt_topic_qos *topic_qos =
-	    nng_mqtt_topic_qos_array_create((size_t)count);
-	for (size_t i = 0; i < (size_t)count; ++i) {
-		nng_mqtt_topic_qos_array_set(topic_qos, i,
-		    topic[i], strlen(topic[i]), qos[i], 1, 1, 0);
+	    nng_mqtt_topic_qos_array_create((size_t) count);
+	for (size_t i = 0; i < (size_t) count; ++i) {
+		nng_mqtt_topic_qos_array_set(
+		    topic_qos, i, topic[i], strlen(topic[i]), qos[i], 1, 1, 0);
 		nng_log_info("Performing subscription",
 		    "client subscribed topic %s (qos %d rap %d rh %d).",
 		    topic[i], qos[i], 1, 1);
@@ -1032,6 +1033,7 @@ int MQTTAsync_subscribeMany(MQTTAsync handle, int count, char *const *topic, con
 	}
 	nng_mqtt_subscribe_async(client, topic_qos, count, NULL);
     nng_mqtt_topic_qos_array_free(topic_qos, count);
+	nng_mtx_unlock(client->mtx);
 	return rc;
 }
 
@@ -1111,6 +1113,7 @@ int MQTTAsync_send(MQTTAsync handle, const char *destinationName, int payloadlen
 	if (rc != MQTTASYNC_SUCCESS)
 		goto exit;
 
+	nng_mtx_lock(client->mtx);
     nng_msg *pubmsg;
 	nng_mqtt_msg_alloc(&pubmsg, 0);
 	nng_mqtt_msg_set_packet_type(pubmsg, NNG_MQTT_PUBLISH);
@@ -1121,6 +1124,7 @@ int MQTTAsync_send(MQTTAsync handle, const char *destinationName, int payloadlen
 	    pubmsg, (uint8_t *) payload, payloadlen);
 	nng_mqtt_msg_set_publish_topic(pubmsg, destinationName);
     rc = nng_mqtt_publish_async(client, pubmsg);
+	nng_mtx_unlock(client->mtx);
 exit:
 	return rc;
 }

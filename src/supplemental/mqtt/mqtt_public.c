@@ -865,10 +865,8 @@ nng_mqtt_client_send_cb(void* arg)
 
 	rv = nng_aio_result(aio);
 	nng_log_debug("App: nng_mqtt_client_send_cb", "result %d msg %p", rv, msg);
-	if (msg == NULL ||  rv != 0) {
-		client->send_cb(client, NULL, client->obj);
+	if  (rv != 0) {
 		nng_log_warn("Send aio error", "result %d", rv);
-		return;
 	}
 
 	if (nni_lmq_get(lmq, &tmsg) == 0) {
@@ -876,7 +874,7 @@ nng_mqtt_client_send_cb(void* arg)
 		nng_log_info("APP: nng_mqtt_client_send_cb", "resend cached msg");
 		nng_send_aio(client->sock, client->send_aio);
 	}
-	client->send_cb(client, msg, client->obj);
+	client->send_cb(client, msg, client->obj, rv);
 	return;
 }
 
@@ -888,12 +886,13 @@ nng_mqtt_client_recv_cb(void* arg)
 	nng_msg *        msg    = nng_aio_get_msg(aio);
 	int 			 rv = 0;
 
-	if (msg == NULL || (rv = nng_aio_result(aio)) != 0) {
+	rv = nng_aio_result(aio);
+	if (msg == NULL || rv != 0) {
 		nng_log_debug("RECV", "nng_mqtt_client recv aio report error %d", rv);
 		msg = NULL;
 	}
 	nng_recv_aio(client->sock, client->recv_aio);
-	client->recv_cb(client, msg, client->obj);
+	client->recv_cb(client, msg, client->obj, rv);
 	return;
 }
 
@@ -914,6 +913,7 @@ nng_mqtt_paho_client_alloc(nng_socket sock, nng_mqtt_send_cb send_cb, nng_mqtt_r
 	client->msgq            = NULL;
 	client->obj             = async;
 
+	nng_mtx_alloc(&client->mtx);
 	if (send_cb != NULL) {
 		client->send_cb = send_cb;
 	}
@@ -928,6 +928,7 @@ nng_mqtt_paho_client_alloc(nng_socket sock, nng_mqtt_send_cb send_cb, nng_mqtt_r
 	if ((client->msgq = nng_alloc(sizeof(nni_lmq))) == NULL) {
 		return NULL;
 	}
+
 	nni_lmq_init((nni_lmq *)client->msgq, NNG_MAX_SEND_LMQ);
 	nng_recv_aio(client->sock, client->recv_aio);
 	return client;
@@ -951,6 +952,7 @@ nng_mqtt_client_alloc(nng_socket sock, nng_mqtt_send_cb send_cb, nng_mqtt_recv_c
 	client->msgq            = NULL;
 	client->obj             = NULL;
 
+	nng_mtx_alloc(&client->mtx);
 	if (send_cb != NULL) {
 		client->send_cb = send_cb;
 	}
@@ -990,6 +992,7 @@ void nng_mqtt_client_free(nng_mqtt_client *client, bool is_async)
 			nng_free(client->msgq, sizeof(nni_lmq));
 			nng_aio_free(client->recv_aio);
 		}
+		nng_mtx_free(client->mtx);
 		NNI_FREE_STRUCT(client);
 	}
 	return;
