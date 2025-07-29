@@ -639,6 +639,7 @@ static char disconnected_cause[16];
 static void
 disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 {
+	(void) ev;
     MQTTAsyncs *m = arg;
 	int reason = 0;
 	// get connect reason
@@ -648,7 +649,6 @@ disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 	// nng_socket_get?
 	nng_log_warn("NANO-PAHO-DISCONNECT-CB", "disconnected! RC [%d]", reason);
     m->shouldBeConnected = 0;
-	(void) ev;
 	sprintf(disconnected_cause, "%d", reason);
     if (m->cl)
     {

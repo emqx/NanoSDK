@@ -383,10 +383,12 @@ mqtt_sock_recv(void *arg, nni_aio *aio)
  ******************************************************************************/
 
 static int
-mqtt_pipe_init(void *arg, nni_pipe *pipe, void *s)
+mqtt_pipe_init(void *arg, nni_pipe *pipe, void *sock)
 {
 	mqtt_pipe_t *p = arg;
+	mqtt_sock_t *s = sock;
 
+	s->disconnect_code = SUCCESS;
 	nni_atomic_init_bool(&p->closed);
 	nni_atomic_set_bool(&p->closed, true);
 	p->pipe      = pipe;
@@ -724,6 +726,7 @@ mqtt_timer_cb(void *arg)
 	if (p->pingcnt >= s->timeout_backoff) {	// expose it
 		log_warn("MQTT Timeout and disconnect");
 		nni_mtx_unlock(&s->mtx);
+		s->disconnect_code = KEEP_ALIVE_TIMEOUT;
 		nni_pipe_close(p->pipe);
 		return;
 	}
@@ -933,6 +936,7 @@ mqtt_recv_cb(void *arg)
 #endif
 			nni_msg_free(msg);
 			// close pipe directly, no DISCONNECT for MQTTv3.1.1
+			s->disconnect_code = PAYLOAD_FORMAT_INVALID;
 			nni_pipe_close(p->pipe);
 			return;
 		}
@@ -982,6 +986,7 @@ mqtt_recv_cb(void *arg)
 		nni_mtx_unlock(&s->mtx);
 		nni_msg_free(msg);
 		// close pipe directly
+		s->disconnect_code = PROTOCOL_ERROR;
 		nni_pipe_close(p->pipe);
 		return;
 	}
@@ -1288,6 +1293,7 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 		nni_mtx_unlock(&s->mtx);
 		nni_aio_set_msg(aio, NULL);
 		nni_aio_finish_error(aio, NNG_ECLOSED);
+		s->disconnect_code = UNSPECIFIED_ERROR;
 		p = s->mqtt_pipe;
 		nni_pipe_close(p->pipe);
 		return;
