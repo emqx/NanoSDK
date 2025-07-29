@@ -1123,6 +1123,8 @@ int MQTTAsync_send(MQTTAsync handle, const char *destinationName, int payloadlen
 	nng_mqtt_msg_set_publish_payload(
 	    pubmsg, (uint8_t *) payload, payloadlen);
 	nng_mqtt_msg_set_publish_topic(pubmsg, destinationName);
+	// -2 MQTTASYNC_PERSISTENCE_ERROR : msg enqueue, send later
+	// -4 MQTTASYNC_MAX_MESSAGES_INFLIGHT : lmq full msg dropped
     rc = nng_mqtt_publish_async(client, pubmsg);
 	nng_mtx_unlock(client->mtx);
 exit:
