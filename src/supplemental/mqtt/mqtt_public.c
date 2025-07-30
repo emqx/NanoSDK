@@ -1004,8 +1004,8 @@ nng_mqtt_publish_async(nng_mqtt_client *client, nng_msg *pubmsg)
 	if (nng_aio_busy(client->send_aio)) {
 		if (nni_lmq_put((nni_lmq *)client->msgq, pubmsg) != 0) {
 			nng_log_warn("APP: nng_mqtt_publish_async", "network busy, lmq full, msg lost");
-			return -4;
 			nng_msg_free(pubmsg);
+			return -4;
 		}
 		nng_log_debug("APP: nng_mqtt_publish_async", "network busy, msg cached in lmq");
 		return -2;

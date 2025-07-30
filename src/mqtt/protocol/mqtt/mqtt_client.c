@@ -750,45 +750,37 @@ mqtt_timer_cb(void *arg)
 	}
 
 	// start message resending
-	nni_aio *taio = NULL;
-	uint16_t pid;
-	taio = nni_id_get_min(&s->sent_unack, &pid);
-	if (taio != NULL) {
-		uint16_t ptype;
-		nni_msg *msg  = nni_aio_get_msg(taio);
-		nni_time now  = nni_clock();
-		nni_time time = now - nni_msg_get_timestamp(msg);
-		if (time > s->retry_wait && msg != NULL) {
-			ptype = nni_mqtt_msg_get_packet_type(msg);
-			if (ptype == NNG_MQTT_PUBLISH) {		
-				uint8_t *header = nni_msg_header(msg);
-				*header |= 0X08;
-			}
-			log_debug("trying to resend QoS msg %d", pid);
-			nni_msg_clone(msg);
-#ifdef NNG_ENABLE_STATS
-			nni_stat_inc(&s->msg_resend, 1);
-#endif
-			if (!p->busy) {
-				p->busy = true;
-				nni_aio_set_msg(&p->send_aio, msg);
-				log_info("resending QoS msg %d", pid);
-				nni_pipe_send(p->pipe, &p->send_aio);
-				nni_msg_set_timestamp(msg, now);
-				nni_mtx_unlock(&s->mtx);
-				nni_sleep_aio(s->retry, &p->time_aio);
-				return;
-			} else {
-				if (nni_lmq_put(&p->send_messages, msg) != 0) {
-					log_info("%d resend canceld due to full lmq", pid);
-					nni_msg_free(msg);
-#ifdef NNG_ENABLE_STATS
-					nni_stat_inc(&s->msg_send_drop, 1);
-#endif
-				}
-			}
-		}
-	}
+	// uint16_t pid;
+	// nni_msg *msg = nni_id_get_min(&p->sent_unack, &pid);
+	// if (msg != NULL) {
+	// 	nng_log_info("PROTOCOL: mqtt_timer_cb", "start QoS msg resend pid %d", pid);
+	// 	uint16_t ptype;
+	// 	ptype = nni_mqtt_msg_get_packet_type(msg);
+	// 	if (ptype == NNG_MQTT_PUBLISH) {
+	// 		nni_mqtt_msg_set_publish_dup(msg, true);
+	// 	}
+	// 	if (!p->busy) {
+	// 		p->busy = true;
+	// 		nni_msg_clone(msg);
+	// 		nni_aio *aio = nni_mqtt_msg_get_aio(msg);
+	// 		if (aio) {
+	// 			nni_aio_bump_count(aio,
+	// 			    nni_msg_header_len(msg) +
+	// 			        nni_msg_len(msg));
+	// 			nni_aio_set_msg(aio, NULL);
+	// 		}
+	// 		nni_aio_set_msg(&p->send_aio, msg);
+	// 		nni_pipe_send(p->pipe, &p->send_aio);
+
+	// 		nni_mtx_unlock(&s->mtx);
+	// 		nni_sleep_aio(s->retry, &p->time_aio);
+	// 		return;
+	// 	} else {
+	// 		nng_log_info("PROTOCOL: mqtt_timer_cb", "pipe busy, cache msg in lmq");
+	// 		nni_msg_clone(msg);
+	// 		nni_lmq_put(&p->send_messages, msg);
+	// 	}
+	// }
 #if defined(NNG_SUPP_SQLITE)
 	if (!p->busy) {
 		nni_msg     *msg = NULL;
