@@ -196,7 +196,7 @@ nng_stream_dialer_alloc_url(nng_stream_dialer **dp, const nng_url *url)
 	if ((rv = nni_init()) != 0) {
 		return (rv);
 	}
-// check this part
+	// check this part
 	for (int i = 0; stream_drivers[i].scheme != NULL; i++) {
 		if (strcmp(stream_drivers[i].scheme, url->u_scheme) == 0) {
 			return (stream_drivers[i].dialer_alloc(dp, url));
@@ -280,12 +280,16 @@ nng_stream_listener_alloc_url(nng_stream_listener **lp, const nng_url *url)
 	int rv;
 
 	if ((rv = nni_init()) != 0) {
+		printf("nni_init() failed: %d\n", rv);
 		return (rv);
 	}
 
 	for (int i = 0; stream_drivers[i].scheme != NULL; i++) {
 		if (strcmp(stream_drivers[i].scheme, url->u_scheme) == 0) {
-			return (stream_drivers[i].listener_alloc(lp, url));
+			int rc = (stream_drivers[i].listener_alloc(lp, url));
+			printf(
+			    "listener_alloc(%s) rc=%d\n", url->u_scheme, rc);
+			return rc;
 		}
 	}
 	return (NNG_ENOTSUP);

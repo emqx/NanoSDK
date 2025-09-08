@@ -8,6 +8,8 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
+#include <stdio.h>
+
 #include "core/nng_impl.h"
 #include "http_api.h"
 #include "nng/supplemental/http/http.h"
@@ -677,7 +679,8 @@ int
 nng_http_server_hold(nng_http_server **srvp, const nng_url *url)
 {
 #ifdef NNG_SUPP_HTTP
-	nni_init();
+	int rc = nni_init();
+	printf("nni_init() rc=%d\n", rc);
 	return (nni_http_server_init(srvp, url));
 #else
 	NNI_ARG_UNUSED(srvp);

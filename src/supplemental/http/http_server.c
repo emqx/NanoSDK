@@ -991,6 +991,7 @@ http_server_init(nni_http_server **serverp, const nni_url *url)
 	const char *     scheme;
 
 	if ((scheme = nni_http_stream_scheme(url->u_scheme)) == NULL) {
+		printf("http server init Bad scheme: %s\n", url->u_scheme);
 		return (NNG_EADDRINVAL);
 	}
 	// Rewrite URLs to either TLS or TCP.
@@ -998,6 +999,7 @@ http_server_init(nni_http_server **serverp, const nni_url *url)
 	my_url.u_scheme = (char *) scheme;
 
 	if ((s = NNI_ALLOC_STRUCT(s)) == NULL) {
+		printf("http server init alloc error\n");
 		return (NNG_ENOMEM);
 	}
 	nni_mtx_init(&s->mtx);
@@ -1011,6 +1013,7 @@ http_server_init(nni_http_server **serverp, const nni_url *url)
 
 	if ((rv = nni_aio_alloc(&s->accaio, http_server_acccb, s)) != 0) {
 		http_server_fini(s);
+		printf("http server init aio alloc error %d\n", rv);
 		return (rv);
 	}
 
@@ -1020,11 +1023,13 @@ http_server_init(nni_http_server **serverp, const nni_url *url)
 
 	if ((s->hostname = nni_strdup(url->u_hostname)) == NULL) {
 		http_server_fini(s);
+		printf("http server init hostname alloc error\n");
 		return (NNG_ENOMEM);
 	}
 
 	if ((rv = nng_stream_listener_alloc_url(&s->listener, &my_url)) != 0) {
 		http_server_fini(s);
+		printf("http server init listener alloc error %d\n", rv);
 		return (rv);
 	}
 
