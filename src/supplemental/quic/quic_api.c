@@ -270,23 +270,27 @@ there:
 		char *key_path  = node->tls.keyfile;
 		char *password  = node->tls.key_password;
 
-		if (password) {
-			QUIC_CERTIFICATE_FILE_PROTECTED *CertFile =
-			    (QUIC_CERTIFICATE_FILE_PROTECTED *) malloc(sizeof(QUIC_CERTIFICATE_FILE_PROTECTED));
-			CertFile->CertificateFile           = cert_path;
-			CertFile->PrivateKeyFile            = key_path;
-			CertFile->PrivateKeyPassword        = password;
-			CredConfig.CertificateFileProtected = CertFile;
-			CredConfig.Type =
-			    QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE_PROTECTED;
-		} else {
-			QUIC_CERTIFICATE_FILE *CertFile =
-			    (QUIC_CERTIFICATE_FILE_PROTECTED *) malloc(sizeof(QUIC_CERTIFICATE_FILE_PROTECTED));
-			CertFile->CertificateFile  = cert_path;
-			CertFile->PrivateKeyFile   = key_path;
-			CredConfig.CertificateFile = CertFile;
-			CredConfig.Type =
-			    QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE;
+		// Only setup certificate files if we have actual paths (not empty strings)
+		if (cert_path && strlen(cert_path) > 0 && key_path && strlen(key_path) > 0) {
+			if (password) {
+				QUIC_CERTIFICATE_FILE_PROTECTED *CertFile =
+				    (QUIC_CERTIFICATE_FILE_PROTECTED *) malloc(sizeof(QUIC_CERTIFICATE_FILE_PROTECTED));
+				CertFile->CertificateFile           = cert_path;
+				CertFile->PrivateKeyFile            = key_path;
+				CertFile->PrivateKeyPassword        = password;
+				CredConfig.CertificateFileProtected = CertFile;
+				CredConfig.Type =
+				    QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE_PROTECTED;
+			} else {
+				QUIC_CERTIFICATE_FILE *CertFile =
+				    (QUIC_CERTIFICATE_FILE_PROTECTED *) malloc(sizeof(QUIC_CERTIFICATE_FILE_PROTECTED));
+				CertFile->CertificateFile  = cert_path;
+				CertFile->PrivateKeyFile   = key_path;
+				CredConfig.CertificateFile = CertFile;
+				CredConfig.Type =
+				    QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE;
+			}
+			CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED;
 		}
 
 		BOOLEAN verify = (node->tls.verify_peer == true ? 1 : 0);
@@ -298,9 +302,6 @@ there:
 			CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED;
 			CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
 		}
-
-		CredConfig.Type = QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE;
-		CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED;
 	} else {
 		CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
 		log_warn("No quic TLS/SSL credentials was specified.");
