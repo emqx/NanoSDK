@@ -596,7 +596,7 @@ void onSendSuccess5(void* context, MQTTAsync_successData5* response)
 	MQTTAsync client = (MQTTAsync)context;
 	MQTTAsync_disconnectOptions opts = MQTTAsync_disconnectOptions_initializer;
 
-	printf("Message delivery %d confirmed\n", response->token);
+	printf("Message delivery %d confirmed reason code %d\n", response->token, response->reasonCode);
 	(void) opts;
 	(void) client;
 }
@@ -687,21 +687,29 @@ main(const int argc, const char **argv)
 	}
 	if (MQTTAsync_setConnected(client, NULL, testConnected) != MQTTASYNC_SUCCESS)
 		printf("MQTTAsync_setConnected failed");
-
-	MQTTAsync_message pubmsg = MQTTAsync_message_initializer;
 	MQTTAsync_token token;
-	// be awared that we have no msg-specific callback. all msgs share one cb
+
 	pub_opts.onSuccess5 = onSendSuccess5;
 	pub_opts.onFailure5 = onSendFailure5;
 	pub_opts.context = client;
-	pubmsg.payload = "hello world";
-	pubmsg.payloadlen = 11;
-	pubmsg.qos = 1;
-	pubmsg.retained = 0;
+	// MQTTAsync_message pubmsg = MQTTAsync_message_initializer;
+	// // be awared that we have no msg-specific callback. all msgs share one cb
+	// pubmsg.payload = "hello world";
+	// pubmsg.payloadlen = 11;
+	// pubmsg.qos = 1;
+	// pubmsg.retained = 0;
 
-	nng_msleep(3600);
-	MQTTAsync_responseOptions opts = MQTTAsync_responseOptions_initializer;
-	MQTTAsync_sendMessage(client, "msg", &pubmsg, &pub_opts);
+	// MQTTAsync_responseOptions opts = MQTTAsync_responseOptions_initializer;
+	// MQTTAsync_sendMessage(client, "msg", &pubmsg, &pub_opts);
+	nng_msleep(1000);
+
+	MQTTAsync_message pubmsg2 = MQTTAsync_message_initializer;
+	pubmsg2.payload = "hello world2";
+	pubmsg2.payloadlen = 12;
+	pubmsg2.qos = 0;
+	pubmsg2.retained = 0;
+	MQTTAsync_sendMessage(client, "msg", &pubmsg2, &pub_opts);
+
 	nng_msleep(10000);
 
 	disc_opts.onSuccess = onDisconnect;
