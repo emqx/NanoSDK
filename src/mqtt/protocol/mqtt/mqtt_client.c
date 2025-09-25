@@ -579,6 +579,7 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 	default:
 		nni_mtx_unlock(&s->mtx);
 		nni_msg_free(msg);
+		nni_aio_set_msg(aio, NULL);
 		log_warn("Malformed msg dropped!");
 #ifdef NNG_ENABLE_STATS
 		nni_stat_inc(&s->msg_send_drop, 1);
@@ -597,6 +598,8 @@ mqtt_send_msg(nni_aio *aio, mqtt_ctx_t *arg)
 		if (0 == qos && ptype != NNG_MQTT_SUBSCRIBE &&
 		    ptype != NNG_MQTT_UNSUBSCRIBE) {
 			nni_aio_set_msg(aio, NULL);
+			if (ptype == NNG_MQTT_PUBLISH)
+				nni_aio_set_prov_data(aio, p);
 			nni_aio_finish(aio, 0, 0);
 		}
 		return;

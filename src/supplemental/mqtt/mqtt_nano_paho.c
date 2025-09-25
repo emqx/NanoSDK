@@ -318,15 +318,9 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg, int rv) {
     MQTTAsyncs *handle  = arg;
 
 	nng_log_debug("send_callback", "enter cb! msg %p rv %d", msg, rv);
-	if (msg == NULL) {
-        nng_log_debug("send_callback",
-			"NULL msg rv %d, will push cb to user in next ver", rv);
-        return;
-    }
-
     if (rv == 0 && handle->publish.onSuccess) {
         MQTTAsync_successData data;
-        data.token = rv;
+		data.token = handle->publish.token;
         // data.alt.pub.destinationName = NULL;
         // uint32_t payload_len;
         // data.alt.pub.message.payload = nng_mqtt_msg_get_publish_payload(msg, &payload_len);
@@ -336,16 +330,19 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg, int rv) {
         (*(handle->publish.onSuccess))(handle->publish.context, &data);
     } else if (rv == 0 && handle->publish.onSuccess5) {
         MQTTAsync_successData5 data = MQTTAsync_successData5_initializer;
-        data.token = rv;
+		data.token = handle->publish.token;
+		data.reasonCode = rv;
         // data.alt.pub.destinationName = command->details.pub.destinationName;
         // data.alt.pub.message.payload = command->details.pub.payload;
         // data.alt.pub.message.payloadlen = command->details.pub.payloadlen;
         // data.alt.pub.message.qos = command->details.pub.qos;
         // data.alt.pub.message.retained = command->details.pub.retained;
         // data.properties = command->properties;
-        (*(handle->publish.onSuccess5))(handle->publish.context, &data);
+		if (nni_aio_get_prov_data(aio) != NULL)
+        	(*(handle->publish.onSuccess5))(handle->publish.context, &data);
+		nni_aio_set_prov_data(aio, NULL);
     } else if (rv != 0 && handle->publish.onFailure5) {
-        MQTTAsync_failureData5 data;
+        MQTTAsync_failureData5 data = MQTTAsync_failureData5_initializer;
         data.token = handle->publish.token;
         data.code = rv;
         data.message = NULL;
@@ -358,7 +355,10 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg, int rv) {
         data.message = NULL;
         (*(handle->publish.onFailure))(handle->publish.context, &data);
     }
-
+	if (msg == NULL) {
+        nng_log_debug("send_callback", "no return msg", rv);
+        return;
+    }
 	switch (nng_mqtt_msg_get_packet_type(msg)) {
 	case NNG_MQTT_PUBLISH:
         // nng_msg_free(msg);
