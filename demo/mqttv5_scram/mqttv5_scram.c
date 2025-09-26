@@ -581,6 +581,11 @@ void testConnected(void* context, char* cause)
 	MQTTAsync_subscribeMany(c, 4, topics, qos, &opts);
 }
 
+void onSendFailure( void *context, MQTTAsync_failureData *response)
+{
+	printf("Message send failed token %d error code\n", response->token);
+}
+
 void onSendFailure5(void* context, MQTTAsync_failureData5* response)
 {
 	MQTTAsync client = (MQTTAsync)context;
@@ -589,6 +594,11 @@ void onSendFailure5(void* context, MQTTAsync_failureData5* response)
 	printf("Message send failed token %d error code %d\n", response->token, response->code);
 	(void) opts;
 	(void) client;
+}
+
+void onSendSuccess(void *context, MQTTAsync_successData *response)
+{
+	printf("Message delivery %d confirmed reason code\n", response->token);
 }
 
 void onSendSuccess5(void* context, MQTTAsync_successData5* response)
@@ -640,8 +650,10 @@ main(const int argc, const char **argv)
 	nng_log_set_logger(nng_stderr_logger);
 	nng_log_set_level(NNG_LOG_DEBUG);
 	MQTTAsync client;
-	MQTTAsync_createOptions create_opts = MQTTAsync_createOptions_initializer5;
-	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer5;
+	// MQTTAsync_createOptions create_opts = MQTTAsync_createOptions_initializer5;
+	// MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer5;
+	MQTTAsync_createOptions create_opts = MQTTAsync_createOptions_initializer;
+	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer;
 	MQTTAsync_disconnectOptions disc_opts = MQTTAsync_disconnectOptions_initializer;
 	MQTTAsync_responseOptions pub_opts = MQTTAsync_responseOptions_initializer;
 
@@ -669,7 +681,8 @@ main(const int argc, const char **argv)
 
 	conn_opts.keepAliveInterval = 14;
 	conn_opts.scram             = false;
-	conn_opts.MQTTVersion       = MQTTVERSION_5;
+	// conn_opts.MQTTVersion       = MQTTVERSION_5;
+	conn_opts.MQTTVersion       = MQTTVERSION_3_1_1;
 	conn_opts.onSuccess         = onConnect;
 	conn_opts.onFailure         = onConnectFailure;
 	conn_opts.username          = "admin";
@@ -689,8 +702,10 @@ main(const int argc, const char **argv)
 		printf("MQTTAsync_setConnected failed");
 	MQTTAsync_token token;
 
-	pub_opts.onSuccess5 = onSendSuccess5;
-	pub_opts.onFailure5 = onSendFailure5;
+	// pub_opts.onSuccess5 = onSendSuccess5;
+	// pub_opts.onFailure5 = onSendFailure5;
+	pub_opts.onSuccess = onSendSuccess;
+	pub_opts.onFailure = onSendFailure;
 	pub_opts.context = client;
 	// MQTTAsync_message pubmsg = MQTTAsync_message_initializer;
 	// // be awared that we have no msg-specific callback. all msgs share one cb
