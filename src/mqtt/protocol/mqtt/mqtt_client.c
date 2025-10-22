@@ -1295,6 +1295,7 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 	}
 	//set pid
 	nni_mqtt_packet_type ptype = nni_mqtt_msg_get_packet_type(msg);
+	nng_log_debug("PROTOCOL: nng_mqtt_send", "msg %p %d", msg, ptype);
 	switch (ptype)
 	{
 	case NNG_MQTT_PUBLISH:
@@ -1322,7 +1323,7 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 	}
 	if (rv != MQTT_SUCCESS) {
 		nni_mtx_unlock(&s->mtx);
-		log_error("MQTT client encoding msg failed%d!", rv);
+		nng_log_warn("PROTOCOL: mqtt_ctx_send", "MQTT client encoding msg%p failed%d!\n", msg, rv);
 		nni_msg_free(msg);
 #ifdef NNG_ENABLE_STATS
 		nni_stat_inc(&s->msg_send_drop, 1);
@@ -1334,7 +1335,7 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 	p = s->mqtt_pipe;
 	if (p == NULL) {
 		nng_log_info("PROTOCOL: mqtt_ctx_send",
-				"send msg while disconnected");
+				"send msg %p while disconnected", msg);
 		// connection is lost or not established yet
 #if defined(NNG_SUPP_SQLITE)
 		nni_mqtt_sqlite_option *sqlite =
@@ -1361,7 +1362,7 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 			log_warn("client sending msg while disconnected! cached");
 		} else {
 			nng_log_err("PROTOCOL: mqtt_ctx_send",
-				"msg lost due to disconnected pipe");
+				"msg %p lost due to disconnected pipe", msg);
 			nni_msg_free(msg);
 			nni_mtx_unlock(&s->mtx);
 #ifdef NNG_ENABLE_STATS

@@ -871,7 +871,7 @@ nng_mqtt_client_send_cb(void* arg)
 
 	if (nni_lmq_get(lmq, &tmsg) == 0) {
 		nng_aio_set_msg(client->send_aio, tmsg);
-		nng_log_info("APP: nng_mqtt_client_send_cb", "resend cached msg");
+		nng_log_info("APP: nng_mqtt_client_send_cb", "resend cached msg %p", tmsg);
 		nng_send_aio(client->sock, client->send_aio);
 	}
 	client->send_cb(client, msg, client->obj, rv);
@@ -1013,7 +1013,7 @@ nng_mqtt_publish_async(nng_mqtt_client *client, nng_msg *pubmsg)
 	nng_aio_set_msg(client->send_aio, pubmsg);
 	if (client->send_cb != NULL) {
 		nng_log_debug("APP:nng_mqtt_publish_async",
-			"send msg started!");
+			"send msg started! %p", pubmsg);
 		nng_send_aio(client->sock, client->send_aio);
 	} else {
 		nng_log_warn("APP: nng_mqtt_publish_async", "Cancel MQTT publish_async!");
