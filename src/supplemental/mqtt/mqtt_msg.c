@@ -1001,6 +1001,7 @@ mqtt_close_unack_msg_cb(void *key, void *val)
 	nni_aio * aio = NULL;
 
 	aio = nni_mqtt_msg_get_aio(msg);
+	nni_aio_set_msg(aio, NULL);
 	if (aio) {
 		nni_aio_finish_error(aio, NNG_ECLOSED);
 	}

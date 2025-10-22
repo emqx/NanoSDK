@@ -366,7 +366,7 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg, int rv) {
 	case NNG_MQTT_SUBACK:
 		code = nng_mqtt_msg_get_suback_return_codes(msg, &count);
 		uint16_t pid = nng_mqtt_msg_get_suback_packet_id(msg);
-		nng_log_info("Send callback", "SUBACK reason codes are: ");
+		nng_log_info("Send callback", "SUBACK reason codes are: %d", code);
 		for (int i = 0; i < (int)count; ++i) {
 			nng_log_info("Topic result", "[%d] ", code[i]);	
             if (code[i] <= 2 && handle->subscribe.onSuccess) {
