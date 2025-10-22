@@ -21,6 +21,19 @@
 
 static const char* UTF8_char_validate(int len, const char* data);
 
+int MQTTLastTLS_errno()
+{
+	nng_tls_config *tls_cfg;
+	nng_tls_config_alloc(&tls_cfg, NNG_TLS_MODE_CLIENT);
+	int tls_errno = nng_tls_config_version(tls_cfg, NNG_TLS_1_3, NNG_TLS_1_0);
+	if (tls_errno > 0) {
+		// Should never happen
+		nng_log_err("OPENSSL_LAST_ERRNO", "Invalid OpenSSL rv %d", tls_errno);
+	}
+	nng_tls_config_free(tls_cfg);
+	return -tls_errno;
+}
+
 const char *MQTTAsync_strerror(int code)
 {
 	static char buf[30];

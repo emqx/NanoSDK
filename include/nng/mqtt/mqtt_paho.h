@@ -51,6 +51,13 @@ extern "C" {
 #define MQTTCLIENT_PERSISTENCE_ERROR -2
 
 /**
+ * Returns the last errno from TLS layer.
+ * Note. This function only works when OpenSSL is the TLS Layer.
+ * @return the last errno from TLS layer.
+ */
+NNG_DECL int MQTTLastTLS_errno();
+
+/**
  * Returns a pointer to a string representation of the error code, or NULL.
  * Do not free after use. Returns NULL if the error code is unknown.
  * @param code the MQTTASYNC_ return code.

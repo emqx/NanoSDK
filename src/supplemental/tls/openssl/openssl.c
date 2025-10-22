@@ -1200,7 +1200,7 @@ open_config_version(nng_tls_engine_config *cfg, nng_tls_version min_ver,
 	if (max_ver < min_ver) {
 		int tls_errno = open_tls_errno;
 		open_tls_errno = 0; // reset when read
-		return tls_errno;
+		return 0 - tls_errno;
 	}
 
 	if (max_ver > NNG_TLS_1_3) {
