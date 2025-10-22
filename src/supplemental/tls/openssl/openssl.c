@@ -35,6 +35,8 @@
 //#define OPEN_DEBUG 1
 //#define OPEN_TRACE 1
 
+static int open_tls_errno = 0;
+
 #ifdef NNG_TLS_OPENSSL_HAVE_GM
 
 #define gminfo(format, arg...)                                              \
@@ -271,6 +273,7 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 	if (rv != 0) {
 		rv = SSL_get_error(ec->ssl, rv);
 		if (rv != 0) {
+			open_tls_errno = rv;
 			nng_log_warn("NNG-TLS-CONN-HANDSHAKE",
 				"openssl handshake still in process rv%d", rv);
 			ERR_print_errors_fp(stderr);
@@ -371,6 +374,7 @@ readopenssl:
 		rv = SSL_get_error(ec->ssl, rv);
 		// TODO return codes according openssl documents
 		if (rv != SSL_ERROR_WANT_READ) {
+			open_tls_errno = rv;
 			nng_log_err("NNG-TLS-CONN-RECV",
 				"openssl read failed rv%d", rv);
 			return (NNG_ECRYPTO);
@@ -441,6 +445,7 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 			// TODO return codes according openssl documents
 			rv = SSL_get_error(ec->ssl, rv);
 			if (rv != SSL_ERROR_WANT_READ && rv != SSL_ERROR_WANT_WRITE) {
+				open_tls_errno = rv;
 				nng_log_err("NNG-TLS-CONN-SEND", "error in ssl write%d", rv);
 				return (NNG_ECRYPTO);
 			}
@@ -1191,7 +1196,14 @@ static int
 open_config_version(nng_tls_engine_config *cfg, nng_tls_version min_ver,
     nng_tls_version max_ver)
 {
-	if ((min_ver > max_ver) || (max_ver > NNG_TLS_1_3)) {
+	// XXX Get Last OpenSSL errno when max_ver is smaller than min_ver
+	if (max_ver < min_ver) {
+		int tls_errno = open_tls_errno;
+		open_tls_errno = 0; // reset when read
+		return tls_errno;
+	}
+
+	if (max_ver > NNG_TLS_1_3) {
 		return (NNG_ENOTSUP);
 	}
 	// TODO
