@@ -42,6 +42,11 @@ if (NNG_TLS_ENGINE STREQUAL "open")
 			#	${CMAKE_SOURCE_DIR}/extern/nw/libx86/libcn_x509_proxy.so
 			#	${CMAKE_SOURCE_DIR}/extern/nw/libx86/libssl.so
 			#	${CMAKE_SOURCE_DIR}/extern/nw/libx86/libcrypto.so)
+		elif(NNG_TLS_OPENSSL_HAVE_GM)
+			nng_include_directories(${OPENSSL_ROOT_DIR}/include)
+			nng_link_libraries_public(
+				${OPENSSL_ROOT_DIR}/lib/libssl.a
+				${OPENSSL_ROOT_DIR}/lib/libcrypto.a)
 		else()
 			nng_link_libraries_public(OpenSSL::SSL OpenSSL::Crypto)
 		endif()

@@ -556,14 +556,18 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 		nng_auth  = NNG_TLS_AUTH_MODE_NONE;
 	} else if (mode == NNG_TLS_MODE_CLIENT) {
 		method    = SSLv23_client_method();
+#ifdef NNG_TLS_OPENSSL_HAVE_GM
+		method    = CNTLS_client_method();
+#endif
 		auth_mode = SSL_VERIFY_PEER;
 		nng_auth  = NNG_TLS_AUTH_MODE_REQUIRED;
+		nng_log_debug("open_config_init", "Using GM method %p", method);
 #ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
 	} else if (mode == NNG_TLS_MODE_CLIENT_GM_NW) {
 		method = CNTLS_client_method();
 		auth_mode = SSL_VERIFY_PEER;
 		nng_auth  = NNG_TLS_AUTH_MODE_REQUIRED;
-		nng_log_debug("open_config_init", "Using GM method %p", method);
+		nng_log_debug("open_config_init", "Using GM NW method %p", method);
 #endif
 	}
 
