@@ -678,6 +678,7 @@ main(const int argc, const char **argv)
 	ssl_opts.dkeyStore = CLIENT_ENC_CERT_PATH;
 	ssl_opts.dprivateKey = CLIENT_ENC_KEY_PATH;
 	ssl_opts.trustStore = CLIENT_CA_CERT_PATH;
+	ssl_opts.is_GMNW = false;
 
 	conn_opts.keepAliveInterval = 14;
 	conn_opts.scram             = false;
@@ -693,8 +694,7 @@ main(const int argc, const char **argv)
 	conn_opts.minRetryInterval = 3; // 单位秒，重连间隔次数，每次重新连接失败时，重试间隔都会加倍，直到最大间隔
 	conn_opts.maxRetryInterval = 60; // 单位秒，最大重连尝试间隔
 	// ssl选项
-	// conn_opts.ssl = &ssl_opts;
-	conn_opts.ssl = NULL;
+	conn_opts.ssl = &ssl_opts;
 	if (MQTTAsync_connect(client, &conn_opts) != MQTTASYNC_SUCCESS) {
 		printf("MQTTAsync_connect failed");
 	}
@@ -726,6 +726,7 @@ main(const int argc, const char **argv)
 	MQTTAsync_sendMessage(client, "msg", &pubmsg2, &pub_opts);
 
 	nng_msleep(10000);
+	printf("Last TLS errno %d\n", MQTTLastTLS_errno());
 
 	disc_opts.onSuccess = onDisconnect;
 	disc_opts.onFailure = onDisconnectFailure;	// this is nonsense
