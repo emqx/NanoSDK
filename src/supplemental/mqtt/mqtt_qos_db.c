@@ -673,7 +673,7 @@ nni_mqtt_sqlite_db_init(
 		    &sqlite->offline_cache, sqlite->flush_mem_threshold);
 		sqlite->db_name = nni_strdup(db_name);
 		nni_mqtt_qos_db_init(
-		    &sqlite->db, sqlite->mounted_file_path, db_name);
+		    (sqlite3 **)&sqlite->db, sqlite->mounted_file_path, db_name);
 
 		if (proto_ver == 0 ||
 		    (proto_ver != MQTT_PROTOCOL_VERSION_v311 &&

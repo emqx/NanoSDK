@@ -283,7 +283,7 @@ there:
 				    QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE_PROTECTED;
 			} else {
 				QUIC_CERTIFICATE_FILE *CertFile =
-				    (QUIC_CERTIFICATE_FILE_PROTECTED *) malloc(sizeof(QUIC_CERTIFICATE_FILE_PROTECTED));
+				    (QUIC_CERTIFICATE_FILE*) malloc(sizeof(QUIC_CERTIFICATE_FILE_PROTECTED));
 				CertFile->CertificateFile  = cert_path;
 				CertFile->PrivateKeyFile   = key_path;
 				CredConfig.CertificateFile = CertFile;
