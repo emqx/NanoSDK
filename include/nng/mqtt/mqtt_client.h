@@ -583,8 +583,10 @@ struct nng_mqtt_client{
 	nng_socket sock;
 	nng_mtx   *mtx;
 	nng_aio   *send_aio;
+	nng_aio   *sub_aio;
 	nng_aio   *recv_aio;
-	void      *msgq;
+	void      *msgq;	// for publish msg only
+	void      *subq;	// for subscribe msg only
 	void      *obj; // user defined callback obj
 	bool       async;
 

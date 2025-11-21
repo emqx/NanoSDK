@@ -852,6 +852,34 @@ mqtt_property_append(property *prop_list, property *last)
 // 	nni_aio_finish_error(aio, rv);
 // }
 
+
+static void
+nng_mqtt_client_sub_cb(void* arg)
+{
+	int rv = 0;
+	nng_mqtt_client *client = (nng_mqtt_client *) arg;
+	nng_aio *        aio    = client->sub_aio;
+	nng_msg *        msg    = nng_aio_get_msg(aio);
+	nng_msg *        tmsg   = NULL;
+
+	nni_lmq * lmq = (nni_lmq *)client->subq;
+
+	rv = nng_aio_result(aio);
+	nng_log_debug("App: nng_mqtt_client_sub_cb", "result %d msg %p", rv, msg);
+	if  (rv != 0) {
+		nng_log_warn("sub aio error", "result %d", rv);
+	}
+	// SUB msg shares high priority
+	if (nni_lmq_get(lmq, &tmsg) == 0) {
+		nng_aio_set_msg(client->sub_aio, tmsg);
+		nng_log_info("APP: nng_mqtt_client_sub_cb", "resend cached msg %p", tmsg);
+		nng_send_aio(client->sock, client->sub_aio);
+	}
+	// sub/pub shared cb, must be protected by lock.
+	client->send_cb(client, msg, client->obj, rv);
+	return;
+}
+
 static void
 nng_mqtt_client_send_cb(void* arg)
 {
@@ -868,7 +896,6 @@ nng_mqtt_client_send_cb(void* arg)
 	if  (rv != 0) {
 		nng_log_warn("Send aio error", "result %d", rv);
 	}
-
 	if (nni_lmq_get(lmq, &tmsg) == 0) {
 		nng_aio_set_msg(client->send_aio, tmsg);
 		nng_log_info("APP: nng_mqtt_client_send_cb", "resend cached msg %p", tmsg);
@@ -911,6 +938,7 @@ nng_mqtt_paho_client_alloc(nng_socket sock, nng_mqtt_send_cb send_cb, nng_mqtt_r
 	client->send_cb         = NULL;
 	client->recv_cb         = NULL;
 	client->msgq            = NULL;
+	client->subq            = NULL;
 	client->obj             = async;
 
 	nng_mtx_alloc(&client->mtx);
@@ -921,15 +949,21 @@ nng_mqtt_paho_client_alloc(nng_socket sock, nng_mqtt_send_cb send_cb, nng_mqtt_r
 		client->recv_cb = recv_cb;
 	}
 	// replace nng_mqtt_client_send_cb for lmq
-	if (send_cb != NULL)
+	if (send_cb != NULL) {
 		nng_aio_alloc(&client->send_aio, nng_mqtt_client_send_cb, client);
+		nng_aio_alloc(&client->sub_aio, nng_mqtt_client_sub_cb, client);
+	}
 	if (recv_cb != NULL)
 		nng_aio_alloc(&client->recv_aio, nng_mqtt_client_recv_cb, client);
 	if ((client->msgq = nng_alloc(sizeof(nni_lmq))) == NULL) {
 		return NULL;
 	}
+	if ((client->subq = nng_alloc(sizeof(nni_lmq))) == NULL) {
+		return NULL;
+	}
 
 	nni_lmq_init((nni_lmq *)client->msgq, NNG_MAX_SEND_LMQ);
+	nni_lmq_init((nni_lmq *)client->subq, NNG_MAX_SEND_LMQ);
 	nng_recv_aio(client->sock, client->recv_aio);
 	return client;
 }
@@ -950,6 +984,7 @@ nng_mqtt_client_alloc(nng_socket sock, nng_mqtt_send_cb send_cb, nng_mqtt_recv_c
 	client->send_cb         = NULL;
 	client->recv_cb         = NULL;
 	client->msgq            = NULL;
+	client->subq			= NULL;
 	client->obj             = NULL;
 
 	nng_mtx_alloc(&client->mtx);
@@ -961,14 +996,20 @@ nng_mqtt_client_alloc(nng_socket sock, nng_mqtt_send_cb send_cb, nng_mqtt_recv_c
 	}
 	if (is_async) {
 		// replace nng_mqtt_client_send_cb for lmq
-		if (send_cb != NULL)
+		if (send_cb != NULL) {
 			nng_aio_alloc(&client->send_aio, nng_mqtt_client_send_cb, client);
+			nng_aio_alloc(&client->sub_aio, nng_mqtt_client_send_cb, client);
+		}
 		if (recv_cb != NULL)
 			nng_aio_alloc(&client->recv_aio, nng_mqtt_client_recv_cb, client);
 		if ((client->msgq = nng_alloc(sizeof(nni_lmq))) == NULL) {
 			return NULL;
 		}
+		if ((client->subq = nng_alloc(sizeof(nni_lmq))) == NULL) {
+			return NULL;
+		}
 		nni_lmq_init((nni_lmq *)client->msgq, NNG_MAX_SEND_LMQ);
+		nni_lmq_init((nni_lmq *)client->subq, NNG_MAX_SEND_LMQ);
 	}
 	return client;
 }
@@ -982,14 +1023,19 @@ nng_mqtt_client_alloc(nng_socket sock, nng_mqtt_send_cb send_cb, nng_mqtt_recv_c
 void nng_mqtt_client_free(nng_mqtt_client *client, bool is_async)
 {
 	nni_aio_close(client->send_aio);
+	nni_aio_close(client->sub_aio);
 	if (client) {
 		if (is_async) {
 			nni_aio_close(client->recv_aio);
 			nni_aio_stop(client->send_aio);
+			nni_aio_stop(client->sub_aio);
 			nni_aio_stop(client->recv_aio);
 			nng_aio_free(client->send_aio);
+			nng_aio_free(client->sub_aio);
 			nni_lmq_fini((nni_lmq *) client->msgq);
 			nng_free(client->msgq, sizeof(nni_lmq));
+			nni_lmq_fini((nni_lmq *) client->subq);
+			nng_free(client->subq, sizeof(nni_lmq));
 			nng_aio_free(client->recv_aio);
 		}
 		nng_mtx_free(client->mtx);
@@ -1104,7 +1150,7 @@ nng_mqtt_destroy_sub_proto(nng_msg *msg)
 	}
 }
 
-int
+int 
 nng_mqtt_unsubscribe_async(nng_mqtt_client *client, nng_mqtt_topic *sbs, size_t count, property *pl)
 {
 	nng_msg *unsubmsg;
@@ -1115,22 +1161,20 @@ nng_mqtt_unsubscribe_async(nng_mqtt_client *client, nng_mqtt_topic *sbs, size_t 
 	if (pl) {
 		nng_mqtt_msg_set_subscribe_property(unsubmsg, pl);
 	}
-	if (nng_aio_busy(client->send_aio)) {
-		if (nni_lmq_put((nni_lmq *)client->msgq, unsubmsg) != 0) {
-			nng_mqtt_destroy_sub_proto(unsubmsg);
-			nng_msg_free(unsubmsg);
-			log_warn("unsubscribe failed!");
+	if (nng_aio_busy(client->sub_aio)) {
+		if (nni_lmq_put((nni_lmq *)client->subq, unsubmsg) != 0) {
+			nng_log_warn("APP: nng_mqtt_unsubscribe_async", "subscribe failed due to full lmq!");
 			return -1;
 		}
 		return 1;
 	}
-	nng_aio_set_msg(client->send_aio, unsubmsg);
-	nng_send_aio(client->sock, client->send_aio);
+	nng_aio_set_msg(client->sub_aio, unsubmsg);
+	nng_send_aio(client->sock, client->sub_aio);
 
 	return 0;
 }
 
-int
+int 
 nng_mqtt_subscribe_async(nng_mqtt_client *client, nng_mqtt_topic_qos *sbs, size_t count, property *pl)
 {
 	// create a SUBSCRIBE message
@@ -1142,17 +1186,19 @@ nng_mqtt_subscribe_async(nng_mqtt_client *client, nng_mqtt_topic_qos *sbs, size_
 	if (pl) {
 		nng_mqtt_msg_set_subscribe_property(submsg, pl);
 	}
-	if (nng_aio_busy(client->send_aio)) {
-		if (nni_lmq_put((nni_lmq *)client->msgq, submsg) != 0) {
-			nng_mqtt_destroy_sub_proto(submsg);
-			nng_msg_free(submsg);
-			log_warn("subscribe failed due to busy aio & full lmq!");
+	if (nng_aio_busy(client->sub_aio)) {
+		if (nni_lmq_put((nni_lmq *)client->subq, submsg) != 0) {
+			nng_log_warn("APP: nng_mqtt_subscribe_async", "subscribe failed due to full lmq!");
 			return -1;
 		}
 		return 1;
 	}
-	nng_aio_set_msg(client->send_aio, submsg);
-	nng_send_aio(client->sock, client->send_aio);
+	nng_aio_set_msg(client->sub_aio, submsg);
+	if (client->send_cb != NULL)
+		nng_send_aio(client->sock, client->sub_aio);
+	else
+		nng_log_err("APP: nng_mqtt_subscribe_async",
+			"cb is a must for async");
 
 	return 0;
 }

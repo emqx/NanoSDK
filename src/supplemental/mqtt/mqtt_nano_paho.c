@@ -330,6 +330,7 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg, int rv) {
 	uint8_t *        code;
     MQTTAsyncs *handle  = arg;
 
+    nng_mtx_lock(client->mtx);
 	nng_log_debug("send_callback", "enter cb! msg %p rv %d", msg, rv);
     if (rv == 0 && handle->publish.onSuccess) {
         MQTTAsync_successData data;
@@ -370,6 +371,7 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg, int rv) {
     }
 	if (msg == NULL) {
         nng_log_debug("send_callback", "no return msg", rv);
+        nng_mtx_unlock(client->mtx);
         return;
     }
 	switch (nng_mqtt_msg_get_packet_type(msg)) {
@@ -379,9 +381,9 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg, int rv) {
 	case NNG_MQTT_SUBACK:
 		code = nng_mqtt_msg_get_suback_return_codes(msg, &count);
 		uint16_t pid = nng_mqtt_msg_get_suback_packet_id(msg);
-		nng_log_info("Send callback", "SUBACK reason codes are: %d", code);
+		nng_log_info("Send callback", "SUBACK count %d", count);
 		for (int i = 0; i < (int)count; ++i) {
-			nng_log_info("Topic result", "[%d] ", code[i]);	
+			nng_log_info("Topic return code", "[%d] ", code[i]);	
             if (code[i] <= 2 && handle->subscribe.onSuccess) {
                 MQTTAsync_successData data;
                 data.alt.qos = code[i];
@@ -438,6 +440,7 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg, int rv) {
 	}
 	nng_log_debug("Send callback", "cb ends, aio result %d \n", nng_aio_result(aio));
 	nng_msg_free(msg);
+	nng_mtx_unlock(client->mtx);
 }
 
 /**
