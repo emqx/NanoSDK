@@ -332,15 +332,21 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg, int rv) {
 
     nng_mtx_lock(client->mtx);
 	nng_log_debug("send_callback", "enter cb! msg %p rv %d", msg, rv);
+	// check msg type first!
     if (rv == 0 && handle->publish.onSuccess) {
         MQTTAsync_successData data;
-		data.token = handle->publish.token;
+		uint32_t *token_ptr = nng_aio_get_input(aio, 0);
+		if (token_ptr != NULL) {
+			data.token = *token_ptr;
+			nng_free(token_ptr, sizeof(uint32_t));
+		}
         // data.alt.pub.destinationName = NULL;
         // uint32_t payload_len;
         // data.alt.pub.message.payload = nng_mqtt_msg_get_publish_payload(msg, &payload_len);
         // data.alt.pub.message.payloadlen = payload_len;
         // data.alt.pub.message.qos = nng_mqtt_msg_get_publish_qos(msg);
         // data.alt.pub.message.retained = nng_mqtt_msg_get_publish_retain(msg);
+		nng_log_debug("send_callback", "publish cb! msg %p token %ld", msg, data.token);
         (*(handle->publish.onSuccess))(handle->publish.context, &data);
     } else if (rv == 0 && handle->publish.onSuccess5) {
         MQTTAsync_successData5 data = MQTTAsync_successData5_initializer;
@@ -352,8 +358,8 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg, int rv) {
         // data.alt.pub.message.qos = command->details.pub.qos;
         // data.alt.pub.message.retained = command->details.pub.retained;
         // data.properties = command->properties;
-		if (nni_aio_get_prov_data(aio) != NULL)
-        	(*(handle->publish.onSuccess5))(handle->publish.context, &data);
+		nng_log_debug("send_callback", "publish cb! msg %p data %p token %d", msg, data, data.token);
+        (*(handle->publish.onSuccess5))(handle->publish.context, &data);
 		nni_aio_set_prov_data(aio, NULL);
     } else if (rv != 0 && handle->publish.onFailure5) {
         MQTTAsync_failureData5 data = MQTTAsync_failureData5_initializer;
@@ -1119,13 +1125,15 @@ int MQTTAsync_send(MQTTAsync handle, const char *destinationName, int payloadlen
 		m->publish.onSuccess5 = response->onSuccess5;
 		m->publish.onFailure5 = response->onFailure5;
 		m->publish.context = response->context;
-		response->token = m->publish.token;
+		m->publish.token = response->token;
+		nng_log_debug("MQTTAsync_send", "set Publish token to %d with %p", response->token, m->publish);
 		if (m->MQTTVersion >= MQTTVERSION_5) {
             nng_log_warn("Paho", "Publish property with PAHO API is not support");
 			// pub->command.properties = MQTTProperties_copy(&response->properties);
             // MQTTProperties_free(&response->properties);
         }
 	}
+
 	if (rc != MQTTASYNC_SUCCESS)
 		goto exit;
 
@@ -1141,6 +1149,9 @@ int MQTTAsync_send(MQTTAsync handle, const char *destinationName, int payloadlen
 	nng_mqtt_msg_set_publish_topic(pubmsg, destinationName);
 	// -2 MQTTASYNC_PERSISTENCE_ERROR : msg enqueue, send later
 	// -4 MQTTASYNC_MAX_MESSAGES_INFLIGHT : lmq full msg dropped
+	if (response != NULL) {
+		nni_msg_set_pipe(pubmsg, m->publish.token); // no specific pipe
+	}
     rc = nng_mqtt_publish_async(client, pubmsg);
 	nng_mtx_unlock(client->mtx);
 exit:
