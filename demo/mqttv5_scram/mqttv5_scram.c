@@ -48,7 +48,7 @@
 #define TLS_PUBLISH   "pubtls"
 #define TLS_SUBSCRIBE "subtls"
 
-#define ADDRESS     "mqtt-tcp://localhost:1883"
+#define ADDRESS     "mqtt-tcp://broker.emqx.io:1883"
 #define ADDRESS2     "tls+mqtt-tcp://123.60.191.138:2443"
 #define ADDRESS3     "tls+mqtt-tcp://localhost:8884"
 
@@ -503,6 +503,13 @@ publish_cb(void *args)
 	printf("thread_exit\n");
 }
 
+void onSubscribeV4(void *context, MQTTAsync_successData *response)
+{
+	printf("Subscribe succeeded\n");
+	printf("Sub packet id %d\n", response->token);
+	(void) context;
+}
+
 void onSubscribe(void* context, MQTTAsync_successData5* response)
 {
 	printf("Subscribe succeeded\n");
@@ -514,6 +521,13 @@ void onSubscribe(void* context, MQTTAsync_successData5* response)
 	}
 	
 	subscribed = 1;
+	(void) context;
+}
+
+void onSubscribeFailureV4(void *context, MQTTAsync_failureData *response)
+{
+	printf("Subscribe failed, rc %d\n", response->code);
+	finished = 1;
 	(void) context;
 }
 
@@ -561,11 +575,11 @@ void testConnected(void* context, char* cause)
 	MQTTAsync_responseOptions opts = MQTTAsync_responseOptions_initializer;
 	int rc;
 
-	printf("Successful connection\n");
-	// opts.onSuccess = onSubscribe;
-	// opts.onFailure = onSubscribeFailure;
-	opts.onSuccess5 = onSubscribe;
-	opts.onFailure5 = onSubscribeFailure;
+	printf("Successful connection!!!!\n");
+	opts.onSuccess = onSubscribeV4;
+	opts.onFailure = onSubscribeFailureV4;
+	// opts.onSuccess5 = onSubscribe;
+	// opts.onFailure5 = onSubscribeFailure;
 	opts.context = c;
 
 	// opts.onSuccess = onSubscribeSuccess;
@@ -598,7 +612,7 @@ void onSendFailure5(void* context, MQTTAsync_failureData5* response)
 
 void onSendSuccess(void *context, MQTTAsync_successData *response)
 {
-	printf("Message delivery %d confirmed reason code\n", response->token);
+	printf("Message delivery %d confirmed reason code!!!!\n", response->token);
 }
 
 void onSendSuccess5(void* context, MQTTAsync_successData5* response)
@@ -614,7 +628,6 @@ void onSendSuccess5(void* context, MQTTAsync_successData5* response)
 void connlost(void *context, char *cause)
 {
 	MQTTAsync client = (MQTTAsync)context;
-	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer;
 	int rc;
 
 	printf("\nConnection lost\n");
@@ -622,11 +635,7 @@ void connlost(void *context, char *cause)
 		printf("     cause: %s\n", cause);
 
 	printf("Reconnecting\n");
-	conn_opts.keepAliveInterval = 20;
-	conn_opts.cleansession = 1;
-	if ((rc = MQTTAsync_connect(client, &conn_opts)) != MQTTASYNC_SUCCESS)
-	{
-	}
+	//Do not reconnect here!
 }
 
 void asyncDeliveryComplete(void* context, MQTTAsync_token token)
@@ -692,14 +701,16 @@ main(const int argc, const char **argv)
 	// 增加重连机制
 	conn_opts.automaticReconnect = 1; // 设置非零，断开自动重连
 	conn_opts.minRetryInterval = 3; // 单位秒，重连间隔次数，每次重新连接失败时，重试间隔都会加倍，直到最大间隔
-	conn_opts.maxRetryInterval = 60; // 单位秒，最大重连尝试间隔
+	conn_opts.maxRetryInterval = 24; // 单位秒，最大重连尝试间隔
 	// ssl选项
-	conn_opts.ssl = &ssl_opts;
+	// conn_opts.ssl = &ssl_opts;
+	conn_opts.ssl = NULL;
 	if (MQTTAsync_connect(client, &conn_opts) != MQTTASYNC_SUCCESS) {
 		printf("MQTTAsync_connect failed");
 	}
 	if (MQTTAsync_setConnected(client, NULL, testConnected) != MQTTASYNC_SUCCESS)
 		printf("MQTTAsync_setConnected failed");
+	nng_msleep(2000);
 	MQTTAsync_token token;
 
 	// pub_opts.onSuccess5 = onSendSuccess5;
@@ -707,26 +718,31 @@ main(const int argc, const char **argv)
 	pub_opts.onSuccess = onSendSuccess;
 	pub_opts.onFailure = onSendFailure;
 	pub_opts.context = client;
-	// MQTTAsync_message pubmsg = MQTTAsync_message_initializer;
-	// // be awared that we have no msg-specific callback. all msgs share one cb
-	// pubmsg.payload = "hello world";
-	// pubmsg.payloadlen = 11;
-	// pubmsg.qos = 1;
-	// pubmsg.retained = 0;
+	pub_opts.token = 168;
+	MQTTAsync_message pubmsg = MQTTAsync_message_initializer;
+	// be awared that we have no msg-specific callback. all msgs share one cb
+	pubmsg.payload = "hello world";
+	pubmsg.payloadlen = 11;
+	pubmsg.qos = 0;
+	pubmsg.retained = 0;
 
-	// MQTTAsync_responseOptions opts = MQTTAsync_responseOptions_initializer;
-	// MQTTAsync_sendMessage(client, "msg", &pubmsg, &pub_opts);
-	nng_msleep(1000);
+	MQTTAsync_responseOptions opts2 = MQTTAsync_responseOptions_initializer;
+	MQTTAsync_sendMessage(client, "msg", &pubmsg, &pub_opts);
+	// nng_msleep(5000);
 
 	MQTTAsync_message pubmsg2 = MQTTAsync_message_initializer;
 	pubmsg2.payload = "hello world2";
 	pubmsg2.payloadlen = 12;
-	pubmsg2.qos = 0;
+	pubmsg2.qos = 1;
 	pubmsg2.retained = 0;
-	MQTTAsync_sendMessage(client, "msg", &pubmsg2, &pub_opts);
+	opts2.token = 240;
+	opts2.onSuccess = onSendSuccess;
+	opts2.onFailure = onSendFailure;
+	opts2.context = client;
+	MQTTAsync_sendMessage(client, "msg", &pubmsg2, &opts2);
 
-	nng_msleep(10000);
-	printf("Last TLS errno %d\n", MQTTLastTLS_errno());
+	nng_msleep(5000);
+	// printf("Last TLS errno %d\n", MQTTLastTLS_errno());
 
 	disc_opts.onSuccess = onDisconnect;
 	disc_opts.onFailure = onDisconnectFailure;	// this is nonsense
@@ -736,7 +752,7 @@ main(const int argc, const char **argv)
 		rc = EXIT_FAILURE;
 		goto destroy_exit;
 	}
-	nng_msleep(18600);
+	nng_msleep(500);
 destroy_exit:
 	MQTTAsync_destroy(&client);
 exit:
