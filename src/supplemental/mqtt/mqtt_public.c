@@ -896,12 +896,17 @@ nng_mqtt_client_send_cb(void* arg)
 	if  (rv != 0) {
 		nng_log_warn("Send aio error", "result %d", rv);
 	}
+	client->send_cb(client, msg, client->obj, rv);
 	if (nni_lmq_get(lmq, &tmsg) == 0) {
 		nng_aio_set_msg(client->send_aio, tmsg);
+		uint32_t *token = nng_zalloc(sizeof(uint32_t));
+		*token = nni_msg_get_pipe(tmsg);
+		nng_aio_set_input(client->send_aio, 0, token);
 		nng_log_info("APP: nng_mqtt_client_send_cb", "resend cached msg %p", tmsg);
 		nng_send_aio(client->sock, client->send_aio);
+	} else {
+		nng_aio_set_input(aio, 0, NULL);
 	}
-	client->send_cb(client, msg, client->obj, rv);
 	return;
 }
 
@@ -1058,8 +1063,11 @@ nng_mqtt_publish_async(nng_mqtt_client *client, nng_msg *pubmsg)
 	}
 	nng_aio_set_msg(client->send_aio, pubmsg);
 	if (client->send_cb != NULL) {
+		uint32_t *token = nng_zalloc(sizeof(uint32_t));
+		*token = nni_msg_get_pipe(pubmsg);
+		nng_aio_set_input(client->send_aio, 0, token);
 		nng_log_debug("APP:nng_mqtt_publish_async",
-			"send msg started! %p", pubmsg);
+			"send msg started! msg %p token %d", pubmsg, *token);
 		nng_send_aio(client->sock, client->send_aio);
 	} else {
 		nng_log_warn("APP: nng_mqtt_publish_async", "Cancel MQTT publish_async!");
