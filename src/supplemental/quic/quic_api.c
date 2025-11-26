@@ -199,7 +199,7 @@ verify_peer_cert_tls(QUIC_CERTIFICATE* cert, QUIC_CERTIFICATE* chain, char *cace
 	X509_STORE_CTX_free(ctx);
 
 	if (res <= 0) {
-		log_error("X509 verify error: %d: %s", res, X509_verify_cert_error_string(ctx));
+		log_error("X509 verify error: %d: %s", res, X509_verify_cert_error_string(res));
 		return QUIC_STATUS_BAD_CERTIFICATE;
 	} else
 		return QUIC_STATUS_SUCCESS;
