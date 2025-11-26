@@ -19,7 +19,6 @@ endif (BUILD_DEMO)
 
 find_package(Threads)
 find_package(msquic)
-find_package(OpenSSL)
 
 if (DEBUG)
   SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
@@ -32,11 +31,6 @@ if (DEBUG)
 endif (DEBUG)
 
 add_executable(quic_client_v5 quic_client_v5.c)
-
-if(OPENSSL_FOUND)
-    include_directories(${OPENSSL_INCLUDE_DIRS})
-    target_link_libraries(quic_client_v5 OpenSSL::Crypto OpenSSL::SSL)
-endif()
 
 target_link_libraries(quic_client_v5 nng msquic pthread)
 target_compile_definitions(quic_client_v5 PRIVATE NNG_ELIDE_DEPRECATED)
