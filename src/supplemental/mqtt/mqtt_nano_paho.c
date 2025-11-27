@@ -339,6 +339,7 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg, int rv) {
 		if (token_ptr != NULL) {
 			data.token = *token_ptr;
 			nng_free(token_ptr, sizeof(uint32_t));
+			nng_aio_set_input(aio, 0, NULL);
 		}
         // data.alt.pub.destinationName = NULL;
         // uint32_t payload_len;

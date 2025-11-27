@@ -592,6 +592,9 @@ void testConnected(void* context, char* cause)
 	// }
 	char *topics[4] = {"msg1", "msg2", "msg3", "msg4"};
 	int qos[4] = {0,1,2,0};
+	for (int i=0; i<4; ++i) {
+		printf("Subscribe topic [%s] qos [%d]\n", topics[i], qos[i]);
+	}
 	MQTTAsync_subscribeMany(c, 4, topics, qos, &opts);
 }
 
@@ -725,11 +728,9 @@ main(const int argc, const char **argv)
 	pubmsg.payloadlen = 11;
 	pubmsg.qos = 0;
 	pubmsg.retained = 0;
+	MQTTAsync_sendMessage(client, "msg", &pubmsg, &pub_opts);
 
 	MQTTAsync_responseOptions opts2 = MQTTAsync_responseOptions_initializer;
-	MQTTAsync_sendMessage(client, "msg", &pubmsg, &pub_opts);
-	// nng_msleep(5000);
-
 	MQTTAsync_message pubmsg2 = MQTTAsync_message_initializer;
 	pubmsg2.payload = "hello world2";
 	pubmsg2.payloadlen = 12;
