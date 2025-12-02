@@ -193,6 +193,8 @@ typedef struct MQTTAsync_struct
     char *dkey;
 	bool  verify_peer;
 	bool  set_fail; // fail_if_no_peer_cert
+	// Customer
+	bool  is_payload_zstd;
 } MQTTAsyncs;
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))

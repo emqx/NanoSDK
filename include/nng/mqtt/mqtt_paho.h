@@ -400,11 +400,11 @@ typedef struct MQTTAsync_responseOptions MQTTAsync_callOptions;
 	{ { 'M', 'Q', 'T', 'C' }, 8, 60, 1, 65535, NULL, NULL, NULL, 30, 0, \
 		NULL, NULL, NULL, NULL, 0, NULL, MQTTVERSION_DEFAULT, 0, 1, \
 		60, { 0, NULL }, 0, NULL, NULL, NULL, NULL, NULL, NULL,     \
-		NULL, 0 }
+		NULL, 0, false }
 #define MQTTAsync_connectOptions_initializer5                               \
 	{ { 'M', 'Q', 'T', 'C' }, 8, 60, 0, 65535, NULL, NULL, NULL, 30, 0, \
 		NULL, NULL, NULL, NULL, 0, NULL, MQTTVERSION_5, 0, 1, 60,   \
-		{ 0, NULL }, 1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0 }
+		{ 0, NULL }, 1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, false }
 #define MQTTAsync_connectOptions_initializer_ws                             \
 	{ { 'M', 'Q', 'T', 'C' }, 8, 45, 1, 65535, NULL, NULL, NULL, 30, 0, \
 		NULL, NULL, NULL, NULL, 0, NULL, MQTTVERSION_DEFAULT, 0, 1, \
@@ -668,6 +668,12 @@ typedef struct {
 	 * an incoming publish message.
 	 */
 	int msgid;
+	/** This option will overwrite the is_payload_zstd option in
+	 * connection option. When it's true. The payload of this MQTT
+	 * message will be compressed with zstd and sent. Note. This option
+	 * only works when it's a MQTT V5 client.
+	 */
+	bool is_payload_zstd;
 	/**
 	 * The MQTT V5 properties associated with the message.
 	 */
@@ -1337,11 +1343,15 @@ typedef struct {
 	 * MQTTV5 SCRAM enhanced authentication
 	 */
 	bool scram;
+	/**
+	 * Is MQTT Payload zstd compressed
+	 */
+	bool is_payload_zstd;
 } MQTTAsync_connectOptions;
 
 #define MQTTAsync_message_initializer                     \
 	{ { 'M', 'Q', 'T', 'M' }, 1, 0, NULL, 0, 0, 0, 0, \
-		MQTTProperties_initializer }
+		false, MQTTProperties_initializer }
 
 /**
  * This is a callback function. The client application
@@ -1704,7 +1714,7 @@ NNG_DECL int MQTTAsync_unsubscribeMany(MQTTAsync handle, int count,
  */
 NNG_DECL int MQTTAsync_send(MQTTAsync handle, const char *destinationName,
     int payloadlen, const void *payload, int qos, int retained,
-    MQTTAsync_responseOptions *response);
+    bool is_payload_zstd, MQTTAsync_responseOptions *response);
 
 /**
  * This function attempts to publish a message to a given topic (see also

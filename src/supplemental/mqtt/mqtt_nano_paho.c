@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#include <zstd.h>
+
 #include "mqtt_nano_paho.h"
 #include "core/nng_impl.h"
 #include "supplemental/mqtt/mqtt_msg.h"
@@ -689,7 +691,7 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 #ifdef NNG_SUPP_TLS
 	nng_tls_config *tls_cfg = NULL;
 #endif
-    
+    m->is_payload_zstd = options->is_payload_zstd;
 
     // create a CONNECT message
 	/* CONNECT */
@@ -959,6 +961,18 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 		m->willProps = NULL;
         nng_log_warn("paho property is not support!", "");
 	}
+	nng_log_info("MQTTAsync_connect", "V5-HERE-4--%d--%d-------", options->MQTTVersion, m->is_payload_zstd);
+    if (m->MQTTVersion >= MQTTVERSION_5 && m->is_payload_zstd) {
+		nng_log_info("MQTTAsync_connect", "V5-HERE-5-----------");
+		property *p = mqtt_property_alloc();
+		const char *p1k = "Payload-Compression";
+		const char *p1v = "zstd";
+		property *p1 = mqtt_property_set_value_strpair(USER_PROPERTY,
+			p1k, strlen(p1k), p1v, strlen(p1v), true);
+		mqtt_property_append(p, p1);
+		nng_mqtt_msg_set_connect_property(connmsg, p);
+	}
+
     // property * p = mqtt_property_alloc();
 	// property *p1 = mqtt_property_set_value_u32(MAXIMUM_PACKET_SIZE, 120);
 	// property *p2 = mqtt_property_set_value_u16(TOPIC_ALIAS_MAXIMUM, 65535);
@@ -1092,21 +1106,25 @@ int MQTTAsync_unsubscribeMany(MQTTAsync handle, int count, char *const *topic, M
 }
 
 
-int MQTTAsync_send(MQTTAsync handle, const char *destinationName, int payloadlen, const void *payload,
-				   int qos, int retained, MQTTAsync_responseOptions *response)
+int MQTTAsync_send(MQTTAsync handle, const char *destinationName,
+		int payloadlen, const void *payload, int qos, int retained,
+		bool is_payload_zstd, MQTTAsync_responseOptions *response)
 {
 	int rc = MQTTASYNC_SUCCESS;
 	MQTTAsyncs *m = handle;
-	nng_mqtt_client *client = m->nanosdk_client;
+	nng_mqtt_client *client = NULL;
 
 	if (m == NULL) {
 		nng_log_warn("Paho", "NULL handle & Context!");
 		return MQTTASYNC_FAILURE;
 	}
+	client = m->nanosdk_client;
+
 	if (!UTF8_validateString(destinationName))
 		rc = MQTTASYNC_BAD_UTF8_STRING;
 	else if (qos < 0 || qos > 2)
 		rc = MQTTASYNC_BAD_QOS;
+
 	if (response)
 	{
 		if (m->MQTTVersion >= MQTTVERSION_5)
@@ -1145,8 +1163,31 @@ int MQTTAsync_send(MQTTAsync handle, const char *destinationName, int payloadlen
 	nng_mqtt_msg_set_publish_dup(pubmsg, 0);
 	nng_mqtt_msg_set_publish_qos(pubmsg, qos);
 	nng_mqtt_msg_set_publish_retain(pubmsg, retained);
-	nng_mqtt_msg_set_publish_payload(
-	    pubmsg, (uint8_t *) payload, payloadlen);
+	if (is_payload_zstd) {
+		size_t bound = ZSTD_compressBound(payloadlen + 1);
+		void* compressed = nng_alloc(bound);
+		size_t c_size = ZSTD_compress(compressed, bound, payload, payloadlen, 3);
+		if (ZSTD_isError(c_size)) {
+			nng_log_warn("MQTTAsync_send", "ZSTD compress failed! Send original payload");
+			nng_mqtt_msg_set_publish_payload(
+	    		pubmsg, (uint8_t *) payload, payloadlen);
+		} else {
+			// compressed succeeded
+			nng_mqtt_msg_set_publish_payload(
+	    		pubmsg, (uint8_t *) compressed, c_size);
+			property *p = mqtt_property_alloc();
+			const char *p1k = "Payload-Compression";
+			const char *p1v = "zstd";
+			property *p1 = mqtt_property_set_value_strpair(USER_PROPERTY,
+					p1k, strlen(p1k), p1v, strlen(p1v), true);
+			mqtt_property_append(p, p1);
+			nng_mqtt_msg_set_publish_property(pubmsg, p);
+		}
+		nng_free(compressed, bound);
+	} else {
+		nng_mqtt_msg_set_publish_payload(
+	    	pubmsg, (uint8_t *) payload, payloadlen);
+	}
 	nng_mqtt_msg_set_publish_topic(pubmsg, destinationName);
 	// -2 MQTTASYNC_PERSISTENCE_ERROR : msg enqueue, send later
 	// -4 MQTTASYNC_MAX_MESSAGES_INFLIGHT : lmq full msg dropped
@@ -1183,7 +1224,8 @@ int MQTTAsync_sendMessage(MQTTAsync handle, const char *destinationName, const M
 		response->properties = message->properties;
 
 	rc = MQTTAsync_send(handle, destinationName, message->payloadlen, message->payload,
-						message->qos, message->retained, response);
+						message->qos, message->retained,
+						message->is_payload_zstd, response);
 exit:
 	return rc;
 }
