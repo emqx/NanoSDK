@@ -292,11 +292,15 @@ endif ()
 if (NNG_ENABLE_TLS)
     add_definitions(-DNNG_SUPP_TLS)
     add_definitions(-DNNG_TLS_OPENSSL)
-    add_definitions(-DNNG_TLS_OPENSSL_HAVE_GM)
+    #add_definitions(-DNNG_TLS_OPENSSL_HAVE_GM)
     if (NNG_TLS_OPENSSL_HAVE_GM_NW)
         add_definitions(-DNNG_TLS_OPENSSL_HAVE_GM_NW)
     endif()
 endif ()
+
+# Customer requires
+find_package(zstd CONFIG REQUIRED)
+target_link_libraries(nng PRIVATE zstd::libzstd_shared)
 
 if (NNG_ENABLE_SQLITE)
     add_definitions(-DNNG_SUPP_SQLITE)
