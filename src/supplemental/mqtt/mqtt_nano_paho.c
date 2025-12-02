@@ -354,6 +354,12 @@ send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg, int rv) {
     } else if (rv == 0 && handle->publish.onSuccess5) {
         MQTTAsync_successData5 data = MQTTAsync_successData5_initializer;
 		data.token = handle->publish.token;
+		uint32_t *token_ptr = nng_aio_get_input(aio, 0);
+		if (token_ptr != NULL) {
+			data.token = *token_ptr;
+			nng_free(token_ptr, sizeof(uint32_t));
+			nng_aio_set_input(aio, 0, NULL);
+		}
 		data.reasonCode = rv;
         // data.alt.pub.destinationName = command->details.pub.destinationName;
         // data.alt.pub.message.payload = command->details.pub.payload;
@@ -1166,7 +1172,7 @@ int MQTTAsync_send(MQTTAsync handle, const char *destinationName,
 		void* compressed = nng_alloc(bound);
 		size_t c_size = ZSTD_compress(compressed, bound, payload, payloadlen, 3);
 		if (ZSTD_isError(c_size)) {
-			nng_log_warn("MQTTAsync_send", "ZSTD compress failed! Send original payload");
+			nng_log_warn("MQTTAsync_send", "ZSTD compress failed! Send original payload. %d", c_size);
 			nng_mqtt_msg_set_publish_payload(
 	    		pubmsg, (uint8_t *) payload, payloadlen);
 		} else {
