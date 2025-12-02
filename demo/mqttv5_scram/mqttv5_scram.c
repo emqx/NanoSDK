@@ -578,8 +578,8 @@ void testConnected(void* context, char* cause)
 	int rc;
 
 	printf("Successful connection!!!!\n");
-	opts.onSuccess = onSubscribeV4;
-	opts.onFailure = onSubscribeFailureV4;
+	opts.onSuccess5 = onSubscribe;
+	opts.onFailure5 = onSubscribeFailure;
 	// opts.onSuccess5 = onSubscribe;
 	// opts.onFailure5 = onSubscribeFailure;
 	opts.context = c;
@@ -597,7 +597,10 @@ void testConnected(void* context, char* cause)
 	for (int i=0; i<4; ++i) {
 		printf("Subscribe topic [%s] qos [%d]\n", topics[i], qos[i]);
 	}
-	MQTTAsync_subscribeMany(c, 4, topics, qos, &opts);
+	if ((rc = MQTTAsync_subscribeMany(c, 4, topics, qos, &opts)) != MQTTASYNC_SUCCESS)
+	{
+		printf("Failed to start subscribemany, return code %d\n", rc);
+	}
 }
 
 void onSendFailure( void *context, MQTTAsync_failureData *response)
@@ -625,7 +628,7 @@ void onSendSuccess5(void* context, MQTTAsync_successData5* response)
 	MQTTAsync client = (MQTTAsync)context;
 	MQTTAsync_disconnectOptions opts = MQTTAsync_disconnectOptions_initializer;
 
-	printf("Message delivery %d confirmed reason code %d\n", response->token, response->reasonCode);
+	printf("[TOKEN] Message delivery %d confirmed reason code %d\n", response->token, response->reasonCode);
 	(void) opts;
 	(void) client;
 }
@@ -719,10 +722,10 @@ main(const int argc, const char **argv)
 	nng_msleep(2000);
 	MQTTAsync_token token;
 
-	// pub_opts.onSuccess5 = onSendSuccess5;
-	// pub_opts.onFailure5 = onSendFailure5;
-	pub_opts.onSuccess = onSendSuccess;
-	pub_opts.onFailure = onSendFailure;
+	pub_opts.onSuccess5 = onSendSuccess5;
+	pub_opts.onFailure5 = onSendFailure5;
+	// pub_opts.onSuccess = onSendSuccess;
+	// pub_opts.onFailure = onSendFailure;
 	pub_opts.context = client;
 	pub_opts.token = 168;
 	MQTTAsync_message pubmsg = MQTTAsync_message_initializer;
@@ -741,22 +744,27 @@ main(const int argc, const char **argv)
 	pubmsg2.retained = 0;
 	pubmsg2.is_payload_zstd = true;
 	opts2.token = 240;
-	opts2.onSuccess = onSendSuccess;
-	opts2.onFailure = onSendFailure;
+	// optsn.onSuccess = onSendSuccess;
+	// optsn.onFailure = onSendFailure;
+	opts2.onSuccess5 = onSendSuccess5;
+	opts2.onFailure5 = onSendFailure5;
 	opts2.context = client;
 	MQTTAsync_sendMessage(client, "msg", &pubmsg2, &opts2);
 
 	for (int i=0; i<10; ++i) {
 		MQTTAsync_responseOptions optsn = MQTTAsync_responseOptions_initializer;
 		optsn.token = 10000+i;
-		optsn.onSuccess = onSendSuccess;
-		optsn.onFailure = onSendFailure;
+		// optsn.onSuccess = onSendSuccess;
+		// optsn.onFailure = onSendFailure;
+		optsn.onSuccess5 = onSendSuccess5;
+		optsn.onFailure5 = onSendFailure5;
 		optsn.context = client;
 		MQTTAsync_message pubmsgn = MQTTAsync_message_initializer;
-		pubmsgn.payload = "hello world";
-		pubmsgn.payloadlen = 11;
+		pubmsgn.payload = "hello world,hello world,hello world,hello world,hello world";
+		pubmsgn.payloadlen = 59;
 		pubmsgn.qos = 0;
 		pubmsgn.retained = 0;
+		pubmsgn.is_payload_zstd = true;
 		MQTTAsync_sendMessage(client, "msg", &pubmsgn, &optsn);
 	}
 

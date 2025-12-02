@@ -961,9 +961,7 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 		m->willProps = NULL;
         nng_log_warn("paho property is not support!", "");
 	}
-	nng_log_info("MQTTAsync_connect", "V5-HERE-4--%d--%d-------", options->MQTTVersion, m->is_payload_zstd);
     if (m->MQTTVersion >= MQTTVERSION_5 && m->is_payload_zstd) {
-		nng_log_info("MQTTAsync_connect", "V5-HERE-5-----------");
 		property *p = mqtt_property_alloc();
 		const char *p1k = "Payload-Compression";
 		const char *p1v = "zstd";
@@ -1147,7 +1145,7 @@ int MQTTAsync_send(MQTTAsync handle, const char *destinationName,
 		m->publish.token = response->token;
 		nng_log_debug("MQTTAsync_send", "set Publish token to %d with %p", response->token, m->publish);
 		if (m->MQTTVersion >= MQTTVERSION_5) {
-            nng_log_warn("Paho", "Publish property with PAHO API is not support");
+            nng_log_info("Paho", "Publish property with PAHO API is not support");
 			// pub->command.properties = MQTTProperties_copy(&response->properties);
             // MQTTProperties_free(&response->properties);
         }
