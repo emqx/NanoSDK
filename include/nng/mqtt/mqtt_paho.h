@@ -400,11 +400,11 @@ typedef struct MQTTAsync_responseOptions MQTTAsync_callOptions;
 	{ { 'M', 'Q', 'T', 'C' }, 8, 60, 1, 65535, NULL, NULL, NULL, 30, 0, \
 		NULL, NULL, NULL, NULL, 0, NULL, MQTTVERSION_DEFAULT, 0, 1, \
 		60, { 0, NULL }, 0, NULL, NULL, NULL, NULL, NULL, NULL,     \
-		NULL, 0, false }
+		NULL, 0, false, NULL }
 #define MQTTAsync_connectOptions_initializer5                               \
 	{ { 'M', 'Q', 'T', 'C' }, 8, 60, 0, 65535, NULL, NULL, NULL, 30, 0, \
 		NULL, NULL, NULL, NULL, 0, NULL, MQTTVERSION_5, 0, 1, 60,   \
-		{ 0, NULL }, 1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, false }
+		{ 0, NULL }, 1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, false, NULL }
 #define MQTTAsync_connectOptions_initializer_ws                             \
 	{ { 'M', 'Q', 'T', 'C' }, 8, 45, 1, 65535, NULL, NULL, NULL, 30, 0, \
 		NULL, NULL, NULL, NULL, 0, NULL, MQTTVERSION_DEFAULT, 0, 1, \
@@ -1347,6 +1347,10 @@ typedef struct {
 	 * Is MQTT Payload zstd compressed
 	 */
 	bool is_payload_zstd;
+	/**
+	 * reconnectCallback will be running when the connection is re-establishing
+	 */
+	void (*reconnectCallback)();
 } MQTTAsync_connectOptions;
 
 #define MQTTAsync_message_initializer                     \

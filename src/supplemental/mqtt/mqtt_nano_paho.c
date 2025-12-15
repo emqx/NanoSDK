@@ -1002,6 +1002,8 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
         rc = MQTTASYNC_FAILURE;
         goto exit;
     }
+	if (options->reconnectCallback)
+		nng_dialer_set_ptr(*dialer, NNG_OPT_MQTT_RECONNECT_CALLBACK, options->reconnectCallback);
 	nng_dialer_start(*dialer, NNG_FLAG_NONBLOCK);
     return rc;
 exit:

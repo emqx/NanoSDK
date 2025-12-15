@@ -653,6 +653,10 @@ void asyncDeliveryComplete(void* context, MQTTAsync_token token)
 	(void) context;
 }
 
+static void reconnectCallback() {
+	nng_log_info("RECONNECT CB", "Reconnecting...");
+}
+
 int
 main(const int argc, const char **argv)
 {
@@ -711,6 +715,7 @@ main(const int argc, const char **argv)
 	conn_opts.automaticReconnect = 1; // 设置非零，断开自动重连
 	conn_opts.minRetryInterval = 3; // 单位秒，重连间隔次数，每次重新连接失败时，重试间隔都会加倍，直到最大间隔
 	conn_opts.maxRetryInterval = 24; // 单位秒，最大重连尝试间隔
+	conn_opts.reconnectCallback = reconnectCallback;
 	// ssl选项
 	// conn_opts.ssl = &ssl_opts;
 	conn_opts.ssl = NULL;
@@ -720,7 +725,7 @@ main(const int argc, const char **argv)
 	if (MQTTAsync_setConnected(client, NULL, testConnected) != MQTTASYNC_SUCCESS)
 		printf("MQTTAsync_setConnected failed");
 	nng_msleep(2000);
-	MQTTAsync_token token;
+	// MQTTAsync_token token;
 
 	pub_opts.onSuccess5 = onSendSuccess5;
 	pub_opts.onFailure5 = onSendFailure5;
