@@ -73,6 +73,8 @@ extern "C" {
 
 #define NNG_OPT_MQTT_RECONNECT_BACKOFF_MAX "mqtt-reconnect-backoff-max"
 
+#define NNG_OPT_MQTT_RECONNECT_CALLBACK "mqtt-reconnect-callback"
+
 #define NNG_OPT_MQTT_DISCONNECT_PROPERTY "mqtt-disconnect-property"
 
 #define NNG_OPT_MQTT_RETRY_INTERVAL "mqtt-client-retry-interval"
