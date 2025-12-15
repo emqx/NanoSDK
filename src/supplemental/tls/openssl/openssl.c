@@ -371,12 +371,13 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 
 readopenssl:
 	if ((rv = SSL_read(ec->ssl, buf, (int) *szp)) < 0) {
+		int tmprv = rv;
 		rv = SSL_get_error(ec->ssl, rv);
 		// TODO return codes according openssl documents
 		if (rv != SSL_ERROR_WANT_READ) {
 			open_tls_errno = rv;
 			nng_log_err("NNG-TLS-CONN-RECV",
-				"openssl read failed rv%d", rv);
+				"openssl read failed rv%d %d", tmprv, rv);
 			return (NNG_ECRYPTO);
 		}
 		*szp = 0;
