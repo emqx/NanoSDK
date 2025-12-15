@@ -119,7 +119,7 @@ static const char* UTF8_char_validate(int len, const char* data)
 	if (charlen > len)
 		goto exit;	/* not enough characters in the string we were given */
 
-	for (i = 0; i < ARRAY_SIZE(valid_ranges); ++i)
+	for (i = 0; i < (int)ARRAY_SIZE(valid_ranges); ++i)
 	{ /* just has to match one of these rows */
 		if (valid_ranges[i].len == charlen)
 		{
@@ -203,7 +203,7 @@ MQTTProperty_getType(enum MQTTPropertyCodes value)
 {
 	int i, rc = -1;
 
-	for (i = 0; i < ARRAY_SIZE(namesToTypes); ++i) {
+	for (i = 0; i < (int)ARRAY_SIZE(namesToTypes); ++i) {
 		if (namesToTypes[i].name == value) {
 			rc = namesToTypes[i].type;
 			break;
@@ -218,7 +218,7 @@ MQTTPropertyName(enum MQTTPropertyCodes value)
 	int         i      = 0;
 	const char *result = NULL;
 
-	for (i = 0; i < ARRAY_SIZE(nameToString); ++i) {
+	for (i = 0; i < (int)ARRAY_SIZE(nameToString); ++i) {
 		if (nameToString[i].value == value) {
 			result = nameToString[i].name;
 			break;
@@ -991,10 +991,11 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 	// nng_mqtt_msg_set_connect_will_property(connmsg, will_prop);
 	nng_mqtt_set_connect_cb(*sock, connect_cb, m);
 	nng_mqtt_set_disconnect_cb(*sock, disconnect_cb, m);
-    if (m->MQTTVersion >= MQTTVERSION_5)
+    if (m->MQTTVersion >= MQTTVERSION_5) {
         nng_mqttv5_msg_encode(connmsg);
-    else
+    } else {
         nng_mqtt_msg_encode(connmsg);
+	}
 
 	if (nng_dialer_set_ptr(*dialer, NNG_OPT_MQTT_CONNMSG, connmsg) != 0) {
         nng_log_warn("nng_dialer_set_ptr", "set CONNECT in Async connect failed, \
