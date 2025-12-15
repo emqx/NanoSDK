@@ -19,6 +19,8 @@
 #include <openssl/crypto.h>
 #include <openssl/x509v3.h>
 
+#include <errno.h>
+
 #ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
 
 #include <openssl/engine.h>
@@ -377,7 +379,11 @@ readopenssl:
 		if (rv != SSL_ERROR_WANT_READ) {
 			open_tls_errno = rv;
 			nng_log_err("NNG-TLS-CONN-RECV",
-				"openssl read failed rv%d %d", tmprv, rv);
+				"openssl read failed rv %d -> %d", tmprv, rv);
+			char errstr[1024];
+			ERR_error_string(ERR_get_error(), errstr);
+			nng_log_err("NNG-TLS-CONN-RECV", "SD says: %s", errstr);
+			nng_log_err("NNG-TLS-CONN-RECV", "%d", errno);
 			return (NNG_ECRYPTO);
 		}
 		*szp = 0;
