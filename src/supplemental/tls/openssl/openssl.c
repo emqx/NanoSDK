@@ -352,7 +352,6 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 		nng_log_info("NNG-TLS-CONN-RECV", "read err rv %d", rv);
 		return (NNG_ECLOSED);
 	}
-		
 
 	int written = 0;
 	while ((ensz = BIO_write(ec->rbio, ec->wbuf + written, rv - written)) > 0) {

@@ -89,9 +89,10 @@ struct mqtt_tcptran_ep {
 	nni_reap_node        reap;
 	nng_stream_dialer   *dialer;
 	nng_stream_listener *listener;
-	nni_dialer          *ndialer;
-	void                *property; // property
-	void                *connmsg;
+	nni_dialer *         ndialer;
+	void *               property;  // property
+	void *               connmsg;
+	void                 (*reconnect_cb)();
 #ifdef SUPP_SCRAM
 	char    *scram_username;
 	char    *scram_password;
@@ -1607,7 +1608,10 @@ mqtt_tcptran_ep_connect(void *arg, nni_aio *aio)
 		ep->backoff = ep->backoff > ep->backoff_max
 		    ? (nni_duration) (nni_random() % 1000)
 		    : ep->backoff;
-		log_warn("reconnect to %s in %ld ms", ep->url->u_host, ep->backoff);
+		nng_log_debug("NanoSDK-Transport",
+		    "wait backoff time : %ld ms to start reconnect ... ", ep->backoff);
+		if (ep->reconnect_cb)
+			ep->reconnect_cb();
 		nni_msleep(ep->backoff);
 	} else {
 		ep->backoff = nni_random()%2000;
@@ -1797,6 +1801,22 @@ mqtt_tcptran_ep_set_reconnect_backoff(void *arg, const void *v, size_t sz, nni_o
 	return (rv);
 }
 
+// The callback will be running when a reconnect is triggered
+static int
+mqtt_tcptran_ep_set_reconnect_callback(void *arg, const void *v, size_t sz, nni_opt_type t)
+{
+	mqtt_tcptran_ep *ep = arg;
+	void *tmp;
+	int rv;
+
+	if ((rv = nni_copyin_ptr(&tmp, v, sz, t)) == 0) {
+		nni_mtx_lock(&ep->mtx);
+		ep->reconnect_cb = tmp;
+		nni_mtx_unlock(&ep->mtx);
+	}
+	return (rv);
+}
+
 static int
 mqtt_tcptran_ep_set_ep_closed(void *arg, const void *v, size_t sz, nni_opt_type t)
 {
@@ -1941,6 +1961,10 @@ static const nni_option mqtt_tcptran_ep_opts[] = {
 	{
 	    .o_name = NNG_OPT_MQTT_RECONNECT_BACKOFF_MAX,
 	    .o_set  = mqtt_tcptran_ep_set_reconnect_backoff,
+	},
+	{
+	    .o_name = NNG_OPT_MQTT_RECONNECT_CALLBACK,
+	    .o_set  = mqtt_tcptran_ep_set_reconnect_callback,
 	},
 	{
 	    .o_name = NNG_OPT_URL,
