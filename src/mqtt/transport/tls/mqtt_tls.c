@@ -1485,6 +1485,7 @@ mqtts_tcptran_ep_init(mqtts_tcptran_ep **epp, nng_url *url, nni_sock *sock)
 	ep->reason_code = 0;
 	ep->property    = NULL;
 	ep->backoff     = 0;
+	ep->reconnect_cb = NULL;
 
 	*epp = ep;
 	return (0);
