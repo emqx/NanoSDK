@@ -267,6 +267,20 @@ mqtt_sock_set_retry_interval(void *arg, const void *v, size_t sz, nni_opt_type t
 	return (rv);
 }
 
+
+static int
+mqtt_sock_set_keepalive_interval(void *arg, const void *v, size_t sz, nni_opt_type t)
+{
+	mqtt_sock_t *s = arg;
+	nni_duration    tmp;
+	int rv;
+
+	if ((rv = nni_copyin_ms(&tmp, v, sz, t)) == 0) {
+		s->keepalive = tmp;
+	}
+	return (rv);
+}
+
 static int
 mqtt_sock_set_retry_wait(void *arg, const void *v, size_t sz, nni_opt_type t)
 {
@@ -1463,6 +1477,10 @@ static nni_option mqtt_sock_options[] = {
 	{
 	    .o_name = NNG_OPT_MQTT_RETRY_INTERVAL,
 	    .o_set  = mqtt_sock_set_retry_interval,
+	},
+	{
+	    .o_name = NNG_OPT_MQTT_KEEPALIVE_INTERVAL,
+	    .o_set  = mqtt_sock_set_keepalive_interval,
 	},
 	{
 	    .o_name = NNG_OPT_MQTT_RETRY_WAIT_TIME,

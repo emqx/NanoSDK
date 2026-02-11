@@ -85,6 +85,7 @@ extern "C" {
 #define NNG_OPT_MQTT_RETRY_QOS_0 "mqtt-client-retry-qos-0"
 
 #define NNG_OPT_MQTT_RETRY_WAIT_TIME "mqtt-client-retry-wait-time"
+#define NNG_OPT_MQTT_KEEPALIVE_INTERVAL "mqtt-client-keepalive-interval"
 
 #define NNG_OPT_MQTT_DISCONNECT_REASON "mqtt-disconnect-reason"
 
