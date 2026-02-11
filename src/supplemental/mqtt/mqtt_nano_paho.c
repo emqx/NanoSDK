@@ -736,8 +736,12 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
     if (options->keepAliveInterval < 0 || options->keepAliveInterval > 0xFFFF) {
         goto exit;
     }
-	nng_mqtt_msg_set_connect_keep_alive(
-	    connmsg, (uint16_t) options->keepAliveInterval);
+    if (options->keepAliveInterval >= 0) {
+	    nng_mqtt_msg_set_connect_keep_alive(connmsg, (uint16_t) options->keepAliveInterval);
+	    nng_duration keepaliveInterval = options->keepAliveInterval * 1000;
+	    nng_socket_set_ms(*m->sock, NNG_OPT_MQTT_KEEPALIVE_INTERVAL, keepaliveInterval);
+    }
+
     if (!options->scram && options->username)
 	    nng_mqtt_msg_set_connect_user_name(connmsg, options->username);
 	else if (options->scram && options->username) {
