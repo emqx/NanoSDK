@@ -10,6 +10,7 @@
 // This provides an abstraction for byte streams, allowing polymorphic
 // use of them in rather flexible contexts.
 
+#include <stdio.h>
 #include <string.h>
 
 #include "core/nng_impl.h"
