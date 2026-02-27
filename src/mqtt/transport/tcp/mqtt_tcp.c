@@ -913,22 +913,31 @@ mqtt_tcptran_pipe_send_start(mqtt_tcptran_pipe *p)
 		niov++;
 	}
 
-	int msg_body_len = 30 < nni_msg_len(msg) ? 30 : nni_msg_len(msg);
+	int msg_body_len = 30 < (int) nni_msg_len(msg) ? 30 : (int) nni_msg_len(msg);
+	int msg_hdr_len  = (int) nni_msg_header_len(msg);
 
-	char  strheader[nni_msg_header_len(msg) * 3 + 1];
-	char  strbody[msg_body_len * 3 + 1];
+	// Fixed-size buffers: header up to 16 bytes, body up to 30 bytes
+	// Each byte => "XX " (3 chars) + null terminator
+	char  strheader[16 * 3 + 1];
+	char  strbody[30 * 3 + 1];
 	char *data;
 
-	data = nni_msg_header(msg);
-	for (int i = 0; i < nni_msg_header_len(msg); ++i) {
-		sprintf(strheader + i * 3, "%02X ", data[i]);
+	if (msg_hdr_len > 16) {
+		msg_hdr_len = 16;
 	}
+
+	data = nni_msg_header(msg);
+	for (int i = 0; i < msg_hdr_len; ++i) {
+		sprintf(strheader + i * 3, "%02X ", (unsigned char) data[i]);
+	}
+	strheader[msg_hdr_len * 3] = '\0';
 	log_debug("msg header: %s", strheader);
 
 	data = nni_msg_body(msg);
 	for (int i = 0; i < msg_body_len; ++i) {
-		sprintf(strbody + i * 3, "%02X ", data[i]);
+		sprintf(strbody + i * 3, "%02X ", (unsigned char) data[i]);
 	}
+	strbody[msg_body_len * 3] = '\0';
 	log_debug("msg body: %s", strbody);
 
 	nni_aio_set_iov(txaio, niov, iov);
