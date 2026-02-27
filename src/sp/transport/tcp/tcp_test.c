@@ -12,6 +12,9 @@
 
 #include <nuts.h>
 
+#include <stdio.h>
+#include <stdlib.h>
+
 // TCP tests.
 
 static void
@@ -278,6 +281,137 @@ test_tcp_recv_max(void)
 	NUTS_CLOSE(s1);
 }
 
+// Test that concurrent sends on a TCP stream do not interleave data.
+// This verifies the fix for partial write handling in tcp_dowrite():
+// each aio must be fully transmitted before the next one starts.
+#define CONCURRENT_NAIOS  4
+#define CONCURRENT_BUFSZ  65536
+
+static void
+test_tcp_concurrent_send_data_integrity(void)
+{
+	nng_stream_listener *l;
+	nng_stream_dialer *  d;
+	nng_stream *         ss; // server stream
+	nng_stream *         cs; // client stream
+	nng_aio *            accept_aio;
+	nng_aio *            dial_aio;
+	nng_aio *            send_aios[CONCURRENT_NAIOS];
+	nng_aio *            recv_aio;
+	int                  port;
+	char                 addr[64];
+	uint8_t *            send_bufs[CONCURRENT_NAIOS];
+	uint8_t *            recv_buf;
+	size_t               total_sz = CONCURRENT_NAIOS * CONCURRENT_BUFSZ;
+
+	// Allocate send buffers, each filled with a unique byte pattern
+	for (int i = 0; i < CONCURRENT_NAIOS; i++) {
+		send_bufs[i] = (uint8_t *) nng_alloc(CONCURRENT_BUFSZ);
+		NUTS_TRUE(send_bufs[i] != NULL);
+		memset(send_bufs[i], 0xA0 + i, CONCURRENT_BUFSZ);
+	}
+	recv_buf = (uint8_t *) nng_alloc(total_sz);
+	NUTS_TRUE(recv_buf != NULL);
+
+	// Create TCP stream pair
+	NUTS_PASS(nng_stream_listener_alloc(&l, "tcp://127.0.0.1:0"));
+	NUTS_PASS(nng_stream_listener_listen(l));
+	NUTS_PASS(nng_stream_listener_get_int(
+	    l, NNG_OPT_TCP_BOUND_PORT, &port));
+
+	(void) snprintf(addr, sizeof(addr), "tcp://127.0.0.1:%d", port);
+	NUTS_PASS(nng_stream_dialer_alloc(&d, addr));
+
+	NUTS_PASS(nng_aio_alloc(&accept_aio, NULL, NULL));
+	NUTS_PASS(nng_aio_alloc(&dial_aio, NULL, NULL));
+	nng_aio_set_timeout(accept_aio, 5000);
+	nng_aio_set_timeout(dial_aio, 5000);
+
+	nng_stream_listener_accept(l, accept_aio);
+	nng_stream_dialer_dial(d, dial_aio);
+	nng_aio_wait(accept_aio);
+	nng_aio_wait(dial_aio);
+	NUTS_PASS(nng_aio_result(accept_aio));
+	NUTS_PASS(nng_aio_result(dial_aio));
+
+	ss = nng_aio_get_output(accept_aio, 0);
+	cs = nng_aio_get_output(dial_aio, 0);
+	NUTS_TRUE(ss != NULL);
+	NUTS_TRUE(cs != NULL);
+
+	// Submit all send aios concurrently on the client stream
+	for (int i = 0; i < CONCURRENT_NAIOS; i++) {
+		nng_iov iov;
+		NUTS_PASS(nng_aio_alloc(&send_aios[i], NULL, NULL));
+		nng_aio_set_timeout(send_aios[i], 5000);
+		iov.iov_buf = send_bufs[i];
+		iov.iov_len = CONCURRENT_BUFSZ;
+		NUTS_PASS(nng_aio_set_iov(send_aios[i], 1, &iov));
+		nng_stream_send(cs, send_aios[i]);
+	}
+
+	// Receive all data on the server stream
+	// May need multiple recv calls since TCP is a stream protocol
+	{
+		size_t received = 0;
+		NUTS_PASS(nng_aio_alloc(&recv_aio, NULL, NULL));
+		nng_aio_set_timeout(recv_aio, 10000);
+
+		while (received < total_sz) {
+			nng_iov iov;
+			iov.iov_buf = recv_buf + received;
+			iov.iov_len = total_sz - received;
+			NUTS_PASS(nng_aio_set_iov(recv_aio, 1, &iov));
+			nng_stream_recv(ss, recv_aio);
+			nng_aio_wait(recv_aio);
+			NUTS_PASS(nng_aio_result(recv_aio));
+			received += nng_aio_count(recv_aio);
+		}
+		NUTS_TRUE(received == total_sz);
+	}
+
+	// Wait for all sends to complete
+	for (int i = 0; i < CONCURRENT_NAIOS; i++) {
+		nng_aio_wait(send_aios[i]);
+		NUTS_PASS(nng_aio_result(send_aios[i]));
+	}
+
+	// Verify data integrity: each aio's data must appear as a
+	// contiguous block, not interleaved with data from other aios.
+	// The blocks must be in submission order (FIFO writeq).
+	for (int i = 0; i < CONCURRENT_NAIOS; i++) {
+		uint8_t expected = 0xA0 + i;
+		size_t  offset   = (size_t) i * CONCURRENT_BUFSZ;
+		for (size_t j = 0; j < CONCURRENT_BUFSZ; j++) {
+			if (recv_buf[offset + j] != expected) {
+				printf("DATA INTEGRITY FAILURE: "
+				       "aio[%d] offset %zu: "
+				       "expected 0x%02X, got 0x%02X\n",
+				    i, j, expected,
+				    recv_buf[offset + j]);
+				NUTS_TRUE(recv_buf[offset + j] == expected);
+				break;
+			}
+		}
+	}
+
+	// Cleanup
+	for (int i = 0; i < CONCURRENT_NAIOS; i++) {
+		nng_aio_free(send_aios[i]);
+		nng_free(send_bufs[i], CONCURRENT_BUFSZ);
+	}
+	nng_aio_free(recv_aio);
+	nng_free(recv_buf, total_sz);
+	nng_stream_close(cs);
+	nng_stream_close(ss);
+	nng_stream_free(cs);
+	nng_stream_free(ss);
+	nng_stream_dialer_free(d);
+	nng_stream_listener_free(l);
+	nng_aio_free(accept_aio);
+	nng_aio_free(dial_aio);
+}
+
 NUTS_TESTS = {
 
 	{ "tcp wild card connect fail", test_tcp_wild_card_connect_fail },
@@ -290,5 +424,7 @@ NUTS_TESTS = {
 	{ "tcp no delay option", test_tcp_no_delay_option },
 	{ "tcp keep alive option", test_tcp_keep_alive_option },
 	{ "tcp recv max", test_tcp_recv_max },
+	{ "tcp concurrent send data integrity",
+	    test_tcp_concurrent_send_data_integrity },
 	{ NULL, NULL },
 };
