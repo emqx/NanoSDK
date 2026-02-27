@@ -117,8 +117,11 @@ test_encode_connect(void)
 
 	nng_mqtt_msg_set_connect_client_id(msg, client_id);
 
-	NUTS_TRUE(strncmp(nng_mqtt_msg_get_connect_client_id(msg), client_id,
-	              strlen(client_id)) == 0);
+	{
+		mqtt_buf cid = nng_mqtt_msg_get_connect_client_id(msg);
+		NUTS_TRUE(cid.length == strlen(client_id));
+		NUTS_TRUE(memcmp(cid.buf, client_id, cid.length) == 0);
+	}
 
 	char will_topic[] = "/nanomq/will_msg";
 	nng_mqtt_msg_set_connect_will_topic(msg, will_topic);
@@ -516,8 +519,11 @@ test_encode_connect_v5(void)
 
 	nng_mqtt_msg_set_connect_client_id(msg, client_id);
 
-	NUTS_TRUE(strncmp(nng_mqtt_msg_get_connect_client_id(msg), client_id,
-	              strlen(client_id)) == 0);
+	{
+		mqtt_buf cid = nng_mqtt_msg_get_connect_client_id(msg);
+		NUTS_TRUE(cid.length == strlen(client_id));
+		NUTS_TRUE(memcmp(cid.buf, client_id, cid.length) == 0);
+	}
 
 	char will_topic[] = "/nanomq/will_msg";
 	nng_mqtt_msg_set_connect_will_topic(msg, will_topic);
