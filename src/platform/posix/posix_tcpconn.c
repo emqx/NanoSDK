@@ -86,8 +86,17 @@ tcp_dowrite(nni_tcp_conn *c)
 		}
 
 		nni_aio_bump_count(aio, n);
-		// We completed the entire operation on this aio.
-		// (Sendmsg never returns a partial result.)
+
+		// sendmsg() CAN return partial results on TCP sockets
+		// when the send buffer is nearly full. We must complete
+		// the current aio before processing the next one to
+		// prevent byte interleaving between concurrent aios
+		// (e.g. MQTT PUBLISH body mixed with PUBREL bytes).
+		nni_aio_iov_advance(aio, n);
+		if (nni_aio_iov_count(aio) > 0) {
+			continue;
+		}
+
 		nni_aio_list_remove(aio);
 		nni_aio_finish(aio, 0, nni_aio_count(aio));
 
