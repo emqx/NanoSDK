@@ -279,28 +279,6 @@ static struct nameToType
   {MQTTPROPERTY_CODE_SHARED_SUBSCRIPTION_AVAILABLE, MQTTPROPERTY_TYPE_BYTE}
 };
 
-/**
- * Returns a printable string description of an MQTT V5 property code.
- * @param value an MQTT V5 property code.
- * @return the printable string description of the input property code.
- * NULL if the code was not found.
- */
-extern const char* MQTTPropertyName(enum MQTTPropertyCodes value);
-
-/**
- * Returns the MQTT V5 type code of an MQTT V5 property.
- * @param value an MQTT V5 property code.
- * @return the MQTT V5 type code of the input property. -1 if the code was not found.
- */
-extern int MQTTProperty_getType(enum MQTTPropertyCodes value);
-
-/**
- * Free all memory allocated to the property list, including any to individual
- * properties.
- * @param properties pointer to the property list.
- */
-extern void MQTTProperties_free(MQTTProperties *properties);
-
 /** The connect options that can be updated before an automatic reconnect. */
 typedef struct {
 	/** The eyecatcher for this structure.  Will be MQCD. */

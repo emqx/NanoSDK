@@ -21,7 +21,17 @@
 #include "nng/supplemental/tls/tls.h"
 #endif
 
-static const char* UTF8_char_validate(int len, const char* data);
+static const char *UTF8_char_validate(int len, const char *data);
+static property *MQTTProperties_to_property_list(const MQTTProperties *props);
+
+static char *
+datadup(const MQTTLenString *str)
+{
+	char *temp = malloc(str->len);
+	if (temp)
+		memcpy(temp, str->data, str->len);
+	return temp;
+}
 
 int MQTTLastTLS_errno()
 {
@@ -957,30 +967,59 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 		goto exit;
 	}
 #endif // NNG_SUPP_TLS
-    if (m->connectProps)
-	{
-		MQTTProperties_free(m->connectProps);
-		nni_free(m->connectProps, sizeof(m->connectProps));
-		m->connectProps = NULL;
-        nng_log_warn("paho property is not support!", "");
-	}
-	if (m->willProps)
-	{   // MQTTProperties_copy
-		MQTTProperties_free(m->willProps);
-		nni_free(m->willProps, sizeof(m->willProps));
-		m->willProps = NULL;
-        nng_log_warn("paho property is not support!", "");
-	}
-	if (m->MQTTVersion >= MQTTVERSION_5 && m->is_payload_zstd) {
-		property *p = mqtt_property_alloc();
-		const char *p1k = "Payload-Compression";
-		const char *p1v = "zstd";
-		property *p1 = mqtt_property_set_value_strpair(USER_PROPERTY,
-			p1k, strlen(p1k), p1v, strlen(p1v), true);
-		mqtt_property_append(p, p1);
-		nng_mqtt_msg_set_connect_property(connmsg, p);
-	}
 
+	if (m->MQTTVersion >= MQTTVERSION_5) {
+
+		if (m->willProps) {
+			// transfer paho property to NanoSDK property
+			property *will_plist =
+			    MQTTProperties_to_property_list(m->willProps);
+			if (will_plist) {
+				nng_mqtt_msg_set_connect_will_property(
+				    connmsg, will_plist);
+			}
+			MQTTProperties_free(m->willProps);
+			nni_free(m->willProps, sizeof(m->willProps));
+			m->willProps = NULL;
+		}
+
+		property *conn_plist = NULL;
+
+		if (m->connectProps) {
+			if (m->MQTTVersion >= MQTTVERSION_5) {
+				// transfer paho property to NanoSDK property
+				 conn_plist =
+				    MQTTProperties_to_property_list(
+				        m->connectProps);
+				if (conn_plist) {
+					// set connect property
+					nng_mqtt_msg_set_connect_property(
+					    connmsg, conn_plist);
+				}
+			}
+
+			MQTTProperties_free(m->connectProps);
+			nni_free(m->connectProps, sizeof(m->connectProps));
+			m->connectProps = NULL;
+		}
+		if (m->is_payload_zstd) {
+			if (conn_plist == NULL) {
+				conn_plist = mqtt_property_alloc();
+			}
+			const char *p1k = "Payload-Compression";
+			const char *p1v = "zstd";
+			property   *p1 =
+			    mqtt_property_set_value_strpair(USER_PROPERTY, p1k,
+			        strlen(p1k), p1v, strlen(p1v), true);
+			mqtt_property_append(conn_plist, p1);
+		}
+
+		if (conn_plist) {
+			// set connect property
+			nng_mqtt_msg_set_connect_property(connmsg, conn_plist);
+		}
+
+	}
     // property * p = mqtt_property_alloc();
 	// property *p1 = mqtt_property_set_value_u32(MAXIMUM_PACKET_SIZE, 120);
 	// property *p2 = mqtt_property_set_value_u16(TOPIC_ALIAS_MAXIMUM, 65535);
@@ -1028,6 +1067,9 @@ int MQTTAsync_subscribeMany(MQTTAsync handle, int count, char *const *topic, con
 {
 	MQTTAsyncs *m = handle;
     nng_mqtt_client *client = m->nanosdk_client;
+
+	property *plist_plist = NULL;
+
 	int i = 0;
 	int rc = MQTTASYNC_SUCCESS;
 
@@ -1070,16 +1112,16 @@ int MQTTAsync_subscribeMany(MQTTAsync handle, int count, char *const *topic, con
 		m->subscribe.onSuccess5 = response->onSuccess5;
 		m->subscribe.onFailure5 = response->onFailure5;
 		m->subscribe.context    = response->context;
+		m->subscribe.properties = response->properties;
 		response->token         = m->subscribe.token; // msg id
 		if (m->MQTTVersion >= MQTTVERSION_5) {
-			// if (response->properties) {
-				nng_log_warn("reminder:",
-				    "Setting Property with paho is not support");
-				// MQTTProperties_free(response->properties);
-			// }
+			// transfer paho property to NanoSDK property
+			plist_plist = MQTTProperties_to_property_list(
+			    &m->subscribe.properties);
+			MQTTProperties_free(&m->subscribe.properties);
 		}
 	}
-	nng_mqtt_subscribe_async(client, topic_qos, count, NULL);
+	nng_mqtt_subscribe_async(client, topic_qos, count, plist_plist);
     nng_mqtt_topic_qos_array_free(topic_qos, count);
 	nng_mtx_unlock(client->mtx);
 	return rc;
@@ -1156,12 +1198,8 @@ int MQTTAsync_send(MQTTAsync handle, const char *destinationName,
 		m->publish.onFailure5 = response->onFailure5;
 		m->publish.context = response->context;
 		m->publish.token = response->token;
+		m->publish.properties = response->properties;
 		nng_log_debug("MQTTAsync_send", "set Publish token to %d with %p", response->token, m->publish);
-		if (m->MQTTVersion >= MQTTVERSION_5) {
-            nng_log_info("Paho", "Publish property with PAHO API is not support");
-			// pub->command.properties = MQTTProperties_copy(&response->properties);
-            // MQTTProperties_free(&response->properties);
-        }
 	}
 
 	if (rc != MQTTASYNC_SUCCESS)
@@ -1174,6 +1212,17 @@ int MQTTAsync_send(MQTTAsync handle, const char *destinationName,
 	nng_mqtt_msg_set_publish_dup(pubmsg, 0);
 	nng_mqtt_msg_set_publish_qos(pubmsg, qos);
 	nng_mqtt_msg_set_publish_retain(pubmsg, retained);
+
+	property *plist_plist = NULL;
+
+	if (m->MQTTVersion >= MQTTVERSION_5) {
+		// transfer paho property to NanoSDK property
+		plist_plist =
+		    MQTTProperties_to_property_list(&m->publish.properties);
+		// free paho property after transfer
+		MQTTProperties_free(&m->publish.properties);
+	}
+
 	if (is_payload_zstd) {
 		size_t bound = ZSTD_compressBound(payloadlen + 1);
 		void* compressed = nng_alloc(bound);
@@ -1186,19 +1235,26 @@ int MQTTAsync_send(MQTTAsync handle, const char *destinationName,
 			// compressed succeeded
 			nng_mqtt_msg_set_publish_payload(
 					pubmsg, (uint8_t *) compressed, c_size);
-			property *p = mqtt_property_alloc();
+
+			if (plist_plist == NULL) {
+				plist_plist = mqtt_property_alloc();
+			}
 			const char *p1k = "Payload-Compression";
 			const char *p1v = "zstd";
 			property *p1 = mqtt_property_set_value_strpair(USER_PROPERTY,
 					p1k, strlen(p1k), p1v, strlen(p1v), true);
-			mqtt_property_append(p, p1);
-			nng_mqtt_msg_set_publish_property(pubmsg, p);
+			mqtt_property_append(plist_plist, p1);
 		}
 		nng_free(compressed, bound);
 	} else {
 		nng_mqtt_msg_set_publish_payload(
 				pubmsg, (uint8_t *) payload, payloadlen);
 	}
+
+	if (plist_plist) {
+		nng_mqtt_msg_set_publish_property(pubmsg, plist_plist);
+	}
+
 	nng_mqtt_msg_set_publish_topic(pubmsg, destinationName);
 	// -2 MQTTASYNC_PERSISTENCE_ERROR : msg enqueue, send later
 	// -4 MQTTASYNC_MAX_MESSAGES_INFLIGHT : lmq full msg dropped
@@ -1303,4 +1359,183 @@ void MQTTAsync_destroy(MQTTAsync *handle)
 		nng_free(m->clientId, strlen(m->clientId));
 	}
     nng_free(m, sizeof(MQTTAsyncs));
+}
+
+/*
+if (prop->value.integer4 >= 0 && prop->value.integer4 <= 127)
+  len = 1;
+else if (prop->value.integer4 >= 128 && prop->value.integer4 <= 16383)
+  len = 2;
+else if (prop->value.integer4 >= 16384 && prop->value.integer4 < 2097151)
+  len = 3;
+else if (prop->value.integer4 >= 2097152 && prop->value.integer4 < 268435455)
+  len = 4;
+*/
+int
+MQTTPacket_VBIlen(int rem_len)
+{
+	int rc = 0;
+
+	if (rem_len < 128)
+		rc = 1;
+	else if (rem_len < 16384)
+		rc = 2;
+	else if (rem_len < 2097152)
+		rc = 3;
+	else
+		rc = 4;
+	return rc;
+}
+
+static property *
+MQTTProperties_to_property_list(const MQTTProperties *props)
+{
+	property *plist = NULL;
+
+	if (props == NULL || props->array == NULL || props->count <= 0)
+		return NULL;
+
+	plist = mqtt_property_alloc();
+	if (plist == NULL)
+		return NULL;
+
+	for (int i = 0; i < props->count; i++) {
+		const MQTTProperty *src = &props->array[i];
+		property           *dst = NULL;
+		int type = MQTTProperty_getType(src->identifier);
+
+		switch (type) {
+		case MQTTPROPERTY_TYPE_BYTE:
+			dst = mqtt_property_set_value_u8(
+			    (uint8_t) src->identifier,
+			    (uint8_t) src->value.byte);
+			break;
+		case MQTTPROPERTY_TYPE_TWO_BYTE_INTEGER:
+			dst = mqtt_property_set_value_u16(
+			    (uint8_t) src->identifier,
+			    (uint16_t) src->value.integer2);
+			break;
+		case MQTTPROPERTY_TYPE_FOUR_BYTE_INTEGER:
+		case MQTTPROPERTY_TYPE_VARIABLE_BYTE_INTEGER:
+			dst = mqtt_property_set_value_u32(
+			    (uint8_t) src->identifier,
+			    (uint32_t) src->value.integer4);
+			break;
+		case MQTTPROPERTY_TYPE_BINARY_DATA:
+			dst = mqtt_property_set_value_binary(
+			    (uint8_t) src->identifier,
+			    (uint8_t *) src->value.data.data,
+			    (uint32_t) src->value.data.len, true);
+			break;
+		case MQTTPROPERTY_TYPE_UTF_8_ENCODED_STRING:
+			dst = mqtt_property_set_value_str(
+			    (uint8_t) src->identifier, src->value.data.data,
+			    (uint32_t) src->value.data.len, true);
+			break;
+		case MQTTPROPERTY_TYPE_UTF_8_STRING_PAIR:
+			dst = mqtt_property_set_value_strpair(
+			    (uint8_t) src->identifier, src->value.data.data,
+			    (uint32_t) src->value.data.len,
+			    src->value.value.data,
+			    (uint32_t) src->value.value.len, true);
+			break;
+		default:
+			break;
+		}
+
+		if (dst != NULL)
+			mqtt_property_append(plist, dst);
+	}
+
+	return plist;
+}
+
+/**
+ * Add a new property to a property list
+ * @param props the property list
+ * @param prop the new property
+ * @return code 0 is success
+ */
+int
+MQTTProperties_add(MQTTProperties *props, const MQTTProperty *prop)
+{
+	int rc = 0, type;
+
+	if (props == NULL) {
+		rc = PAHO_MEMORY_ERROR;
+		goto exit;
+	}
+	if ((type = MQTTProperty_getType(prop->identifier)) < 0) {
+		/*StackTrace_printStack(stdout);*/
+		rc = MQTT_INVALID_PROPERTY_ID;
+		goto exit;
+	} else if (props->array == NULL) {
+		props->max_count = 10;
+		props->array = malloc(sizeof(MQTTProperty) * props->max_count);
+	} else if (props->count == props->max_count) {
+		props->max_count += 10;
+		void *newPtr = realloc(
+		    props->array, sizeof(MQTTProperty) * props->max_count);
+		if (newPtr == NULL) {
+			free(props->array);
+			props->array = NULL;
+		} else {
+			props->array = newPtr;
+		}
+	}
+
+	if (props->array) {
+		int len = 0;
+
+		props->array[props->count++] = *prop;
+		/* calculate length */
+		switch (type) {
+		case MQTTPROPERTY_TYPE_BYTE:
+			len = 1;
+			break;
+		case MQTTPROPERTY_TYPE_TWO_BYTE_INTEGER:
+			len = 2;
+			break;
+		case MQTTPROPERTY_TYPE_FOUR_BYTE_INTEGER:
+			len = 4;
+			break;
+		case MQTTPROPERTY_TYPE_VARIABLE_BYTE_INTEGER:
+			len = MQTTPacket_VBIlen(prop->value.integer4);
+			break;
+		case MQTTPROPERTY_TYPE_BINARY_DATA:
+		case MQTTPROPERTY_TYPE_UTF_8_ENCODED_STRING:
+		case MQTTPROPERTY_TYPE_UTF_8_STRING_PAIR:
+			len = 2 + prop->value.data.len;
+			props->array[props->count - 1].value.data.data =
+			    datadup(&prop->value.data);
+			if (type == MQTTPROPERTY_TYPE_UTF_8_STRING_PAIR) {
+				len += 2 + prop->value.value.len;
+				props->array[props->count - 1]
+				    .value.value.data =
+				    datadup(&prop->value.value);
+			}
+			break;
+		}
+		props->length += len + 1; /* add identifier byte */
+	} else
+		rc = PAHO_MEMORY_ERROR;
+
+exit:
+	return rc;
+}
+
+int
+MQTTProperties_hasProperty(
+    const MQTTProperties *props, enum MQTTPropertyCodes propid)
+{
+	int i     = 0;
+	int found = 0;
+
+	for (i = 0; props != NULL && i < props->count; ++i) {
+		if (propid == props->array[i].identifier) {
+			found = 1;
+			break;
+		}
+	}
+	return found;
 }

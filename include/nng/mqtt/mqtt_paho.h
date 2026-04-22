@@ -440,6 +440,8 @@ typedef struct {
 	char *data; /**< pointer to the string data */
 } MQTTLenString;
 
+#define MQTT_INVALID_PROPERTY_ID -2
+
 /** The one byte MQTT V5 property indicator */
 enum MQTTPropertyCodes {
 	MQTTPROPERTY_CODE_PAYLOAD_FORMAT_INDICATOR = 1, /**< The value is 1 */
@@ -474,7 +476,7 @@ enum MQTTPropertyCodes {
 	MQTTPROPERTY_CODE_SUBSCRIPTION_IDENTIFIERS_AVAILABLE =
 	    41, /**< The value is 41 */
 	MQTTPROPERTY_CODE_SHARED_SUBSCRIPTION_AVAILABLE =
-	    42 /**< The value is 241 */
+	    42 /**< The value is 42 */
 };
 
 /**
@@ -1826,6 +1828,47 @@ NNG_DECL void MQTTAsync_freeMessage(MQTTAsync_message **msg);
  * @param ptr The pointer to the client library storage to be freed.
  */
 NNG_DECL void MQTTAsync_free(void *ptr);
+
+/**
+ * Add a property pointer to the property array. Memory is allocated in this function,
+ * so MQTTClient_create or MQTTAsync_create must be called first to initialize the
+ * internal heap tracking. Alternatively MQTTAsync_global_init() can be called first
+ * or build with the HIGH_PERFORMANCE option which disables the heap tracking.
+ * @param props The property list to add the property to.
+ * @param prop The property to add to the list.
+ * @return 0 on success, -1 on failure.
+ */
+NNG_DECL int MQTTProperties_add(MQTTProperties* props, const MQTTProperty* prop);
+
+/**
+ * Checks if property list contains a specific property.
+ * @param props pointer to the property list.
+ * @param propid the property id to check for.
+ * @return 1 if found, 0 if not.
+ */
+NNG_DECL int MQTTProperties_hasProperty(const MQTTProperties* props, enum MQTTPropertyCodes propid);
+
+/**
+ * Returns a printable string description of an MQTT V5 property code.
+ * @param value an MQTT V5 property code.
+ * @return the printable string description of the input property code.
+ * NULL if the code was not found.
+ */
+NNG_DECL const char* MQTTPropertyName(enum MQTTPropertyCodes value);
+
+/**
+ * Returns the MQTT V5 type code of an MQTT V5 property.
+ * @param value an MQTT V5 property code.
+ * @return the MQTT V5 type code of the input property. -1 if the code was not found.
+ */
+NNG_DECL int MQTTProperty_getType(enum MQTTPropertyCodes value);
+
+/**
+ * Free all memory allocated to the property list, including any to individual
+ * properties.
+ * @param properties pointer to the property list.
+ */
+NNG_DECL void MQTTProperties_free(MQTTProperties *properties);
 
 #ifdef __cplusplus
 }
