@@ -739,6 +739,29 @@ main(const int argc, const char **argv)
 	pubmsg.payloadlen = 11;
 	pubmsg.qos = 0;
 	pubmsg.retained = 0;
+
+	MQTTProperty user_property;
+	user_property.identifier      = MQTTPROPERTY_CODE_USER_PROPERTY;
+	user_property.value.data.data = "test user property";
+	user_property.value.data.len =
+	    (int) strlen(user_property.value.data.data);
+	user_property.value.value.data = "test user property value";
+	user_property.value.value.len =
+	    (int) strlen(user_property.value.value.data);
+	MQTTProperties_add(&pubmsg.properties, &user_property);
+
+	MQTTProperty payload_type_property;
+	payload_type_property.identifier =
+	    MQTTPROPERTY_CODE_PAYLOAD_FORMAT_INDICATOR;
+	payload_type_property.value.byte = 1;
+	MQTTProperties_add(&pubmsg.properties, &payload_type_property);
+
+	MQTTProperty msg_expiry_property;
+	msg_expiry_property.identifier =
+	    MQTTPROPERTY_CODE_MESSAGE_EXPIRY_INTERVAL;
+	msg_expiry_property.value.integer4 = 1000;
+	MQTTProperties_add(&pubmsg.properties, &msg_expiry_property);
+
 	MQTTAsync_sendMessage(client, "msg", &pubmsg, &pub_opts);
 
 	MQTTAsync_responseOptions opts2 = MQTTAsync_responseOptions_initializer;
@@ -754,6 +777,17 @@ main(const int argc, const char **argv)
 	opts2.onSuccess5 = onSendSuccess5;
 	opts2.onFailure5 = onSendFailure5;
 	opts2.context = client;
+
+	MQTTProperty user_property2;
+	user_property2.identifier      = MQTTPROPERTY_CODE_USER_PROPERTY;
+	user_property2.value.data.data = "test user2 property";
+	user_property2.value.data.len =
+	    (int) strlen(user_property2.value.data.data);
+	user_property2.value.value.data = "test user2 property value";
+	user_property2.value.value.len =
+	    (int) strlen(user_property2.value.value.data);
+	MQTTProperties_add(&pubmsg2.properties, &user_property2);
+
 	MQTTAsync_sendMessage(client, "msg", &pubmsg2, &opts2);
 
 	for (int i=0; i<10; ++i) {
@@ -770,6 +804,17 @@ main(const int argc, const char **argv)
 		pubmsgn.qos = 0;
 		pubmsgn.retained = 0;
 		pubmsgn.is_payload_zstd = true;
+
+		MQTTProperty user_propertyn;
+		user_propertyn.identifier = MQTTPROPERTY_CODE_USER_PROPERTY;
+		user_propertyn.value.data.data = "test user property n";
+		user_propertyn.value.data.len =
+		    (int) strlen(user_propertyn.value.data.data);
+		user_propertyn.value.value.data = "test user property value n";
+		user_propertyn.value.value.len =
+		    (int) strlen(user_propertyn.value.value.data);
+		MQTTProperties_add(&pubmsgn.properties, &user_propertyn);
+
 		MQTTAsync_sendMessage(client, "msg", &pubmsgn, &optsn);
 	}
 
