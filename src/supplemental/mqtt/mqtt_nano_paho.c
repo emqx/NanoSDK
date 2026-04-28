@@ -23,6 +23,7 @@
 
 static const char *UTF8_char_validate(int len, const char *data);
 static property *MQTTProperties_to_property_list(const MQTTProperties *props);
+static MQTTProperties property_list_to_MQTTProperties(const property *plist);
 
 static char *
 datadup(const MQTTLenString *str)
@@ -294,8 +295,12 @@ MQTTAsync_message* prepare_paho_msg(nng_msg *msg)
 
 	mm->msgid = nng_mqtt_msg_get_publish_packet_id(msg);
 
-	// if (publish->MQTTVersion >= MQTTVERSION_5)
-	// 	mm->properties = MQTTProperties_copy(&publish->properties);
+	property *pub_prop = nng_mqtt_msg_get_publish_property(msg);
+
+	if (pub_prop != NULL) {
+		mm->properties = property_list_to_MQTTProperties(pub_prop);
+	}
+
     return mm;
 exit:
     return NULL;
@@ -1448,6 +1453,69 @@ MQTTProperties_to_property_list(const MQTTProperties *props)
 	}
 
 	return plist;
+}
+
+static MQTTProperties
+property_list_to_MQTTProperties(const property *plist)
+{
+	MQTTProperties props = MQTTProperties_initializer;
+
+	if (plist == NULL)
+		return props;
+
+	/* The head node is a sentinel; actual properties start at plist->next
+	 */
+	const property *node = plist->next;
+	while (node != NULL) {
+		MQTTProperty mp;
+		memset(&mp, 0, sizeof(mp));
+		mp.identifier = (enum MQTTPropertyCodes) node->id;
+
+		switch (node->data.p_type) {
+		case U8:
+			mp.value.byte = node->data.p_value.u8;
+			break;
+		case U16:
+			mp.value.integer2 = node->data.p_value.u16;
+			break;
+		case U32:
+			mp.value.integer4 = node->data.p_value.u32;
+			break;
+		case VARINT:
+			mp.value.integer4 = node->data.p_value.varint;
+			break;
+		case BINARY:
+			mp.value.data.data =
+			    (char *) node->data.p_value.binary.buf;
+			mp.value.data.len =
+			    (int) node->data.p_value.binary.length;
+			break;
+		case STR:
+			mp.value.data.data =
+			    (char *) node->data.p_value.str.buf;
+			mp.value.data.len =
+			    (int) node->data.p_value.str.length;
+			break;
+		case STR_PAIR:
+			mp.value.data.data =
+			    (char *) node->data.p_value.strpair.key.buf;
+			mp.value.data.len =
+			    (int) node->data.p_value.strpair.key.length;
+			mp.value.value.data =
+			    (char *) node->data.p_value.strpair.value.buf;
+			mp.value.value.len =
+			    (int) node->data.p_value.strpair.value.length;
+			break;
+		default:
+			node = node->next;
+			continue;
+		}
+
+		MQTTProperties_add(&props, &mp);
+		node = node->next;
+	}
+
+	return props;
 }
 
 /**
