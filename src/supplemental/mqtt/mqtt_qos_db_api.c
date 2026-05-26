@@ -11,12 +11,12 @@ nni_qos_db_set_client_msg(bool is_sqlite, void *db, uint32_t pipe_id,
 		rv = nni_mqtt_qos_db_set_client_msg((sqlite3 *) db, pipe_id,
 		    packet_id, msg, config_name, proto_ver);
 #endif
-	} else {
+	} else if (db != NULL) {
+		rv = nni_id_set((nni_id_map *) db, packet_id, msg);
 		NNI_ARG_UNUSED(pipe_id);
 		NNI_ARG_UNUSED(config_name);
-		NNI_ARG_UNUSED(proto_ver);
-		rv = nni_id_set((nni_id_map *) db, packet_id, msg);
 	}
+	NNI_ARG_UNUSED(proto_ver);
 	return rv;
 }
 
@@ -30,10 +30,10 @@ nni_qos_db_get_client_msg(bool is_sqlite, void *db, uint32_t pipe_id,
 		msg = nni_mqtt_qos_db_get_client_msg(
 		    (sqlite3 *) db, pipe_id, packet_id, config_name);
 #endif
-	} else {
+	} else if (db != NULL) {
+		msg = nni_id_get((nni_id_map *) db, packet_id);
 		NNI_ARG_UNUSED(pipe_id);
 		NNI_ARG_UNUSED(config_name);
-		msg = nni_id_get((nni_id_map *) db, packet_id);
 	}
 	return msg;
 }
@@ -47,10 +47,10 @@ nni_qos_db_remove_client_msg(
 		nni_mqtt_qos_db_remove_client_msg(
 		    (sqlite3 *) db, pipe_id, packet_id, config_name);
 #endif
-	} else {
+	} else if (db != NULL) {
+		nni_id_remove((nni_id_map *) db, packet_id);
 		NNI_ARG_UNUSED(pipe_id);
 		NNI_ARG_UNUSED(config_name);
-		nni_id_remove((nni_id_map *) db, packet_id);
 	}
 }
 
@@ -94,7 +94,7 @@ nni_qos_db_get_one_client_msg(bool is_sqlite, void *db, uint64_t *row_id,
 		msg = nni_mqtt_qos_db_get_one_client_msg(
 		    (sqlite3 *) db, row_id, packet_id, config_name);
 #endif
-	} else {
+	} else if (db != NULL) {
 		NNI_ARG_UNUSED(row_id);
 		NNI_ARG_UNUSED(config_name);
 		msg = nni_id_get_min((nni_id_map *) db, packet_id);

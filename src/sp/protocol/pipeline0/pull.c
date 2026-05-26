@@ -113,7 +113,7 @@ pull0_pipe_start(void *arg)
 	return (0);
 }
 
-static void
+static int
 pull0_pipe_close(void *arg)
 {
 	pull0_pipe *p = arg;
@@ -130,6 +130,8 @@ pull0_pipe_close(void *arg)
 	nni_mtx_unlock(&s->m);
 
 	nni_aio_close(&p->aio);
+
+	return 0;
 }
 
 static void

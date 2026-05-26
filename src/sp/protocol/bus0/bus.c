@@ -169,7 +169,7 @@ bus0_pipe_start(void *arg)
 	return (0);
 }
 
-static void
+static int
 bus0_pipe_close(void *arg)
 {
 	bus0_pipe *p = arg;
@@ -184,6 +184,8 @@ bus0_pipe_close(void *arg)
 		nni_list_remove(&s->pipes, p);
 	}
 	nni_mtx_unlock(&s->mtx);
+
+	return 0;
 }
 
 static void

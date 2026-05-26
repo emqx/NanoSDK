@@ -315,7 +315,7 @@ rep0_pipe_start(void *arg)
 	return (0);
 }
 
-static void
+static int
 rep0_pipe_close(void *arg)
 {
 	rep0_pipe *p = arg;
@@ -351,6 +351,8 @@ rep0_pipe_close(void *arg)
 	}
 	nni_id_remove(&s->pipes, nni_pipe_id(p->pipe));
 	nni_mtx_unlock(&s->lk);
+
+	return 0;
 }
 
 static void

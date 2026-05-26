@@ -1,5 +1,5 @@
 //
-// Copyright 2023 NanoMQ Team, Inc. <jaylin@emqx.io>
+// Copyright 2024 NanoMQ Team, Inc. <jaylin@emqx.io>
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -50,6 +50,12 @@ extern "C" {
 #define MQTT_PROTOCOL_VERSION_v311 4
 #define MQTT_PROTOCOL_VERSION_v5 5
 
+// Only work for MQTT Protocol layer
+#define NNG_OPT_MQTT_CLIENT_PIPEID "nng-nano-pipe-id"
+
+// Only work for MQTT Protocol layer
+#define NNG_OPT_MQTT_BROKER_PIPEID "nano-broker-pipe-id"
+
 // NNG_OPT_MQTT_EXPIRES is a 32-bit integer representing the expiration in
 // seconds. This can be applied to a message.
 // (TODO: What about session expiry?)
@@ -67,11 +73,20 @@ extern "C" {
 
 #define NNG_OPT_MQTT_RETRY_INTERVAL "mqtt-client-retry-interval"
 
+// Retry sending messages with qos=0
+// if the bridge is not connected
+// when the message is published
+#define NNG_OPT_MQTT_RETRY_QOS_0 "mqtt-client-retry-qos-0"
+
+#define NNG_OPT_MQTT_RETRY_WAIT_TIME "mqtt-client-retry-wait-time"
+
 #define NNG_OPT_MQTT_DISCONNECT_REASON "mqtt-disconnect-reason"
 
 #define NNG_OPT_MQTT_SQLITE "mqtt-sqlite-option"
 
 #define NNG_OPT_MQTT_ENABLE_SCRAM "mqtt-scram-option"
+
+#define NNG_OPT_MQTT_NO_LOCAL_V4 "mqtt-no_local-v4"
 
 // NNG_OPT_MQTT_QOS is a byte (only lower two bits significant) representing
 // the quality of service.  At this time, only level zero is supported.
@@ -148,8 +163,8 @@ extern "C" {
 // NNG_MAX_RECV_LMQ and NNG_MAX_SEND_LMQ define the length of waiting queue
 // they are the length of nni_lmq, please be ware it affects the memory usage
 // significantly while having heavy throughput
-#define NNG_MAX_RECV_LMQ 256
-#define NNG_MAX_SEND_LMQ 256
+#define NNG_MAX_RECV_LMQ 64
+#define NNG_MAX_SEND_LMQ 64
 #define NNG_TRAN_MAX_LMQ_SIZE 128
 
 // NNG_TLS_xxx options can be set on the client as well.
@@ -183,6 +198,8 @@ typedef enum {
 
 /* Message types & flags */
 #define CMD_UNKNOWN 0x00
+#define CMD_HTTPREQ 0x01
+#define CMD_HTTPRES 0x02
 #define CMD_CONNECT 0x10
 #define CMD_CONNACK 0x20
 #define CMD_PUBLISH 0x30	// indicates PUBLISH packet & MQTTV4 pub packet
@@ -325,6 +342,7 @@ typedef struct mqtt_topic_qos_t {
 
 typedef struct mqtt_topic_qos_t nng_mqtt_topic_qos;
 
+extern uint16_t nni_msg_get_pub_pid(nng_msg *m);
 struct mqtt_string {
 	char *   body;
 	uint32_t len;
@@ -397,6 +415,8 @@ NNG_DECL int  nng_mqttv5_msg_decode(nng_msg *);
 NNG_DECL int  nng_mqtt_msg_validate(nng_msg *, uint8_t);
 NNG_DECL void nng_mqtt_msg_set_packet_type(nng_msg *, nng_mqtt_packet_type);
 NNG_DECL nng_mqtt_packet_type nng_mqtt_msg_get_packet_type(nng_msg *);
+NNG_DECL void nng_mqtt_msg_set_sub_retain_bool(nng_msg *msg, bool retain);
+NNG_DECL bool nng_mqtt_msg_get_sub_retain_bool(nng_msg *msg);
 NNG_DECL void nng_mqtt_msg_set_connect_proto_version(nng_msg *, uint8_t);
 NNG_DECL void nng_mqtt_msg_set_connect_keep_alive(nng_msg *, uint16_t);
 NNG_DECL void nng_mqtt_msg_set_connect_client_id(nng_msg *, const char *);
@@ -430,15 +450,21 @@ NNG_DECL uint8_t     nng_mqtt_msg_get_connack_return_code(nng_msg *);
 NNG_DECL uint8_t     nng_mqtt_msg_get_connack_flags(nng_msg *);
 NNG_DECL property   *nng_mqtt_msg_get_connack_property(nng_msg *);
 
+NNG_DECL void        nng_mqtt_msg_set_publish_proto_version(nng_msg *, uint8_t);
+NNG_DECL uint8_t     nng_mqtt_msg_get_publish_proto_version(nng_msg *);
 NNG_DECL void        nng_mqtt_msg_set_publish_qos(nng_msg *, uint8_t);
 NNG_DECL uint8_t     nng_mqtt_msg_get_publish_qos(nng_msg *);
 NNG_DECL void        nng_mqtt_msg_set_publish_retain(nng_msg *, bool);
 NNG_DECL bool        nng_mqtt_msg_get_publish_retain(nng_msg *);
 NNG_DECL void        nng_mqtt_msg_set_publish_dup(nng_msg *, bool);
 NNG_DECL bool        nng_mqtt_msg_get_publish_dup(nng_msg *);
+// can only be used with nanosdk Socket!
 NNG_DECL int         nng_mqtt_msg_set_publish_topic(nng_msg *, const char *);
+NNG_DECL int         nng_mqtt_msg_set_publish_topic_len(nng_msg *msg, uint32_t len);
+NNG_DECL void	 	 nng_mqtt_msg_free_publish_buf(nng_msg *msg);
+
 NNG_DECL const char *nng_mqtt_msg_get_publish_topic(nng_msg *, uint32_t *);
-NNG_DECL void        nng_mqtt_msg_set_publish_payload(nng_msg *, uint8_t *, uint32_t);
+NNG_DECL int         nng_mqtt_msg_set_publish_payload(nng_msg *, uint8_t *, uint32_t);
 NNG_DECL uint8_t    *nng_mqtt_msg_get_publish_payload(nng_msg *, uint32_t *);
 NNG_DECL property   *nng_mqtt_msg_get_publish_property(nng_msg *);
 NNG_DECL void        nng_mqtt_msg_set_publish_property(nng_msg *, property *);
@@ -482,6 +508,8 @@ NNG_DECL void      nng_mqtt_msg_set_unsubscribe_property(nng_msg *, property *);
 NNG_DECL void nng_mqtt_msg_set_unsuback_return_codes(
     nng_msg *, uint8_t *, uint32_t);
 NNG_DECL uint8_t *nng_mqtt_msg_get_unsuback_return_codes(nng_msg *, uint32_t *);
+NNG_DECL property *nng_mqtt_msg_get_unsuback_property(nng_msg *);
+NNG_DECL void      nng_mqtt_msg_set_unsuback_property(nng_msg *, property *);
 
 NNG_DECL property   *nng_mqtt_msg_get_disconnect_property(nng_msg *);
 NNG_DECL void        nng_mqtt_msg_set_disconnect_property(nng_msg *, property *);
@@ -491,12 +519,13 @@ NNG_DECL void nng_mqtt_topic_array_set(nng_mqtt_topic *, size_t, const char *);
 NNG_DECL void nng_mqtt_topic_array_free(nng_mqtt_topic *, size_t);
 NNG_DECL nng_mqtt_topic_qos *nng_mqtt_topic_qos_array_create(size_t);
 NNG_DECL void nng_mqtt_topic_qos_array_set(nng_mqtt_topic_qos *, size_t,
-           const char *, uint32_t, uint8_t, uint8_t, uint8_t, uint8_t);
+           const char *, uint8_t, uint8_t, uint8_t, uint8_t);
 NNG_DECL void nng_mqtt_topic_qos_array_free(nng_mqtt_topic_qos *, size_t);
 NNG_DECL int  nng_mqtt_set_connect_cb(nng_socket, nng_pipe_cb, void *);
 NNG_DECL int  nng_mqtt_set_disconnect_cb(nng_socket, nng_pipe_cb, void *);
 NNG_DECL void nng_mqtt_msg_dump(nng_msg *, uint8_t *, uint32_t, bool);
 
+NNG_DECL void nng_msg_proto_set_property(nng_msg *msg, void *p);
 NNG_DECL void nng_mqtt_msg_set_disconnect_reason_code(nng_msg *msg, uint8_t reason_code);
 
 NNG_DECL uint32_t get_mqtt_properties_len(property *prop);
@@ -543,7 +572,6 @@ NNG_DECL int nng_mqttv5_client_open(nng_socket *);
 // TODO: shared subscriptions.  Subscription options (retain, QoS)
 typedef struct nng_mqtt_client nng_mqtt_client;
 typedef void(nng_mqtt_send_cb)(nng_mqtt_client *client, nng_msg *msg, void *);
-typedef void(nng_mqtt_recv_cb)(nng_mqtt_client *client, nng_msg *msg, void *);
 struct nng_mqtt_client{
 	nng_socket sock;
 	nng_aio   *send_aio;
@@ -552,36 +580,32 @@ struct nng_mqtt_client{
 	void      *obj; // user defined callback obj
 	bool       async;
 
-	nng_mqtt_send_cb *send_cb;
-	nng_mqtt_recv_cb *recv_cb;
+	nng_mqtt_send_cb *cb;
 };
 
 
-NNG_DECL nng_mqtt_client *nng_mqtt_client_alloc(nng_socket, nng_mqtt_send_cb, nng_mqtt_recv_cb, bool);
+NNG_DECL nng_mqtt_client *nng_mqtt_client_alloc(nng_socket, nng_mqtt_send_cb, bool);
 NNG_DECL void nng_mqtt_client_free(nng_mqtt_client*, bool);
-NNG_DECL int nng_mqtt_subscribe(nng_socket, nng_mqtt_topic_qos *, size_t, property *);
+NNG_DECL int nng_mqtt_subscribe(nng_socket, nng_mqtt_topic_qos *, uint32_t, property *);
 NNG_DECL int nng_mqtt_subscribe_async(nng_mqtt_client *, nng_mqtt_topic_qos *, size_t, property *);
 NNG_DECL int nng_mqtt_unsubscribe(nng_socket, nng_mqtt_topic *, size_t, property *);
-NNG_DECL int nng_mqtt_unsubscribe_async(
-    nng_mqtt_client *, nng_mqtt_topic *sbs, size_t count, property *pl);
-NNG_DECL int nng_mqtt_disconnect(nng_socket *, uint8_t, property *);
+NNG_DECL int nng_mqtt_unsubscribe_async(nng_mqtt_client *, nng_mqtt_topic *, size_t, property *);
 // as with other ctx based methods, we use the aio form exclusively
+NNG_DECL int nng_mqtt_ctx_subscribe(nng_ctx *, const char *, nng_aio *, ...);
+NNG_DECL int nng_mqtt_disconnect(nng_socket *, uint8_t, property *);
+
+NNG_DECL int mqtt_get_remaining_length(uint8_t *, uint32_t, uint32_t *, uint8_t *);
+NNG_DECL uint32_t get_var_integer(const uint8_t *buf, uint8_t *pos);
+NNG_DECL reason_code check_properties(property *prop, nng_msg *msg);
 
 typedef struct nng_mqtt_sqlite_option nng_mqtt_sqlite_option;
 
 #if defined(NNG_SUPP_SQLITE)
 NNG_DECL int  nng_mqtt_alloc_sqlite_opt(nng_mqtt_sqlite_option **);
 NNG_DECL int  nng_mqtt_free_sqlite_opt(nng_mqtt_sqlite_option *);
-NNG_DECL void nng_mqtt_set_sqlite_enable(nng_mqtt_sqlite_option *, bool);
-NNG_DECL void nng_mqtt_set_sqlite_db_dir(
-    nng_mqtt_sqlite_option *, const char *);
-NNG_DECL void nng_mqtt_set_sqlite_max_rows(nng_mqtt_sqlite_option *, size_t);
-NNG_DECL void nng_mqtt_set_sqlite_flush_threshold(
-    nng_mqtt_sqlite_option *, size_t);
 NNG_DECL void nng_mqtt_sqlite_db_init(
     nng_mqtt_sqlite_option *, const char *, uint8_t);
-NNG_DECL void   nng_mqtt_sqlite_db_fini(nng_mqtt_sqlite_option *);
-NNG_DECL size_t nng_mqtt_sqlite_db_get_cached_size(nng_mqtt_sqlite_option *);
+NNG_DECL void nng_mqtt_sqlite_db_fini(nng_mqtt_sqlite_option *);
 #endif
 
 #ifdef __cplusplus

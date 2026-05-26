@@ -170,7 +170,7 @@ xrep0_pipe_start(void *arg)
 	return (0);
 }
 
-static void
+static int
 xrep0_pipe_close(void *arg)
 {
 	xrep0_pipe *p = arg;
@@ -185,6 +185,8 @@ xrep0_pipe_close(void *arg)
 	nni_mtx_lock(&s->lk);
 	nni_id_remove(&s->pipes, nni_pipe_id(p->pipe));
 	nni_mtx_unlock(&s->lk);
+
+	return 0;
 }
 
 static void

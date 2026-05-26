@@ -733,10 +733,36 @@ NNG_DECL nng_listener nng_pipe_listener(nng_pipe);
 #define NNG_OPT_LOCADDR "local-address"
 #define NNG_OPT_REMADDR "remote-address"
 #define NNG_OPT_URL "url"
+#define NNG_OPT_BRIDGE_SET_EP_CLOSED "ep-closed-switch"
 #define NNG_OPT_MAXTTL "ttl-max"
 #define NNG_OPT_RECVMAXSZ "recv-size-max"
 #define NNG_OPT_RECONNMINT "reconnect-time-min"
 #define NNG_OPT_RECONNMAXT "reconnect-time-max"
+
+// NNG-MQTT
+#define NNG_OPT_MQTT_CONNMSG "mqtt-connect-msg"
+#define NNG_OPT_MQTT_BRIDGE_CONF "mqtt-bridge-config"
+
+// NNG-QUIC
+#define NNG_OPT_QUIC_ENABLE_0RTT "quic-0rtt"
+#define NNG_OPT_QUIC_ENABLE_MULTISTREAM "quic-multistream"
+#define NNG_OPT_QUIC_IDLE_TIMEOUT "quic-idle-timeout"
+#define NNG_OPT_QUIC_KEEPALIVE "quic-keepalive"
+#define NNG_OPT_QUIC_CONNECT_TIMEOUT "quic-connect-timeout"
+#define NNG_OPT_QUIC_DISCONNECT_TIMEOUT "quic-disconnect-timeout"
+#define NNG_OPT_QUIC_SEND_IDLE_TIMEOUT "quic-send-idle-timeout"
+#define NNG_OPT_QUIC_INITIAL_RTT_MS "quic-initial-ms"
+#define NNG_OPT_QUIC_MAX_ACK_DELAY_MS "quic-max-ack-delay-ms"
+#define NNG_OPT_MQTT_QUIC_PRIORITY "quic-mqtt-stream-priority"
+#define NNG_OPT_QUIC_PRIORITY "quic-stream-priority"
+
+#define NNG_OPT_QUIC_CONGESTION_CTL_CUBIC "quic-congestion-cubic"
+
+#define NNG_OPT_QUIC_TLS_CACERT_PATH "quic-tls-cacert"
+#define NNG_OPT_QUIC_TLS_KEY_PATH "quic-tls-key"
+#define NNG_OPT_QUIC_TLS_KEY_PASSWORD "quic-tls-pwd"
+#define NNG_OPT_QUIC_TLS_VERIFY_PEER "quic-tls-verify"
+#define NNG_OPT_QUIC_TLS_CA_PATH "quic-tls-ca"
 
 // TLS options are only used when the underlying transport supports TLS.
 
@@ -799,6 +825,12 @@ NNG_DECL nng_listener nng_pipe_listener(nng_pipe);
 // `NNG_TLS_AUTH_MODE_NONE`.
 #define NNG_OPT_TLS_PEER_ALT_NAMES "tls-peer-alt-names"
 
+// NNG_OPT_TLS_PEER_SUBJECT returns the full subject (DN) string of
+// the peer certificate. Typically, this is read-only and only
+// available for pipes. This option may return incorrect results if
+// peer authentication is disabled with `NNG_TLS_AUTH_MODE_NONE`.
+#define NNG_OPT_TLS_PEER_SUBJECT "tls-peer-subject"
+
 // TCP options.  These may be supported on various transports that use
 // TCP underneath such as TLS, or not.
 
@@ -818,6 +850,21 @@ NNG_DECL nng_listener nng_pipe_listener(nng_pipe);
 // middle boxes thinking the session has gone idle (e.g. keeping NAT
 // state current). This is a boolean.
 #define NNG_OPT_TCP_KEEPALIVE "tcp-keepalive"
+
+// TODO: more notes
+#define NNG_OPT_TCP_QUICKACK "tcp-quickack"
+
+#define NNG_OPT_TCP_KEEPIDLE "tcp-keepidle"
+
+#define NNG_OPT_TCP_KEEPINTVL "tcp-keepintvl"
+
+#define NNG_OPT_TCP_KEEPCNT "tcp-keepcnt"
+
+#define NNG_OPT_TCP_SENDTIMEO "tcp-sendtimeo"
+
+#define NNG_OPT_TCP_RECVTIMEO "tcp-recvtimeo"
+
+#define NNG_OPT_TCP_BINDTODEVICE "tcp-bindtodevice"
 
 // Local TCP port number.  This is used on a listener, and is intended
 // to be used after starting the listener in combination with a wildcard
@@ -995,6 +1042,9 @@ NNG_DECL nng_stat *nng_stat_find_socket(nng_stat *, nng_socket);
 
 // nng_stat_find_dialer is used to find the stats for the given dialer.
 NNG_DECL nng_stat *nng_stat_find_dialer(nng_stat *, nng_dialer);
+
+// nng_stat_find_dialer is used to find the stats for the given dialer.
+NNG_DECL nng_stat *nng_stat_find_pipe(nng_stat *, uint64_t pipeid);
 
 // nng_stat_find_listener is used to find the stats for the given listener.
 NNG_DECL nng_stat *nng_stat_find_listener(nng_stat *, nng_listener);
@@ -1270,6 +1320,10 @@ NNG_DECL int nng_stream_listener_set_ptr(
     nng_stream_listener *, const char *, void *);
 NNG_DECL int nng_stream_listener_set_addr(
     nng_stream_listener *, const char *, const nng_sockaddr *);
+
+NNG_DECL int nng_access(const char* name, int flag);
+NNG_DECL void nng_msg_set_timestamp(nng_msg *, uint64_t);
+NNG_DECL uint64_t nng_msg_get_timestamp(nng_msg *);
 
 // UDP operations.  These are provided for convenience,
 // and should be considered somewhat experimental.

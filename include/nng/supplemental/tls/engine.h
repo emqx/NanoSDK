@@ -88,6 +88,10 @@ typedef struct nng_tls_engine_conn_ops_s {
 	// peer_alt_names returns the subject alternative names.
 	// The return string list and its strings need to be freed.
 	char **(*peer_alt_names)(nng_tls_engine_conn *);
+
+	// peer_subject returns the full subject (DN) of the peer certificate.
+	// The return string needs to be freed.
+	char *(*peer_subject)(nng_tls_engine_conn *);
 } nng_tls_engine_conn_ops;
 
 typedef struct nng_tls_engine_config_ops_s {

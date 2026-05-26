@@ -32,6 +32,9 @@ struct nng_msg {
 	void *             m_proto_data;
 	nni_atomic_int     m_refcnt;
 	uint32_t           m_pipe; // set on receive
+	uint8_t            CMD_TYPE;
+	uint8_t           *payload_ptr; // payload
+	nni_time           times;       // the time msg arrives
 };
 
 #if 1
@@ -677,6 +680,31 @@ nni_msg_get_pipe(const nni_msg *m)
 	return (m->m_pipe);
 }
 
+uint8_t *
+nni_msg_payload_ptr(const nni_msg *m)
+{
+	return (m->payload_ptr);
+}
+
+void
+nni_msg_set_payload_ptr(nni_msg *m, uint8_t *ptr)
+{
+	m->payload_ptr = ptr;
+}
+
+
+void
+nni_msg_set_cmd_type(nni_msg *m, uint8_t cmd)
+{
+	m->CMD_TYPE = cmd;
+}
+
+uint8_t
+nni_msg_get_cmd_type(nni_msg *m)
+{
+	return m->CMD_TYPE;
+}
+
 void
 nni_msg_set_proto_data(nng_msg *m, nni_proto_msg_ops *ops, void *data)
 {
@@ -693,22 +721,38 @@ nni_msg_get_proto_data(nng_msg *m)
 	return (m->m_proto_data);
 }
 
+/**
+ * @brief get MQTT packet Type from msg header
+ * 
+ * @param nni_msg *m 
+ * @return uint8_t 
+ */
 uint8_t
-nni_msg_cmd_type(nni_msg *m)
+nni_msg_get_type(nni_msg *m)
 {
-	return ((uint8_t)m->m_header_buf[0] & 0xF0);
+	// Get MSB from UINT32
+	uint32_t val;
+	uint8_t *dst, type;
+	dst = (void *) m->m_header_buf;
+	NNI_GET32(dst, val);
+	type = (uint8_t)(val >> 24);
+
+	return type & 0XF0;
 }
 
 uint8_t
 nni_msg_get_pub_qos(nni_msg *m)
 {
-	uint8_t qos;
-
-	if (nni_msg_cmd_type(m) != 0x30) {
+	// Get MSB from UINT32
+	uint32_t val;
+	uint8_t *dst, type;
+	dst = (void *) m->m_header_buf;
+	NNI_GET32(dst, val);
+	type = (uint8_t)(val >> 24);
+	if ((type & 0XF0) != CMD_PUBLISH)
 		return -1;
-	}
-	qos = (m->m_header_buf[0] & 0x06) >> 1;
-	return qos;
+
+	return (type & 0x06) >> 1;
 }
 
 uint16_t
@@ -719,11 +763,22 @@ nni_msg_get_pub_pid(nni_msg *m)
 
 	pos = nni_msg_body(m);
 	NNI_GET16(pos, len);
-	// assume a min pub packet here
-	if (len > nni_msg_len(m) - 3)
+	if (len > nni_msg_len(m) - 2)
 		return 0;
 	else {
 		NNI_GET16(pos + len + 2, pid);
 		return pid;
 	}
+}
+
+void
+nni_msg_set_timestamp(nni_msg *m, nni_time time)
+{
+	m->times = time;
+}
+
+nni_time
+nni_msg_get_timestamp(nni_msg *m)
+{
+	return m->times;
 }

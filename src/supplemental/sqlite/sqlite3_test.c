@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "nuts.h"
-#include "sqlite3.h"
+#include "nng/supplemental/sqlite/sqlite3.h"
 
 void
 test_sqlite_write(void)

@@ -74,6 +74,19 @@ nni_id_map_foreach(nni_id_map *m, nni_idhash_cb cb)
 	}
 }
 
+void
+nni_id_map_foreach2(nni_id_map *m, nni_idhash_cb2 cb, void *user_arg)
+{
+	if (m->id_entries != NULL) {
+		for (size_t i = 0; i < m->id_cap; ++i) {
+			if (m->id_entries[i].val != NULL) {
+				cb((void *) &m->id_entries[i].key,
+				    m->id_entries[i].val, user_arg);
+			}
+		}
+	}
+}
+
 // Inspired by Python dict implementation.  This probe will visit every
 // cell.  We always hash consecutively assigned IDs.  This requires that
 // the capacity is always a power of two.
@@ -497,4 +510,10 @@ nni_id_msgfree_cb(nni_msg* msg)
 {
 	nni_msg_free(msg);
 	msg = NULL;
+}
+
+uint32_t
+nni_id_count(const nni_id_map *m)
+{
+	return (m->id_count);
 }

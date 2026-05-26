@@ -54,7 +54,12 @@ target_include_directories(nng INTERFACE $<INSTALL_INTERFACE:include>
 target_include_directories(nng PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_include_directories(nng_testing PUBLIC ${PROJECT_SOURCE_DIR}/include)
 
-install(TARGETS ${PROJECT_NAME}
+set(_NNG_EXPORT_TARGETS ${PROJECT_NAME})
+if(TARGET msquic)
+        list(APPEND _NNG_EXPORT_TARGETS msquic)
+endif()
+
+install(TARGETS ${_NNG_EXPORT_TARGETS}
         EXPORT ${PROJECT_NAME}-target
         FRAMEWORK DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT Library
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT Library

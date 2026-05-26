@@ -3,7 +3,7 @@
 
 #include "core/nng_impl.h"
 #include "nng/nng.h"
-#include "supplemental/sqlite/sqlite3.h"
+#include "nng/supplemental/sqlite/sqlite3.h"
 
 
 /**

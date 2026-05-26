@@ -281,12 +281,14 @@ sub0_pipe_start(void *arg)
 	return (0);
 }
 
-static void
+static int
 sub0_pipe_close(void *arg)
 {
 	sub0_pipe *p = arg;
 
 	nni_aio_close(&p->aio_recv);
+
+	return 0;
 }
 
 static bool

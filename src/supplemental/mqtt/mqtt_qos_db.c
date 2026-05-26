@@ -1,7 +1,7 @@
 #include "mqtt_qos_db.h"
 #include "core/nng_impl.h"
 #include "nng/nng.h"
-#include "supplemental/sqlite/sqlite3.h"
+#include "nng/supplemental/sqlite/sqlite3.h"
 #include "supplemental/mqtt/mqtt_msg.h"
 #include <string.h>
 #include <stdlib.h>
@@ -559,16 +559,7 @@ nni_mqtt_qos_db_set_client_info(sqlite3 *db, const char *config_name,
 static uint8_t *
 nni_mqtt_msg_serialize(nni_msg *msg, size_t *out_len, uint8_t proto_ver)
 {
-	// int rv;
-	// if ((rv = nni_mqtt_msg_encode(msg)) != 0) {
-	// 	printf("nni_mqtt_msg_encode failed: %d\n", rv);
-	// 	return NULL;
-	// }
-	if (proto_ver == MQTT_PROTOCOL_VERSION_v5) {
-		nni_mqttv5_msg_encode(msg);
-	} else {
-		nni_mqtt_msg_encode(msg);
-	}
+	NNI_ARG_UNUSED(proto_ver);
 
 	size_t len = nni_msg_header_len(msg) + nni_msg_len(msg) +
 	    (sizeof(uint32_t) * 2) + sizeof(nni_time) + sizeof(nni_aio *);
@@ -577,6 +568,7 @@ nni_mqtt_msg_serialize(nni_msg *msg, size_t *out_len, uint8_t proto_ver)
 	// bytes:
 	// header:  header_len(uint32) + header(header_len)
 	// body:	body_len(uint32) + body(body_len)
+	// time:	nni_time(uint64)
 	// aio:		address value
 	uint8_t *bytes = nng_zalloc(len);
 
@@ -593,6 +585,9 @@ nni_mqtt_msg_serialize(nni_msg *msg, size_t *out_len, uint8_t proto_ver)
 		goto out;
 	}
 	if (write_bytes(nni_msg_body(msg), nni_msg_len(msg), &buf) != 0) {
+		goto out;
+	}
+	if (write_uint64(nni_msg_get_timestamp(msg), &buf) != 0) {
 		goto out;
 	}
 
@@ -624,6 +619,7 @@ nni_mqtt_msg_deserialize(
 	// bytes:
 	// header:  header_len(uint32) + header(header_len)
 	// body:	body_len(uint32) + body(body_len)
+	// time:	nni_time(uint64)
 	// aio:		address value
 	uint32_t header_len;
 	if (read_uint32(&buf, &header_len) != 0) {
@@ -638,6 +634,12 @@ nni_mqtt_msg_deserialize(
 	}
 	nni_msg_append(msg, buf.curpos, body_len);
 	buf.curpos += body_len;
+
+	nni_time ts = 0;
+	if (read_uint64(&buf, &ts) != 0) {
+		goto out;
+	}
+	nni_msg_set_timestamp(msg, ts);
 
 	if (proto_ver == MQTT_PROTOCOL_VERSION_v5) {
 		nni_mqttv5_msg_decode(msg);

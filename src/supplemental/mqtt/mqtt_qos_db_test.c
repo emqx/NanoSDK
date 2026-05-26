@@ -95,6 +95,7 @@ test_set_client_offline_msg(void)
 {
 	sqlite3 *db = NULL;
 	nni_mqtt_qos_db_init(&db, NULL, test_db);
+	nni_time ts = 1650944298;
 
 	nni_msg *msg;
 	nni_mqtt_msg_alloc(&msg, 0);
@@ -111,6 +112,9 @@ test_set_client_offline_msg(void)
 	nng_mqtt_msg_set_connect_password(msg, passwd);
 	nng_mqtt_msg_set_connect_clean_session(msg, true);
 	nng_mqtt_msg_set_connect_keep_alive(msg, 60);
+	nni_msg_set_timestamp(msg, ts);
+
+	nni_mqtt_msg_encode(msg);
 
 	TEST_CHECK(
 	    nni_mqtt_qos_db_set_client_offline_msg(db, msg, "emqx", 4) == 0);
@@ -122,19 +126,21 @@ test_get_client_offline_msg(void)
 {
 	sqlite3 *db = NULL;
 	nni_mqtt_qos_db_init(&db, NULL, test_db);
-
+	nni_time ts     = 1650944298;
 	int64_t  row_id = 0;
 
 	nni_msg *msg =
 	    nni_mqtt_qos_db_get_client_offline_msg(db, &row_id, "emqx");
 	TEST_CHECK(msg != NULL);
 	TEST_CHECK(nni_mqtt_msg_get_packet_type(msg) == NNG_MQTT_CONNECT);
-	TEST_CHECK(nni_mqtt_msg_get_connect_proto_version(msg) == 4);
+	TEST_CHECK(nni_mqtt_msg_get_connect_proto_version(msg) == 0x04);
 	TEST_CHECK(nni_mqtt_msg_get_connect_keep_alive(msg) == 60);
 	TEST_CHECK(strcmp(nni_mqtt_msg_get_connect_client_id(msg),
 	               "nanomq-client-0FADECF") == 0);
 	TEST_CHECK(
 	    strcmp(nni_mqtt_msg_get_connect_user_name(msg), "nanomq") == 0);
+
+	TEST_CHECK(nni_msg_get_timestamp(msg) == ts);
 
 	nni_msg_free(msg);
 	nni_mqtt_qos_db_close(db);
@@ -166,6 +172,7 @@ test_batch_insert_client_offline_msg(void)
 		    nng_mqtt_msg_get_packet_type(msg) == NNG_MQTT_CONNECT);
 		nni_mqtt_msg_set_connect_proto_version(msg, 4);
 		nng_mqtt_msg_set_connect_keep_alive(msg, 60 + i);
+		nni_mqtt_msg_encode(msg);
 		nni_lmq_put(&lmq, msg);
 	}
 

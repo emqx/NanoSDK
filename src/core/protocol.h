@@ -47,7 +47,7 @@ struct nni_proto_pipe_ops {
 	// when the pipe is being closed.  Any operations pending on the
 	// pipe should be canceled with NNG_ECLOSED.  (Best option is to
 	// use nng_aio_close() on them)
-	void (*pipe_close)(void *);
+	int (*pipe_close)(void *);
 
 	// pipe_stop is called during finalization, to ensure that
 	// the protocol is absolutely finished with the pipe.  It should

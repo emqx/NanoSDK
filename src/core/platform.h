@@ -579,6 +579,9 @@ extern int nni_plat_file_size(const char *, size_t *);
 // NanoSDK
 // Get standard/UNIX timestamp
 extern nni_time nni_timestamp(void);
+
+// nni_access check accessibility of path
+extern int nni_plat_access(const char* name, int flag);
 //
 // Actual platforms we support.  This is included up front so that we can
 // get the specific types that are supplied by the platform.

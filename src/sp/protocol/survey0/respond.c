@@ -319,7 +319,7 @@ resp0_pipe_start(void *arg)
 	return (rv);
 }
 
-static void
+static int
 resp0_pipe_close(void *arg)
 {
 	resp0_pipe *p = arg;
@@ -331,6 +331,10 @@ resp0_pipe_close(void *arg)
 
 	nni_mtx_lock(&s->mtx);
 	p->closed = true;
+	if (nni_list_active(&s->recvpipes, p)) {
+		// We are no longer "receivable".
+		nni_list_remove(&s->recvpipes, p);
+	}
 	while ((ctx = nni_list_first(&p->sendq)) != NULL) {
 		nni_aio *aio;
 		nni_msg *msg;
@@ -349,6 +353,8 @@ resp0_pipe_close(void *arg)
 	}
 	nni_id_remove(&s->pipes, p->id);
 	nni_mtx_unlock(&s->mtx);
+
+	return 0;
 }
 
 static void

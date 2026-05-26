@@ -210,7 +210,7 @@ req0_pipe_start(void *arg)
 	return (0);
 }
 
-static void
+static int
 req0_pipe_close(void *arg)
 {
 	req0_pipe *p = arg;
@@ -260,6 +260,8 @@ req0_pipe_close(void *arg)
 		}
 	}
 	nni_mtx_unlock(&s->mtx);
+
+	return 0;
 }
 
 // For cooked mode, we use a context, and send out that way.  This
@@ -594,6 +596,7 @@ req0_ctx_cancel_recv(nni_aio *aio, void *arg, int rv)
 
 		nni_aio_finish_error(aio, rv);
 	}
+
 	nni_mtx_unlock(&s->mtx);
 }
 
@@ -913,6 +916,7 @@ static nni_option req0_sock_options[] = {
 	    .o_get  = req0_sock_get_resend_tick,
 	    .o_set  = req0_sock_set_resend_tick,
 	},
+
 	// terminate list
 	{
 	    .o_name = NULL,

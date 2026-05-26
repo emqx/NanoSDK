@@ -155,6 +155,8 @@ property *
 nni_mqtt_msg_get_publish_property(nng_msg *msg)
 {
 	nni_mqtt_proto_data *mqtt = nni_msg_get_proto_data(msg);
+	if (mqtt == NULL)
+		return NULL;
 	return mqtt->var_header.publish.properties;
 }
 
@@ -208,16 +210,49 @@ nni_mqtt_msg_get_publish_dup(nni_msg *msg)
 	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
 	return proto_data->fixed_header.publish.dup;
 }
-
+// only for internal use
 int
 nni_mqtt_msg_set_publish_topic(nni_msg *msg, const char *topic)
 {
 	int rv;
 	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	if (proto_data->is_copied == true)
+		mqtt_buf_free(&proto_data->var_header.publish.topic_name);
 	rv = mqtt_buf_create(&proto_data->var_header.publish.topic_name,
 	    (uint8_t *) topic, (uint32_t) strlen(topic));
-	proto_data->is_copied = true;
 	return rv;
+}
+
+// only for internal use
+int
+nni_mqtt_msg_set_publish_topic_len(nni_msg *msg, uint32_t len)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	if (proto_data == NULL)
+		return -1;
+	proto_data->var_header.publish.topic_name.length = len;
+	return 0;
+}
+
+void
+nni_mqtt_msg_set_sub_retain_bool(nni_msg *msg, bool retain)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	if (proto_data != NULL)
+		proto_data->sub_retain = retain;
+	// else
+	// 	log_error("Set retain bool in NULL proto data");
+	return;
+}
+
+bool
+nni_mqtt_msg_get_sub_retain_bool(nni_msg *msg)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	if (proto_data != NULL)
+		return proto_data->sub_retain;
+	else
+		return false;
 }
 
 const char *
@@ -228,11 +263,15 @@ nni_mqtt_msg_get_publish_topic(nni_msg *msg, uint32_t *topic_len)
 	return (const char *) proto_data->var_header.publish.topic_name.buf;
 }
 
-void
+int
 nni_mqtt_msg_set_publish_payload(nni_msg *msg, uint8_t *payload, uint32_t len)
 {
 	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
-	mqtt_buf_create(
+	if (proto_data == NULL)
+		return -1;
+	if (proto_data->is_copied == true)
+		mqtt_buf_free(&proto_data->payload.publish.payload);
+	return mqtt_buf_create(
 	    &proto_data->payload.publish.payload, payload, (uint32_t) len);
 }
 
@@ -498,7 +537,7 @@ nni_mqtt_msg_set_unsubscribe_topics(
 	for (size_t i = 0; i < topic_count; i++) {
 		nni_mqtt_topic_array_set(
 		    proto_data->payload.unsubscribe.topic_arr, i,
-		    (const char *) topics[i].buf);
+		    (const char *) topics[i].buf, topics[i].length);
 	}
 }
 
@@ -608,10 +647,24 @@ nni_mqtt_msg_set_connect_proto_version(nni_msg *msg, uint8_t version)
 }
 
 void
+nni_mqtt_msg_set_publish_proto_version(nni_msg *msg, uint8_t version)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	proto_data->var_header.publish.proto_ver = version;
+}
+
+void
 nni_mqtt_msg_set_disconnect_reason_code(nni_msg *msg, uint8_t reason_code)
 {
 	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
 	proto_data->var_header.disconnect.reason_code = reason_code;
+}
+
+uint8_t
+nni_mqtt_msg_get_disconnect_reason_code(nni_msg *msg)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	return proto_data->var_header.disconnect.reason_code;
 }
 
 void
@@ -661,6 +714,13 @@ nni_mqtt_msg_get_connect_proto_version(nni_msg *msg)
 {
 	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
 	return proto_data->var_header.connect.protocol_version;
+}
+
+uint8_t
+nni_mqtt_msg_get_publish_proto_version(nni_msg *msg)
+{
+	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
+	return proto_data->var_header.publish.proto_ver;
 }
 
 uint16_t
@@ -870,10 +930,10 @@ nni_mqtt_topic_array_create(size_t n)
 
 void
 nni_mqtt_topic_array_set(
-    nni_mqtt_topic *topic, size_t index, const char *topic_name)
+    nni_mqtt_topic *topic, size_t index, const char *topic_name, uint32_t len)
 {
 	topic[index].buf    = (uint8_t *) nni_strdup(topic_name);
-	topic[index].length = (uint32_t) strlen(topic_name);
+	topic[index].length = len;
 }
 
 void
@@ -898,8 +958,9 @@ void
 nni_mqtt_topic_qos_array_set(nni_mqtt_topic_qos *topic_qos, size_t index,
     const char *topic_name, uint32_t len, uint8_t qos, uint8_t nl, uint8_t rap, uint8_t rh)
 {
-	topic_qos[index].topic.buf       = (uint8_t *) nni_alloc(len * sizeof(uint8_t));
+	topic_qos[index].topic.buf       = (uint8_t *) nni_alloc(len + 1 * sizeof(uint8_t));
 	memcpy(topic_qos[index].topic.buf, topic_name, len);
+	topic_qos[index].topic.buf[len]  = '\0';
 	topic_qos[index].topic.length    = len;
 	topic_qos[index].qos             = qos;
 	topic_qos[index].nolocal         = nl;
@@ -911,7 +972,7 @@ void
 nni_mqtt_topic_qos_array_free(nni_mqtt_topic_qos *topic_qos, size_t n)
 {
 	for (size_t i = 0; i < n; i++) {
-		nni_free(topic_qos[i].topic.buf, topic_qos[i].topic.length);
+		nni_free(topic_qos[i].topic.buf, topic_qos[i].topic.length + 1 * sizeof(uint8_t));
 		topic_qos[i].topic.length = 0;
 	}
 	NNI_FREE_STRUCTS(topic_qos, n);
@@ -947,6 +1008,22 @@ mqtt_close_unack_msg_cb(void *key, void *val)
 }
 
 void
+mqtt_close_unack_aio_cb(void *key, void *val)
+{
+	NNI_ARG_UNUSED(key);
+
+	nni_aio * aio = val;
+
+	if (aio) {
+		nni_aio_finish_sync(aio, NNG_ECLOSED, 0);
+		nni_msg_free(nni_aio_get_msg(aio));
+		nni_aio_set_msg(aio, NULL);
+		nni_aio_set_prov_data(aio, NULL);
+	}
+}
+
+
+void
 nni_mqtt_msg_set_connect_property(nni_msg *msg, property *prop)
 {
 	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
@@ -960,21 +1037,5 @@ nni_mqtt_msg_get_connect_property(nni_msg *msg)
 	return proto_data->var_header.connect.properties;
 }
 
-int
-mqtt_pipe_recv_msgq_putq(nni_lmq *lmq, nni_msg *msg)
-{
-	nni_msg *tmsg;
-	// Dont resize lmq in sdk due to memory saving
-	// Just make space for new Message
-	if (nni_lmq_full(lmq)) {
-		if (nni_lmq_get(lmq, &tmsg) == 0) {
-			nni_println("Warning! msg lost due to busy socket");
-			nni_msg_free(tmsg);
-		}
-	}
-	if (0 != nni_lmq_put(lmq, msg)) {
-		nni_println("Warning! msg enqueue failed");
-		return -1;
-	}
-	return 0;
-}
+// peculiar API for SDK to free Conn_param
+

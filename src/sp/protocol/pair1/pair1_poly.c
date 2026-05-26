@@ -260,7 +260,7 @@ pair1poly_pipe_start(void *arg)
 	return (0);
 }
 
-static void
+static int
 pair1poly_pipe_close(void *arg)
 {
 	pair1poly_pipe *p = arg;
@@ -277,6 +277,8 @@ pair1poly_pipe_close(void *arg)
 	nni_mtx_unlock(&s->mtx);
 
 	nni_msgq_close(p->send_queue);
+
+	return 0;
 }
 
 static void

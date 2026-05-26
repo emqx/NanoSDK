@@ -6,7 +6,7 @@
 #
 
 if (NNG_ENABLE_SQLITE)
-  nng_sources(sqlite3.c sqlite3.h)
+  nng_sources(sqlite3.c)
 
   if (NNG_PLATFORM_POSIX)
     nng_link_libraries(dl)

@@ -12,7 +12,7 @@
 #
 
 if (NNG_ENABLE_TLS)
-    set(NNG_TLS_ENGINES mbed wolf none)
+    set(NNG_TLS_ENGINES mbed none)
     # We assume Mbed for now.  (Someday replaced perhaps with Bear.)
     set(NNG_TLS_ENGINE mbed CACHE STRING "TLS engine to use.")
     set_property(CACHE NNG_TLS_ENGINE PROPERTY STRINGS ${NNG_TLS_ENGINES})
@@ -29,7 +29,7 @@ if (NOT NNG_TLS_ENGINE STREQUAL "none")
 endif ()
 
 add_subdirectory(mbedtls)
-add_subdirectory(wolfssl)
+add_subdirectory(openssl)
 
 nng_sources(tls_common.c)
 nng_sources(tls_api.h)

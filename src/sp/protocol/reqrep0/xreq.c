@@ -123,7 +123,7 @@ xreq0_pipe_start(void *arg)
 	return (0);
 }
 
-static void
+static int
 xreq0_pipe_close(void *arg)
 {
 	xreq0_pipe *p = arg;
@@ -132,6 +132,8 @@ xreq0_pipe_close(void *arg)
 	nni_aio_close(&p->aio_putq);
 	nni_aio_close(&p->aio_recv);
 	nni_aio_close(&p->aio_send);
+
+	return 0;
 }
 
 // For raw mode we can just let the pipes "contend" via get queue to get a

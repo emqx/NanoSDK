@@ -286,13 +286,15 @@ pair1_pipe_start(void *arg)
 	return (0);
 }
 
-static void
+static int
 pair1_pipe_close(void *arg)
 {
 	pair1_pipe *p = arg;
 
 	nni_aio_close(&p->aio_send);
 	nni_aio_close(&p->aio_recv);
+
+	return 0;
 }
 
 static void

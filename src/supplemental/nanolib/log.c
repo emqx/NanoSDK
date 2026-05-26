@@ -11,23 +11,30 @@
 #include "nng/supplemental/nanolib/file.h"
 #include "core/nng_impl.h"
 #include "core/defs.h"
-
 #define INDEX_FILE_NAME ".idx"
-
-#if defined(SUPP_SYSLOG)
-#include <syslog.h>
-#endif
 
 #define MAX_CALLBACKS 10
 
 #if NNG_PLATFORM_WINDOWS
 #define nano_localtime(t, pTm) localtime_s(pTm, t)
 #else
+#if defined(SUPP_SYSLOG)
+#include <syslog.h>
+static int syslog_socket = -1;
+static struct sockaddr_un syslog_addr;
+static const char *log_ident = NULL;
+static int log_option = 0;
+static int log_facility = LOG_USER;
+#endif
 #include <sys/types.h>
 #include <unistd.h>
 #include <sys/syscall.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <errno.h>
 #define nano_localtime(t, pTm) localtime_r(t, pTm)
 #endif
+
 
 typedef struct {
 	log_func  fn;
@@ -95,12 +102,23 @@ file_callback(log_event *ev)
 {
 	char buf[64];
 #if (NNG_PLATFORM_WINDOWS || NNG_PLATFORM_DARWIN)
-	int pid = (int) getpid();
+	int pid = nni_plat_getpid();
 #else
 	pid_t pid = syscall(__NR_gettid);
 #endif
+#ifndef NNG_PLATFORM_WINDOWS
+	if (nng_access(ev->config->dir, W_OK) < 0) {
+		fprintf(stderr, "open path %s failed! close file!\n",
+				ev->config->dir);
+		if (ev->config->fp != NULL)
+			fclose(ev->config->fp);
+		ev->config->fp = NULL;
+		return;
+	}
+#endif
+	if (ev->config->fp == NULL)
+		ev->config->fp = fopen(ev->config->abs_path, "a");
 	FILE *fp = ev->config->fp;
-	printf("dir:%s file:%s\n",ev->config->dir, ev->config->file);
 	buf[strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &ev->time)] = '\0';
 	fprintf(fp, "%s [%i] %-5s %s:%d: ", buf, pid,
 	    level_strings[ev->level], ev->file, ev->line);
@@ -117,16 +135,16 @@ static uint8_t
 convert_syslog_level(uint8_t level)
 {
 	switch (level) {
-	case NANO_LOG_FATAL:
+	case NNG_LOG_FATAL:
 		return LOG_EMERG;
-	case NANO_LOG_ERROR:
+	case NNG_LOG_ERROR:
 		return LOG_ERR;
-	case NANO_LOG_WARN:
+	case NNG_LOG_WARN:
 		return LOG_WARNING;
-	case NANO_LOG_INFO:
+	case NNG_LOG_INFO:
 		return LOG_INFO;
-	case NANO_LOG_DEBUG:
-	case NANO_LOG_TRACE:
+	case NNG_LOG_DEBUG:
+	case NNG_LOG_TRACE:
 		return LOG_DEBUG;
 	default:
 		return LOG_WARNING;
@@ -136,6 +154,22 @@ convert_syslog_level(uint8_t level)
 static void
 syslog_callback(log_event *ev)
 {
+
+#if (NNG_PLATFORM_WINDOWS || NNG_PLATFORM_DARWIN)
+	int pid = nni_plat_getpid();
+#else
+	pid_t pid = syscall(__NR_gettid);
+#endif
+
+	// Create buffer for the log prefix
+	char buf[256];
+	snprintf(buf, sizeof(buf), "[%i] %-5s %s:%d %s: ", pid,
+	    level_strings[ev->level], ev->file, ev->line, ev->func);
+
+	// Concatenate buf and ev->fmt
+	char final_fmt[512]; // Adjust size as needed
+	snprintf(final_fmt, sizeof(final_fmt), "%s%s", buf, ev->fmt);
+
 	vsyslog(ev->level, ev->fmt, ev->ap);
 }
 
@@ -145,6 +179,106 @@ log_add_syslog(const char *log_name, uint8_t level, void *mtx)
 	openlog(log_name, LOG_PID, LOG_DAEMON | convert_syslog_level(level));
 	log_add_callback(syslog_callback, NULL, level, mtx, NULL);
 }
+#ifndef NNG_PLATFORM_WINDOWS
+void
+uds_openlog(const char *uds_path, const char *ident, int option, int facility)
+{
+	log_ident    = ident;
+	log_option   = option;
+	log_facility = facility;
+
+	if ((syslog_socket = socket(AF_UNIX, SOCK_DGRAM, 0)) < 0) {
+		fprintf(stderr, "socket %s", strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+
+	memset(&syslog_addr, 0, sizeof(syslog_addr));
+	syslog_addr.sun_family = AF_UNIX;
+	strncpy(
+	    syslog_addr.sun_path, uds_path, sizeof(syslog_addr.sun_path) - 1);
+
+	int len = offsetof(struct sockaddr_un, sun_path) + strlen(uds_path);
+	if (connect(syslog_socket, (struct sockaddr *) &syslog_addr, len) <
+	    0) {
+		fprintf(stderr, "connect to %s %s", uds_path, strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+}
+
+void
+uds_vsyslog(int priority, const char *format, va_list args)
+{
+	char message[1024];
+	char final_message[1064];
+
+	vsnprintf(message, sizeof(message), format, args);
+
+	if (log_ident) {
+		snprintf(final_message, sizeof(final_message), "<%d>%s: %s",
+		    priority | log_facility, log_ident, message);
+	} else {
+		snprintf(final_message, sizeof(final_message), "<%d>%s",
+		    priority | log_facility, message);
+	}
+
+	size_t message_len = strlen(final_message);
+
+	if (syslog_socket >= 0) {
+		if (sendto(syslog_socket, final_message, message_len, 0,
+		        (struct sockaddr *) &syslog_addr,
+		        sizeof(syslog_addr)) < 0) {
+			perror("sendto");
+		}
+	} else {
+		fprintf(stderr, "Syslog socket not open\n");
+	}
+}
+
+void uds_syslog(int priority, const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    uds_vsyslog(priority, format, args);
+    va_end(args);
+}
+
+void uds_closelog(void) {
+    if (syslog_socket >= 0) {
+        close(syslog_socket);
+        syslog_socket = -1;
+    }
+}
+
+static void
+uds_syslog_callback(log_event *ev)
+{
+
+#if (NNG_PLATFORM_WINDOWS || NNG_PLATFORM_DARWIN)
+	int pid = nni_plat_getpid();
+#else
+	pid_t pid = syscall(__NR_gettid);
+#endif
+
+	// Create buffer for the log prefix
+	char buf[256];
+	snprintf(buf, sizeof(buf), "[%i] %-5s %s:%d %s: ", pid,
+	    level_strings[ev->level], ev->file, ev->line, ev->func);
+
+	// Concatenate buf and ev->fmt
+	char final_fmt[512]; // Adjust size as needed
+	snprintf(final_fmt, sizeof(final_fmt), "%s%s", buf, ev->fmt);
+
+	// Pass the modified format string to uds_vsyslog
+	uds_vsyslog(ev->level, final_fmt, ev->ap);
+}
+
+void
+log_add_uds(const char *uds_path, const char *log_name, uint8_t level, void *mtx)
+{
+	uds_openlog(uds_path, log_name, LOG_PID, LOG_DAEMON | convert_syslog_level(level));
+	log_add_callback(uds_syslog_callback, NULL, level, mtx, NULL);
+}
+#endif
+
 #else
 
 void
@@ -155,7 +289,17 @@ log_add_syslog(const char *log_name, uint8_t level, void *mtx)
 	NNI_ARG_UNUSED(mtx);
 }
 
+void
+log_add_uds(const char *uds_path, const char *log_name, uint8_t level, void *mtx)
+{
+	NNI_ARG_UNUSED(uds_path);
+	NNI_ARG_UNUSED(log_name);
+	NNI_ARG_UNUSED(level);
+	NNI_ARG_UNUSED(mtx);
+}
+
 #endif
+
 
 const char *
 log_level_string(int level)
@@ -209,13 +353,34 @@ log_clear_callback()
 static void
 file_rotation(FILE *fp, conf_log *config)
 {
-	// Note : do not call log_xxx() in this function, it will cause dead
-	// lock
+	// Note : do not call log_xxx() in this function, it will cause dead lock
 	size_t sz = 0;
 	int    rv;
 	if ((rv = nni_plat_file_size(config->abs_path, &sz)) != 0) {
 		fprintf(stderr, "get file %s size failed: %s\n",
 		    config->abs_path, nng_strerror(rv));
+		if (!nni_plat_file_exists(config->abs_path)) {
+			// file missing, recreate one
+			if (fp)
+				fclose(fp);
+#ifndef NNG_PLATFORM_WINDOWS
+			if (nng_access(config->dir, W_OK) < 0) {
+				fprintf(stderr, "open path %s failed\n",
+						config->dir);
+				config->fp = NULL;
+				return;
+			}
+#endif
+			if (nni_file_put(config->abs_path, "\n", 1) != 0) {
+				fprintf(stderr, "write to file %s failed: %s\n",
+				    config->abs_path, nng_strerror(rv));
+				config->fp = NULL;
+				return;
+			}
+
+			config->fp = fopen(config->abs_path, "a");
+			fp             = config->fp;
+		}
 		return;
 	}
 
@@ -242,13 +407,21 @@ file_rotation(FILE *fp, conf_log *config)
 		    log_name, log_name_len, "%s.%lu", config->file, index);
 		char *backup_log_path =
 		    nano_concat_path(config->dir, log_name);
-		fclose(fp);
+		if (fp)
+			fclose(fp);
 		fp = NULL;
 		remove(backup_log_path);
 		rename(config->abs_path, backup_log_path);
 		nni_free(log_name, log_name_len);
 		nni_strfree(backup_log_path);
-
+#ifndef NNG_PLATFORM_WINDOWS
+		if (nng_access(config->dir, W_OK) < 0) {
+			fprintf(stderr, "open path %s failed\n",
+					config->dir);
+			config->fp = NULL;
+			return;
+		}
+#endif
 		fp           = fopen(config->abs_path, "a");
 		config->fp   = fp;
 		char num[20] = { 0 };
@@ -422,7 +595,7 @@ int conf_log_fini()
 	cli_log->rotation_sz    = 10 * 1024;
 
 	log_fini(cli_log);
-	nng_free(cli_log, sizeof(cli_log));
+	nng_free(cli_log, sizeof(conf_log));
 	cli_log = NULL;
 	return 0;
 }

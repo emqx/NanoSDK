@@ -147,7 +147,7 @@ pub0_pipe_start(void *arg)
 	return (0);
 }
 
-static void
+static int
 pub0_pipe_close(void *arg)
 {
 	pub0_pipe *p    = arg;
@@ -164,6 +164,8 @@ pub0_pipe_close(void *arg)
 		nni_list_remove(&sock->pipes, p);
 	}
 	nni_mtx_unlock(&sock->mtx);
+
+	return 0;
 }
 
 static void

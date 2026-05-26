@@ -2043,6 +2043,22 @@ nng_version(void)
 	return (xstr(NNG_MAJOR_VERSION) "." xstr(NNG_MINOR_VERSION) "." xstr(
 	    NNG_PATCH_VERSION) NNG_RELEASE_SUFFIX);
 }
+void
+nng_msg_set_timestamp(nng_msg *m, uint64_t time)
+{
+	nni_msg_set_timestamp(m, (nni_time) time);
+}
+
+uint64_t
+nng_msg_get_timestamp(nng_msg *m)
+{
+	return nni_msg_get_timestamp(m);
+}
+
+int nng_access(const char* name, int flag)
+{
+    return nni_plat_access(name, flag);
+}
 
 void
 nng_init_set_parameter(nng_init_parameter p, uint64_t value)

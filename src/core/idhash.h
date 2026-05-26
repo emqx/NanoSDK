@@ -55,6 +55,7 @@ extern int   nni_id_alloc32(nni_id_map *, uint32_t *, void *);
 extern int   nni_id_remove(nni_id_map *, uint64_t);
 extern void  nni_id_map_sys_fini(void);
 extern bool  nni_id_visit(nni_id_map *, uint64_t *, void **, uint32_t *);
+extern uint32_t nni_id_count(const nni_id_map *);
 
 #define NNI_ID_MAP_INITIALIZER(min, max, flags)            \
 	{                                                  \
@@ -66,4 +67,6 @@ extern bool  nni_id_visit(nni_id_map *, uint64_t *, void **, uint32_t *);
 extern void *nni_id_get_min(nni_id_map *m, uint16_t *pid);
 extern void  nni_id_msgfree_cb(nni_msg *msg);
 extern void  nni_id_map_foreach(nni_id_map *, nni_idhash_cb);
+extern void  nni_id_map_foreach2(nni_id_map *, nni_idhash_cb2, void *);
+
 #endif // CORE_IDHASH_H

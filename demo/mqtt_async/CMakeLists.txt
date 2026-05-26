@@ -31,6 +31,8 @@ target_link_libraries(mqtt_async nng)
 target_link_libraries(mqtt_async ${CMAKE_THREAD_LIBS_INIT})
 
 if(NNG_ENABLE_TLS)
+    find_package(MbedTLS)
+    target_link_libraries(mqtt_async mbedtls mbedx509 mbedcrypto)
     add_definitions(-DNNG_SUPP_TLS)
 endif()
 

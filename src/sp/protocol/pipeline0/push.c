@@ -140,7 +140,7 @@ push0_pipe_start(void *arg)
 	return (0);
 }
 
-static void
+static int
 push0_pipe_close(void *arg)
 {
 	push0_pipe *p = arg;
@@ -158,6 +158,8 @@ push0_pipe_close(void *arg)
 		}
 	}
 	nni_mtx_unlock(&s->m);
+
+	return 0;
 }
 
 static void

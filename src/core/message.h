@@ -11,6 +11,9 @@
 #ifndef CORE_MESSAGE_H
 #define CORE_MESSAGE_H
 
+#include "nng/mqtt/packet.h"
+#include "nng/supplemental/util/platform.h"
+
 // Internally used message API.  Again, this is not part of our public API.
 // "trim" operations work from the front, and "chop" work from the end.
 
@@ -61,7 +64,15 @@ extern bool     nni_msg_shared(nni_msg *);
 // is returned.  It is the responsibility of the caller to free the
 // original message in that case (same semantics as realloc).
 extern nni_msg *nni_msg_pull_up(nni_msg *);
+extern nni_time nni_msg_get_timestamp(nni_msg *m);
+extern void     nni_msg_set_timestamp(nni_msg *m, nni_time time);
+extern uint8_t *nni_msg_payload_ptr(const nni_msg *m);
+extern void     nni_msg_set_payload_ptr(nni_msg *m, uint8_t *ptr);
 
+extern void     nni_msg_set_cmd_type(nni_msg *m, uint8_t cmd);
+extern uint8_t  nni_msg_get_cmd_type(nni_msg *m);
+extern uint8_t  nni_msg_get_type(nni_msg *m);
+extern uint16_t nni_msg_get_pub_pid(nni_msg *m);
 // Message protocol private data.  This is specific for protocol use,
 // and not exposed to library users.
 

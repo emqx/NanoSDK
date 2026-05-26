@@ -12,6 +12,7 @@
 #define CORE_DEFS_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 // C compilers may get unhappy when named arguments are not used.  While
 // there are things like __attribute__((unused)) which are arguably
@@ -64,6 +65,7 @@ typedef int32_t  nni_duration; // Rel. time (ms).
 
 typedef void (*nni_cb)(void *);
 typedef void (*nni_idhash_cb)(void *, void *);
+typedef void (*nni_idhash_cb2)(void *, void *, void *);
 
 // Some default timing things.
 #define NNI_TIME_NEVER ((nni_time) -1)
@@ -163,8 +165,19 @@ typedef nni_type nni_opt_type;
 #define NNI_MAX_MAX_TTL 15
 #endif
 
-// NNI_MAX_HEADER_SIZE is our header size.
-#define NNI_MAX_HEADER_SIZE ((NNI_MAX_MAX_TTL + 1) * sizeof(uint32_t))
+// NANOMQ Tcp layer
+#define NNI_ARRAY_SIZE(x) (sizeof(x) / sizeof(uint32_t))
+
+//NanoMQ nmq_pipe
+typedef struct subinfo subinfo;
+
+// TODO independent nano_msg
+#ifdef NANO_HEADER_SIZE
+#define NNI_NANO_MAX_HEADER_SIZE \
+	sizeof(uint8_t) * NANO_HEADER_SIZE // ONLY FIXED HEADER
+#else
+#define NNI_NANO_MAX_HEADER_SIZE sizeof(uint8_t) * 5 // ONLY FIXED HEADER
+#endif
 
 // NNI_EXPIRE_BATCH lets us handle expiration in batches,
 // reducing the number of traverses of the expiration list we perform.

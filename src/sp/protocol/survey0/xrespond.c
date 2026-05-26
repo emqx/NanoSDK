@@ -168,7 +168,7 @@ xresp0_pipe_start(void *arg)
 	return (rv);
 }
 
-static void
+static int
 xresp0_pipe_close(void *arg)
 {
 	xresp0_pipe *p = arg;
@@ -184,6 +184,8 @@ xresp0_pipe_close(void *arg)
 	nni_mtx_lock(&s->mtx);
 	nni_id_remove(&s->pipes, p->id);
 	nni_mtx_unlock(&s->mtx);
+
+	return 0;
 }
 
 // resp0_sock_send watches for messages from the upper write queue,

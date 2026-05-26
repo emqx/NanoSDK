@@ -55,6 +55,15 @@ struct pos_buf {
 
 /* CONNECT flags */
 typedef struct conn_flags_t {
+#ifdef NNG_BIG_ENDIAN
+	uint8_t username_flag : 1;
+	uint8_t password_flag : 1;
+	uint8_t will_retain : 1;
+	uint8_t will_qos : 2;
+	uint8_t will_flag : 1;
+	uint8_t clean_session : 1;
+	uint8_t reserved : 1;
+#else
 	uint8_t reserved : 1;
 	uint8_t clean_session : 1;
 	uint8_t will_flag : 1;
@@ -62,6 +71,7 @@ typedef struct conn_flags_t {
 	uint8_t will_retain : 1;
 	uint8_t password_flag : 1;
 	uint8_t username_flag : 1;
+#endif
 } conn_flags;
 
 /*****************************************************************************
@@ -91,6 +101,7 @@ typedef struct mqtt_connack_vhdr_t {
 
 typedef struct mqtt_publish_vhdr_t {
 	mqtt_buf  topic_name;
+	uint8_t   proto_ver;
 	uint16_t  packet_id;
 	property *properties;
 } mqtt_publish_vhdr;
@@ -152,6 +163,7 @@ typedef struct mqtt_auth_vhdr_t {
 /*****************************************************************************
  * Union to cover all Variable Header types
  ****************************************************************************/
+// Only use one struct at a time!
 union mqtt_variable_header {
 	mqtt_connect_vhdr     connect;
 	mqtt_disconnect_vhdr  disconnect;
@@ -218,18 +230,33 @@ union mqtt_payload {
 };
 
 typedef struct {
+#ifdef NNG_BIG_ENDIAN
+	uint8_t packet_type : 4;
+	uint8_t bit_3 : 1;
+	uint8_t bit_2 : 1;
+	uint8_t bit_1 : 1;
+	uint8_t bit_0 : 1;
+#else
 	uint8_t bit_0 : 1;
 	uint8_t bit_1 : 1;
 	uint8_t bit_2 : 1;
 	uint8_t bit_3 : 1;
 	uint8_t packet_type : 4;
+#endif
 } mqtt_common_hdr;
 
 typedef struct {
+#ifdef NNG_BIG_ENDIAN
+	uint8_t packet_type : 4;
+	uint8_t dup : 1;
+	uint8_t qos : 2;
+	uint8_t retain : 1;
+#else
 	uint8_t retain : 1;
 	uint8_t qos : 2;
 	uint8_t dup : 1;
 	uint8_t packet_type : 4;
+#endif
 } mqtt_pub_hdr;
 
 typedef struct mqtt_fixed_hdr_t {
@@ -237,7 +264,6 @@ typedef struct mqtt_fixed_hdr_t {
 		mqtt_common_hdr common;
 		mqtt_pub_hdr    publish;
 	};
-
 	uint32_t remaining_length; /* up to 268,435,455 (256 MB) */
 } mqtt_fixed_hdr;
 
@@ -253,13 +279,13 @@ typedef struct mqtt_msg_t {
 	                         packetType and packetFlags)  may be used to
 	                         jump the point where the actual data starts */
 	bool is_decoded : 1; /* message is obtained from decoded or encoded */
+	// is_copied is for bridging(if true needs free)
 	bool is_copied : 1;  /* indicates string or array members are copied */
 	bool initialized : 1; /* message is decoded or encoded*/
-	uint8_t _unused : 1;
+	bool sub_retain : 1; /* retain message coming from sub action or from bridging channel */
 } mqtt_msg;
+// bridged bit: x : x : x : x : x : retain via sub  : bridged
 
-NNG_DECL int mqtt_get_remaining_length(
-    uint8_t *, uint32_t, uint32_t *, uint8_t *);
 NNG_DECL int byte_number_for_variable_length(uint32_t);
 NNG_DECL int write_variable_length_value(uint32_t, struct pos_buf *);
 NNG_DECL int write_byte(uint8_t, struct pos_buf *);
@@ -296,7 +322,6 @@ NNG_DECL mqtt_msg *mqtt_msg_create(nni_mqtt_packet_type);
 
 NNG_DECL int mqtt_msg_dump(mqtt_msg *, mqtt_buf *, mqtt_buf *, bool);
 
-NNG_DECL int mqtt_pipe_recv_msgq_putq(nni_lmq *, nni_msg *);
 // nni_msg proto_data alloc/free
 NNG_DECL int  nni_mqtt_msg_proto_data_alloc(nni_msg *);
 NNG_DECL void nni_mqtt_msg_proto_data_free(nni_msg *);
@@ -319,6 +344,9 @@ NNG_DECL int nni_mqtt_msg_packet_validate(uint8_t *, size_t, size_t, uint8_t);
 // mqtt packet_type
 NNG_DECL void nni_mqtt_msg_set_packet_type(nni_msg *, nni_mqtt_packet_type);
 NNG_DECL nni_mqtt_packet_type nni_mqtt_msg_get_packet_type(nni_msg *);
+NNG_DECL void nni_mqtt_msg_set_bridge_bool(nni_msg *msg, bool bridged);
+NNG_DECL bool nni_mqtt_msg_get_sub_retain_bool(nni_msg *msg);
+NNG_DECL void nni_mqtt_msg_set_sub_retain_bool(nni_msg *msg, bool retain);
 
 // mqtt packet id
 // NOTE: not all packet have a packet id field
@@ -366,20 +394,24 @@ NNG_DECL uint8_t   nni_mqtt_msg_get_connack_flags(nni_msg *);
 NNG_DECL property *nni_mqtt_msg_get_connack_property(nni_msg *);
 
 // mqtt publish
+
 NNG_DECL property *nni_mqtt_msg_get_publish_property(nni_msg *msg);
 NNG_DECL void nni_mqtt_msg_set_publish_property(nni_msg *msg, property *prop);
-NNG_DECL void        nni_mqtt_msg_set_publish_qos(nni_msg *, uint8_t);
-NNG_DECL uint8_t     nni_mqtt_msg_get_publish_qos(nni_msg *);
-NNG_DECL void        nni_mqtt_msg_set_publish_retain(nni_msg *, bool);
-NNG_DECL bool        nni_mqtt_msg_get_publish_retain(nni_msg *);
-NNG_DECL void        nni_mqtt_msg_set_publish_dup(nni_msg *, bool);
-NNG_DECL bool        nni_mqtt_msg_get_publish_dup(nni_msg *);
-NNG_DECL int         nni_mqtt_msg_set_publish_topic(nni_msg *, const char *);
+NNG_DECL void nni_mqtt_msg_set_publish_qos(nni_msg *, uint8_t);
+NNG_DECL uint8_t nni_mqtt_msg_get_publish_qos(nni_msg *);
+NNG_DECL uint8_t nni_mqtt_msg_get_publish_proto_version(nni_msg *);
+NNG_DECL void    nni_mqtt_msg_set_publish_proto_version(nni_msg *, uint8_t);
+NNG_DECL void    nni_mqtt_msg_set_publish_retain(nni_msg *, bool);
+NNG_DECL bool    nni_mqtt_msg_get_publish_retain(nni_msg *);
+NNG_DECL void    nni_mqtt_msg_set_publish_dup(nni_msg *, bool);
+NNG_DECL bool    nni_mqtt_msg_get_publish_dup(nni_msg *);
+NNG_DECL int     nni_mqtt_msg_set_publish_topic(nni_msg *, const char *);
+NNG_DECL int     nni_mqtt_msg_set_publish_topic_len(nni_msg *, uint32_t);
 NNG_DECL const char *nni_mqtt_msg_get_publish_topic(nni_msg *, uint32_t *);
 NNG_DECL void        nni_mqtt_msg_set_publish_packet_id(nni_msg *, uint16_t);
 NNG_DECL uint16_t    nni_mqtt_msg_get_publish_packet_id(nni_msg *);
-NNG_DECL void        nni_mqtt_msg_set_publish_payload(nni_msg *, uint8_t *, uint32_t);
-NNG_DECL uint8_t    *nni_mqtt_msg_get_publish_payload(nni_msg *, uint32_t *);
+NNG_DECL int nni_mqtt_msg_set_publish_payload(nni_msg *, uint8_t *, uint32_t);
+NNG_DECL uint8_t *nni_mqtt_msg_get_publish_payload(nni_msg *, uint32_t *);
 
 // mqtt puback
 NNG_DECL uint16_t nni_mqtt_msg_get_puback_packet_id(nni_msg *);
@@ -445,6 +477,7 @@ NNG_DECL void      nni_mqtt_msg_set_unsuback_property(nni_msg *, property *);
 
 // mqtt disconnect
 NNG_DECL void nni_mqtt_msg_set_disconnect_reason_code(nng_msg *msg, uint8_t reason_code);
+NNG_DECL uint8_t nni_mqtt_msg_get_disconnect_reason_code(nni_msg *msg);
 NNG_DECL property *nni_mqtt_msg_get_disconnect_property(nng_msg *msg);
 NNG_DECL void nni_mqtt_msg_set_disconnect_property(nng_msg *msg, property *prop);
 
@@ -457,7 +490,7 @@ NNG_DECL void nni_mqtt_msg_set_auth_reason_code(nng_msg *msg, uint8_t reason_cod
 NNG_DECL void nni_mqtt_msg_dump(nni_msg *, uint8_t *, uint32_t, bool);
 // mqtt topic create/free
 NNG_DECL nni_mqtt_topic *nni_mqtt_topic_array_create(size_t n);
-NNG_DECL void nni_mqtt_topic_array_set(nni_mqtt_topic *, size_t, const char *);
+NNG_DECL void nni_mqtt_topic_array_set(nni_mqtt_topic *, size_t, const char *, uint32_t);
 NNG_DECL void nni_mqtt_topic_array_free(nni_mqtt_topic *, size_t);
 
 // mqtt topic_qos create/free/set
@@ -466,26 +499,27 @@ NNG_DECL void nni_mqtt_topic_qos_array_set(nni_mqtt_topic_qos *, size_t,
     const char *, uint32_t, uint8_t, uint8_t, uint8_t, uint8_t);
 NNG_DECL void nni_mqtt_topic_qos_array_free(nni_mqtt_topic_qos *, size_t);
 
+
 NNG_DECL void mqtt_close_unack_msg_cb(void *, void *);
+NNG_DECL void mqtt_close_unack_aio_cb(void *, void *);
 
 NNG_DECL uint16_t nni_msg_get_pub_pid(nni_msg *);
 NNG_DECL uint16_t mqtt_get_next_packet_id(nni_atomic_int *id);
 
 NNG_DECL void      nni_mqtt_msg_set_connect_property(nni_msg *, property *);
 NNG_DECL property *nni_mqtt_msg_get_connect_property(nni_msg *);
-
-NNG_DECL reason_code check_properties(property *prop);
 NNG_DECL property *decode_buf_properties(uint8_t *packet, uint32_t packet_len,
     uint32_t *pos, uint32_t *len, bool copy_value);
 NNG_DECL property *decode_properties(
     nng_msg *msg, uint32_t *pos, uint32_t *len, bool copy_value);
 NNG_DECL int encode_properties(nng_msg *msg, property *prop, uint8_t cmd);
 
-NNG_DECL uint32_t  get_properties_len(property *prop);
+NNG_DECL uint32_t  get_properties_len(property *prop, uint8_t cmd);
 NNG_DECL int       property_free(property *prop);
 NNG_DECL void      property_foreach(property *prop, void (*cb)(property *));
 NNG_DECL int       property_dup(property **dup, const property *src);
 NNG_DECL property *property_pub_by_will(property *will_prop);
+NNG_DECL void      property_remove(property *prop_list, uint8_t prop_id);
 
 NNG_DECL property *property_alloc(void);
 NNG_DECL property *property_set_value_u8(uint8_t prop_id, uint8_t value);
@@ -500,9 +534,9 @@ NNG_DECL property *property_set_value_strpair(uint8_t prop_id, const char *key,
     uint32_t key_len, const char *value, uint32_t value_len, bool copy_value);
 
 NNG_DECL property_type_enum property_get_value_type(uint8_t prop_id);
-NNG_DECL property_data *    property_get_value(property *prop, uint8_t prop_id);
-NNG_DECL void               property_append(property *prop_list, property *last);
-NNG_DECL int                property_value_copy(property *dest,const property *src);
+NNG_DECL property_data *property_get_value(property *prop, uint8_t prop_id);
+NNG_DECL void           property_append(property *prop_list, property *last);
+NNG_DECL int  property_value_copy(property *dest, const property *src);
 
 /* introduced from mqtt_parser, might be duplicated */
 NNG_DECL int nni_mqtt_pubres_decode(nng_msg *msg, uint16_t *packet_id,

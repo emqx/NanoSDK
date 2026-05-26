@@ -154,7 +154,7 @@ xsurv0_pipe_start(void *arg)
 	return (0);
 }
 
-static void
+static int
 xsurv0_pipe_close(void *arg)
 {
 	xsurv0_pipe *p = arg;
@@ -172,6 +172,8 @@ xsurv0_pipe_close(void *arg)
 		nni_list_remove(&s->pipes, p);
 	}
 	nni_mtx_unlock(&s->mtx);
+
+	return 0;
 }
 
 static void

@@ -355,4 +355,9 @@ nni_plat_file_size(const char *path, size_t *size)
 	return (0);
 }
 
+int nni_plat_access(const char* name, int flag)
+{
+    return access(name, flag);
+}
+
 #endif // NNG_PLATFORM_POSIX

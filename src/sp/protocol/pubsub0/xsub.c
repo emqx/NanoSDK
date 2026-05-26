@@ -113,12 +113,14 @@ xsub0_pipe_start(void *arg)
 	return (0);
 }
 
-static void
+static int
 xsub0_pipe_close(void *arg)
 {
 	xsub0_pipe *p = arg;
 
 	nni_aio_close(&p->aio_recv);
+
+	return 0;
 }
 
 static void
