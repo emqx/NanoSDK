@@ -35,13 +35,18 @@
 
 #include <nng/nng.h>
 #include <nng/supplemental/util/platform.h>
-#include <nng/mqtt/mqtt_quic.h>
 #include <nng/mqtt/mqtt_client.h>
 
-#include "msquic.h"
+#if defined(SUPP_QUIC)
+#include <nng/mqtt/mqtt_quic_client.h>
+#endif
+
+
+
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define CONN 1
 #define SUB 2
@@ -49,32 +54,40 @@
 
 static nng_socket * g_sock;
 
-conf_quic config_user = {
-	.tls = {
-		.enable = false,
-		.cafile = "",
-		.certfile = "",
-		.keyfile  = "",
-		.key_password = "",
-		.verify_peer = true,
-		.set_fail = true,
-	},
-	.multi_stream = false,
-	.qos_first  = false,
-	.qkeepalive = 10,
-	.qconnect_timeout = 60,
-	.qdiscon_timeout = 30,
-	.qidle_timeout = 30,
-};
-
 static void
 fatal(const char *msg, int rv)
 {
 	fprintf(stderr, "%s: %s\n", msg, nng_strerror(rv));
 }
 
+static int
+parse_proto_ver(const char *text, uint8_t *proto_ver)
+{
+	char *end = NULL;
+	long  val;
+
+	if (text == NULL) {
+		*proto_ver = MQTT_PROTOCOL_VERSION_v311;
+		return 0;
+	}
+
+	val = strtol(text, &end, 10);
+	if (end == text || *end != '\0') {
+		return -1;
+	}
+
+	if (val != MQTT_PROTOCOL_VERSION_v311 &&
+	    val != MQTT_PROTOCOL_VERSION_v5) {
+		return -1;
+	}
+
+	*proto_ver = (uint8_t) val;
+	return 0;
+}
+
 static nng_msg *
-mqtt_msg_compose(int type, int qos, char *topic, char *payload)
+mqtt_msg_compose(
+	int type, uint8_t proto_ver, int qos, char *topic, char *payload)
 {
 	// Mqtt connect message
 	nng_msg *msg;
@@ -83,7 +96,7 @@ mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 	if (type == CONN) {
 		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
 
-		nng_mqtt_msg_set_connect_proto_version(msg, 4);
+		nng_mqtt_msg_set_connect_proto_version(msg, proto_ver);
 		nng_mqtt_msg_set_connect_keep_alive(msg, 10);
 		nng_mqtt_msg_set_connect_clean_session(msg, true);
 	} else if (type == SUB) {
@@ -116,31 +129,26 @@ mqtt_msg_compose(int type, int qos, char *topic, char *payload)
 }
 
 static int
-connect_cb(void *rmsg, void * arg)
+quic_connect_cb(void *rmsg, void *arg)
 {
-	printf("[Connected][%s]...\n", (char *)arg);
+	struct connect_param *param  = arg;
+	int                   reason = 0;
+
+	printf("%s: connect\n", __FUNCTION__);
+
 	return 0;
 }
 
 static int
-disconnect_cb(void *rmsg, void * arg)
+quic_disconnect_cb(void *rmsg, void *arg)
 {
-	printf("[Disconnected][%s]...\n", (char *)arg);
+	printf("bridge client disconnected!\n");
 	return 0;
 }
 
-static int
-msg_send_cb(void *rmsg, void * arg)
+static void
+print_publish_msg(nng_msg *msg)
 {
-	printf("[Msg Sent][%s]...\n", (char *)arg);
-	return 0;
-}
-
-static int
-msg_recv_cb(void *rmsg, void * arg)
-{
-	printf("[Msg Arrived][%s]...\n", (char *)arg);
-	nng_msg *msg = rmsg;
 	uint32_t topicsz, payloadsz;
 
 	char *topic   = (char *)nng_mqtt_msg_get_publish_topic(msg, &topicsz);
@@ -148,7 +156,6 @@ msg_recv_cb(void *rmsg, void * arg)
 
 	printf("topic   => %.*s\n"
 	       "payload => %.*s\n",topicsz, topic, payloadsz, payload);
-	return 0;
 }
 
 static int
@@ -181,7 +188,8 @@ static void
 sendmsg_func(void *arg)
 {
 	nng_socket *sock = arg;
-	nng_msg *msg = mqtt_msg_compose(3, 1, "topic123", "hello quic");
+	nng_msg *msg = mqtt_msg_compose(
+		PUB, MQTT_PROTOCOL_VERSION_v311, 1, "topic123", "hello quic");
 
 	for (;;) {
 		nng_msleep(1000);
@@ -191,12 +199,16 @@ sendmsg_func(void *arg)
 	}
 }
 
+static	nng_msg *   conn_msg;
+
 int
-client(int type, const char *url, const char *qos, const char *topic, const char *data)
+client(int type, uint8_t proto_ver, const char *url, const char *qos,
+	const char *topic, const char *data)
 {
 	nng_socket  sock;
+	nng_dialer  dialer;
 	int         rv, sz, q;
-	nng_msg *   msg;
+
 	const char *arg = "CLIENT FOR QUIC";
 
 	/*
@@ -205,26 +217,62 @@ client(int type, const char *url, const char *qos, const char *topic, const char
 		printf("error in quic client open.\n");
 	}
 	*/
+#if defined(SUPP_QUIC)
+	if (proto_ver == MQTT_PROTOCOL_VERSION_v5) {
+		if ((rv = nng_mqttv5_quic_client_open(&sock)) != 0) {
+			fatal("nng_mqttv5_quic_client_open", rv);
+			return rv;
+		}
 
-	if ((rv = nng_mqtt_quic_client_open_conf(&sock, url, &config_user)) != 0) {
-		printf("error in quic client open.\n");
+		if (0 != nng_mqttv5_quic_set_connect_cb(
+			        &sock, quic_connect_cb, (void *) arg) ||
+		    0 != nng_mqttv5_quic_set_disconnect_cb(
+			        &sock, quic_disconnect_cb, (void *) arg)) {
+			printf("error in mqtt v5 client cb set.\n");
+		}
+	} else {
+		if ((rv = nng_mqtt_quic_client_open(&sock)) != 0) {
+			fatal("nng_mqtt_quic_client_open", rv);
+			return rv;
+		}
+
+		if (0 != nng_mqtt_quic_set_connect_cb(
+			        &sock, quic_connect_cb, (void *) arg) ||
+		    0 != nng_mqtt_quic_set_disconnect_cb(
+			        &sock, quic_disconnect_cb, (void *) arg)) {
+			printf("error in mqtt v4 client cb set.\n");
+		}
 	}
-
-#if defined(NNG_SUPP_SQLITE)
-	sqlite_config(&sock, MQTT_PROTOCOL_VERSION_v311);
 #endif
 
-	if (0 != nng_mqtt_quic_set_connect_cb(&sock, connect_cb, (void *)arg) ||
-	    0 != nng_mqtt_quic_set_disconnect_cb(&sock, disconnect_cb, (void *)arg) ||
-	    0 != nng_mqtt_quic_set_msg_recv_cb(&sock, msg_recv_cb, (void *)arg) ||
-	    0 != nng_mqtt_quic_set_msg_send_cb(&sock, msg_send_cb, (void *)arg)) {
-		printf("error in quic client cb set.\n");
-	}
+#if defined(NNG_SUPP_SQLITE)
+	sqlite_config(&sock, proto_ver);
+#endif
+
 	g_sock = &sock;
 
 	// MQTT Connect...
-	msg = mqtt_msg_compose(CONN, 0, NULL, NULL);
-	nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
+	if ((rv = nng_dialer_create(&dialer, sock, url)) != 0) {
+		fatal("nng_dialer_create", rv);
+		nng_close(sock);
+		return rv;
+	}
+
+	conn_msg = mqtt_msg_compose(CONN, proto_ver, 0, NULL, NULL);
+
+	if ((rv = nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, conn_msg)) != 0) {
+		fatal("nng_dialer_set_ptr", rv);
+		nng_close(sock);
+		return rv;
+	}
+
+	if ((rv = nng_dialer_start(dialer, NNG_FLAG_ALLOC)) != 0) {
+		fatal("nng_dialer_start", rv);
+		nng_close(sock);
+		return rv;
+	}
+	// CONNECT is sent by transport from NNG_OPT_MQTT_CONNMSG. Re-sending the
+	// same message would race with async send completion and corrupt ownership.
 
 	if (qos) {
 		q = atoi(qos);
@@ -234,16 +282,31 @@ client(int type, const char *url, const char *qos, const char *topic, const char
 		}
 	}
 
+	nng_msg *   msg;
+
 	switch (type) {
 	case CONN:
 		break;
 	case SUB:
-		msg = mqtt_msg_compose(SUB, q, (char *)topic, NULL);
+		msg = mqtt_msg_compose(SUB, proto_ver, q, (char *) topic, NULL);
 		nng_sendmsg(*g_sock, msg, NNG_FLAG_ALLOC);
 
-		break;
+		for (;;) {
+			nng_msg *rmsg = NULL;
+			if ((rv = nng_recvmsg(sock, &rmsg, 0)) != 0) {
+				fatal("nng_recvmsg", rv);
+				nng_msleep(1000);
+				continue;
+			}
+			if (nng_mqtt_msg_get_packet_type(rmsg) == NNG_MQTT_PUBLISH) {
+				printf("[Msg Arrived][%s]...\n", arg);
+				print_publish_msg(rmsg);
+			}
+			nng_msg_free(rmsg);
+		}
 	case PUB:
-		msg = mqtt_msg_compose(PUB, q, (char *)topic, (char *)data);
+		msg = mqtt_msg_compose(
+			PUB, proto_ver, q, (char *) topic, (char *) data);
 		nng_sendmsg(*g_sock, msg, NNG_FLAG_ALLOC);
 
 #if defined(NNG_SUPP_SQLITE)
@@ -268,9 +331,9 @@ client(int type, const char *url, const char *qos, const char *topic, const char
 static void
 printf_helper(char *exec)
 {
-	fprintf(stderr, "Usage: %s conn <url>\n"
-	                "       %s sub  <url> <qos> <topic>\n"
-	                "       %s pub  <url> <qos> <topic> <data>\n", exec, exec, exec);
+	fprintf(stderr, "Usage: %s conn <url> [proto_ver(4|5)]\n"
+	                "       %s sub  <url> <qos> <topic> [proto_ver(4|5)]\n"
+	                "       %s pub  <url> <qos> <topic> <data> [proto_ver(4|5)]\n", exec, exec, exec);
 	exit(EXIT_FAILURE);
 }
 
@@ -278,18 +341,31 @@ int
 main(int argc, char **argv)
 {
 	int rc;
+	uint8_t proto_ver = MQTT_PROTOCOL_VERSION_v311;
 
 	if (argc < 3) {
 		goto error;
 	}
-	if (0 == strncmp(argv[1], "conn", 4) && argc == 3) {
-		client(CONN, argv[2], NULL, NULL, NULL);
+	if (0 == strncmp(argv[1], "conn", 4) && (argc == 3 || argc == 4)) {
+		if (parse_proto_ver((argc == 4) ? argv[3] : NULL, &proto_ver) != 0) {
+			fprintf(stderr, "Invalid proto_ver, only 4 or 5 is supported.\n");
+			goto error;
+		}
+		client(CONN, proto_ver, argv[2], NULL, NULL, NULL);
 	}
-	else if (0 == strncmp(argv[1], "sub", 3)  && argc == 5) {
-		client(SUB, argv[2], argv[3], argv[4], NULL);
+	else if (0 == strncmp(argv[1], "sub", 3)  && (argc == 5 || argc == 6)) {
+		if (parse_proto_ver((argc == 6) ? argv[5] : NULL, &proto_ver) != 0) {
+			fprintf(stderr, "Invalid proto_ver, only 4 or 5 is supported.\n");
+			goto error;
+		}
+		client(SUB, proto_ver, argv[2], argv[3], argv[4], NULL);
 	}
-	else if (0 == strncmp(argv[1], "pub", 3)  && argc == 6) {
-		client(PUB, argv[2], argv[3], argv[4], argv[5]);
+	else if (0 == strncmp(argv[1], "pub", 3)  && (argc == 6 || argc == 7)) {
+		if (parse_proto_ver((argc == 7) ? argv[6] : NULL, &proto_ver) != 0) {
+			fprintf(stderr, "Invalid proto_ver, only 4 or 5 is supported.\n");
+			goto error;
+		}
+		client(PUB, proto_ver, argv[2], argv[3], argv[4], argv[5]);
 	}
 	else {
 		goto error;
