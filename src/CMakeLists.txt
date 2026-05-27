@@ -54,6 +54,16 @@ target_include_directories(nng INTERFACE $<INSTALL_INTERFACE:include>
 target_include_directories(nng PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_include_directories(nng_testing PUBLIC ${PROJECT_SOURCE_DIR}/include)
 
+# Propagate sanitizer flags to consumers when linking static nng built with
+# sanitizer instrumentation.
+if (ASAN)
+        target_compile_options(nng PUBLIC -fsanitize=address)
+        target_link_options(nng PUBLIC -fsanitize=address)
+elseif (TSAN)
+        target_compile_options(nng PUBLIC -fsanitize=thread)
+        target_link_options(nng PUBLIC -fsanitize=thread)
+endif ()
+
 set(_NNG_EXPORT_TARGETS ${PROJECT_NAME})
 if(TARGET msquic)
         list(APPEND _NNG_EXPORT_TARGETS msquic)

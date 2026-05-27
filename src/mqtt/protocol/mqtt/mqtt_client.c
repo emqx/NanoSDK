@@ -310,6 +310,7 @@ mqtt_sock_get_pipeid(void *arg, void *buf, size_t *szp, nni_type t)
 
 	return (nni_copyout_u64(pid, buf, szp, t));
 }
+
 static int
 mqtt_sock_set_sqlite_option(void *arg, const void *v, size_t sz, nni_opt_type t)
 {

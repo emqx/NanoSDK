@@ -17,6 +17,7 @@
 #include "supplemental/mqtt/mqtt_msg.h"
 // #include "nng/protocol/mqtt/mqtt_parser.h"
 #include "supplemental/quic/quic_api.h"
+#include "nng/supplemental/nanolib/log.h"
 
 // QUIC transport.   Platform specific QUIC operations must be
 // supplied as well.

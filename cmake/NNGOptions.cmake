@@ -11,7 +11,7 @@
 
 include(CMakeDependentOption)
 
-if (CMAKE_CROSSCOMPILING)
+if (CMAKE_CROSSCOMPILING OR BUILD_STATIC)
     set(NNG_NATIVE_BUILD OFF)
 else ()
     set(NNG_NATIVE_BUILD ON)
@@ -28,6 +28,10 @@ option(NNG_TESTS "Build and run tests." ${NNG_NATIVE_BUILD})
 option(NNG_TOOLS "Build extra tools." ${NNG_NATIVE_BUILD})
 option(NNG_ENABLE_NNGCAT "Enable building nngcat utility." ${NNG_TOOLS})
 option(NNG_ENABLE_COVERAGE "Enable coverage reporting." OFF)
+
+message(NNG_TESTS = "${NNG_TESTS}")
+message(NNG_TOOLS = "${NNG_TOOLS}")
+
 # Eliding deprecated functionality can be used to build a slimmed down
 # version of the library, or alternatively to test for application
 # preparedness for expected feature removals (in the next major release.)
@@ -96,6 +100,9 @@ mark_as_advanced(NNG_PROTO_MQTT_QUIC_CLIENT)
 
 option(NNG_ENABLE_QUIC "Enable Quic support." OFF)
 if (NNG_ENABLE_QUIC)
+    option (NNG_PROTO_MQTT_QUIC_CLIENT "Enable MQTT over msQuic Client protocol." ON)
+    mark_as_advanced(NNG_PROTO_MQTT_QUIC_CLIENT)
+
     set(NNG_SUPP_QUIC ON)
     # For now we only accept msQuic as the quic lib
 endif ()
@@ -108,12 +115,6 @@ if (NNG_ENABLE_QUIC)
 else ()
     set(NNG_QUIC_LIB none)
 endif ()
-
-option(NNG_ENABLE_SCRAM "Enable SCRAM support." OFF)
-if (NNG_ENABLE_SCRAM)
-    set(SUPP_SCRAM ON)
-endif ()
-
 
 # TLS support.
 
@@ -158,6 +159,12 @@ mark_as_advanced(NNG_TRANSPORT_IPC)
 # TCP transport
 option (NNG_TRANSPORT_TCP "Enable TCP transport." ON)
 mark_as_advanced(NNG_TRANSPORT_TCP)
+
+if (NNG_ENABLE_QUIC)
+    # MQTT QUIC transport
+    option (NNG_TRANSPORT_MQTT_QUIC "Enable MQTT QUIC transport." ON)
+    mark_as_advanced(NNG_TRANSPORT_MQTT_QUIC)
+endif ()
 
 # MQTT TCP transport
 option (NNG_TRANSPORT_MQTT_TCP "Enable MQTT TCP transport." ON)

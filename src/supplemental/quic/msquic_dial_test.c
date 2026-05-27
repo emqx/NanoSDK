@@ -10,7 +10,6 @@
 #include <nuts.h>
 #include "nng/mqtt/mqtt_client.h"
 #include "nng/mqtt/mqtt_quic_client.h"
-#include "nng/protocol/mqtt/mqtt_parser.h"
 
 //static const char *quic_test_url  = "mqtt-quic://us.432121.xyz:14567";
 static const char *quic_test_url  = "mqtt-quic://13.49.223.253:14567";
@@ -216,17 +215,6 @@ test_msquic_app_conn_refuse(void)
 	NUTS_FAIL(nng_dialer_start(dialer, NNG_FLAG_ALLOC), SERVER_UNAVAILABLE);
 }
 
-static void
-test_msquic_disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
-{
-	(void)(p);
-	(void)(ev);
-	nng_msg *connmsg = arg;
-	void    *cparam;
-
-	NUTS_ASSERT((cparam = nng_msg_get_conn_param(connmsg)) != NULL);
-	conn_param_free(cparam);
-}
 
 void
 test_msquic_app_connect(void)
@@ -242,7 +230,6 @@ test_msquic_app_connect(void)
 	NUTS_PASS(nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, connmsg));
 	NUTS_PASS(nng_socket_set_ptr(sock, NNG_OPT_MQTT_CONNMSG, connmsg));
 	//NUTS_PASS(nng_mqtt_set_connect_cb(sock, test_msquic_connect_cb, NULL));
-	NUTS_PASS(nng_mqtt_set_disconnect_cb(sock, test_msquic_disconnect_cb, connmsg));
 	NUTS_PASS(nng_dialer_start(dialer, NNG_FLAG_ALLOC));
 }
 
@@ -261,7 +248,6 @@ test_msquic_app_pub(void)
 	NUTS_PASS(nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, connmsg));
 	NUTS_PASS(nng_socket_set_ptr(sock, NNG_OPT_MQTT_CONNMSG, connmsg));
 	//NUTS_PASS(nng_mqtt_set_connect_cb(sock, test_msquic_connect_cb, NULL));
-	NUTS_PASS(nng_mqtt_set_disconnect_cb(sock, test_msquic_disconnect_cb, connmsg));
 	NUTS_PASS(nng_dialer_start(dialer, NNG_FLAG_ALLOC));
 
 	// Publish
@@ -286,7 +272,6 @@ test_msquic_app_sub(void)
 	NUTS_PASS(nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, connmsg));
 	NUTS_PASS(nng_socket_set_ptr(sock, NNG_OPT_MQTT_CONNMSG, connmsg));
 	//NUTS_PASS(nng_mqtt_set_connect_cb(sock, test_msquic_connect_cb, NULL));
-	NUTS_PASS(nng_mqtt_set_disconnect_cb(sock, test_msquic_disconnect_cb, connmsg));
 	NUTS_PASS(nng_dialer_start(dialer, NNG_FLAG_ALLOC));
 
 	// Subscribe

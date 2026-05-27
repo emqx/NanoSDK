@@ -55,7 +55,10 @@ if(NNG_QUIC_LIB STREQUAL "msquic")
         message(" ** Build msquic with nanonng ** ")
     else()
         message(" ** Build msquic with nanosdk ** ")
-        nng_link_libraries(${QUIC_LIBRARIES})
+        # msquic_dial.c uses OpenSSL X509 APIs directly; export this dependency
+        # so downstream static links (e.g. demos using installed nng) resolve.
+        nng_find_package(OpenSSL)
+        nng_link_libraries(${QUIC_LIBRARIES} OpenSSL::Crypto)
         nng_include_directories(${MSQUIC_INCLUDE_DIR})
         message(" ******* quic library ${QUIC_LIBRARIES}:${MSQUIC_LIBRARIES} ******* ")
     endif()

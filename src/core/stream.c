@@ -20,6 +20,10 @@
 #include "supplemental/tls/tls_api.h"
 #include "supplemental/websocket/websocket.h"
 
+#ifdef SUPP_QUIC
+#include "supplemental/quic/quic_api.h"
+#endif
+
 static struct {
 	const char *scheme;
 	int         (*dialer_alloc)(nng_stream_dialer **, const nng_url *);
@@ -136,6 +140,18 @@ static struct {
 	    .scheme         = "socket",
 	    .dialer_alloc   = nni_sfd_dialer_alloc,
 	    .listener_alloc = nni_sfd_listener_alloc,
+	},
+#endif
+#ifdef SUPP_QUIC
+	{
+	    .scheme         = "quic",
+	    .dialer_alloc   = nni_quic_dialer_alloc,
+	    .listener_alloc = nni_quic_listener_alloc,
+	},
+	{
+	    .scheme         = "mqtt-quic",
+	    .dialer_alloc   = nni_quic_dialer_alloc,
+	    .listener_alloc = nni_quic_listener_alloc,
 	},
 #endif
 	{

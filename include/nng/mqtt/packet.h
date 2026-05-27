@@ -16,6 +16,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define NANO_MAX_QOS_PACKET 1024
+
 #define UPDATE_FIELD_INT(field, new_obj, old_obj) \
 	do {                                      \
 		new_obj->field = old_obj->field;  \

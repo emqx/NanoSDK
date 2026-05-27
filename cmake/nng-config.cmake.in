@@ -14,12 +14,13 @@ set(NNG_PATCH_VERSION "@NNG_PATCH_VERSION@")
 
 set_and_check(NNG_INCLUDE_DIRS "@PACKAGE_INCLUDE_INSTALL_DIRS@")
 
-include("${CMAKE_CURRENT_LIST_DIR}/nng-targets.cmake")
-
 # Make sure we find packages for our dependencies
+include(CMakeFindDependencyMacro)
 foreach(_PKG IN ITEMS @NNG_PKGS@)
-	find_package(${_PKG} REQUIRED)
+	find_dependency(${_PKG})
 endforeach ()
+
+include("${CMAKE_CURRENT_LIST_DIR}/nng-targets.cmake")
 
 set(NNG_LIBRARY nng::nng)
 
