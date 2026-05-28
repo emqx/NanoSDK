@@ -70,6 +70,6 @@ target_compile_definitions(quic_client PRIVATE NNG_ELIDE_DEPRECATED)
 
 if (NNG_ENABLE_SQLITE)
     add_definitions(-DNNG_SUPP_SQLITE)
-    target_link_libraries(quic_client dl)
+  target_link_libraries(quic_client PRIVATE dl)
 endif (NNG_ENABLE_SQLITE)
 
