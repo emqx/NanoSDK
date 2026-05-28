@@ -1229,4 +1229,17 @@ nng_mqtt_set_sqlite_db_dir(nng_mqtt_sqlite_option *sqlite, const char *dir)
 	sqlite->mounted_file_path = nni_strdup(dir);
 }
 
+void
+nng_mqtt_set_sqlite_max_rows(nng_mqtt_sqlite_option *sqlite, size_t max_rows)
+{
+	sqlite->disk_cache_size = max_rows;
+}
+
+void
+nng_mqtt_set_sqlite_flush_threshold(
+    nng_mqtt_sqlite_option *sqlite, size_t msg_count)
+{
+	sqlite->flush_mem_threshold = msg_count;
+}
+
 #endif

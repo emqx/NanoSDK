@@ -606,6 +606,12 @@ NNG_DECL int  nng_mqtt_free_sqlite_opt(nng_mqtt_sqlite_option *);
 NNG_DECL void nng_mqtt_sqlite_db_init(
     nng_mqtt_sqlite_option *, const char *, uint8_t);
 NNG_DECL void nng_mqtt_sqlite_db_fini(nng_mqtt_sqlite_option *);
+NNG_DECL void nng_mqtt_set_sqlite_enable(nng_mqtt_sqlite_option *, bool);
+NNG_DECL void nng_mqtt_set_sqlite_db_dir(
+    nng_mqtt_sqlite_option *, const char *);
+NNG_DECL void nng_mqtt_set_sqlite_max_rows(nng_mqtt_sqlite_option *, size_t);
+NNG_DECL void nng_mqtt_set_sqlite_flush_threshold(
+    nng_mqtt_sqlite_option *, size_t);
 #endif
 
 #ifdef __cplusplus
