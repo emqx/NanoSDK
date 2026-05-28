@@ -559,7 +559,23 @@ nni_mqtt_qos_db_set_client_info(sqlite3 *db, const char *config_name,
 static uint8_t *
 nni_mqtt_msg_serialize(nni_msg *msg, size_t *out_len, uint8_t proto_ver)
 {
-	NNI_ARG_UNUSED(proto_ver);
+	if (msg == NULL || out_len == NULL) {
+		return NULL;
+	}
+
+	// QoS DB callers may pass an unencoded message populated via setters.
+	// Persist encoded bytes to ensure deserialization round-trips fields.
+	if (nni_msg_header_len(msg) == 0 && nni_msg_len(msg) == 0) {
+		int rv;
+		if (proto_ver == MQTT_PROTOCOL_VERSION_v5) {
+			rv = nni_mqttv5_msg_encode(msg);
+		} else {
+			rv = nni_mqtt_msg_encode(msg);
+		}
+		if (rv != 0) {
+			return NULL;
+		}
+	}
 
 	size_t len = nni_msg_header_len(msg) + nni_msg_len(msg) +
 	    (sizeof(uint32_t) * 2) + sizeof(nni_time) + sizeof(nni_aio *);
@@ -571,6 +587,9 @@ nni_mqtt_msg_serialize(nni_msg *msg, size_t *out_len, uint8_t proto_ver)
 	// time:	nni_time(uint64)
 	// aio:		address value
 	uint8_t *bytes = nng_zalloc(len);
+	if (bytes == NULL) {
+		return NULL;
+	}
 
 	struct pos_buf buf = { .curpos = &bytes[0], .endpos = &bytes[len] };
 
@@ -642,9 +661,13 @@ nni_mqtt_msg_deserialize(
 	nni_msg_set_timestamp(msg, ts);
 
 	if (proto_ver == MQTT_PROTOCOL_VERSION_v5) {
-		nni_mqttv5_msg_decode(msg);
+		if (nni_mqttv5_msg_decode(msg) != 0) {
+			goto out;
+		}
 	} else {
-		nni_mqtt_msg_decode(msg);
+		if (nni_mqtt_msg_decode(msg) != 0) {
+			goto out;
+		}
 	}
 
 	if (aio_available) {

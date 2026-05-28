@@ -171,6 +171,188 @@ test_dup_publish(void)
 }
 
 void
+test_dup_connect_from_decoded(void)
+{
+	nng_msg *msg;
+	nng_msg *msg2;
+	uint8_t  connect[] = {
+
+		0x10, 0x3f, 0x00, 0x04, 0x4d, 0x51, 0x54, 0x54, 0x04, 0xc6,
+		0x00, 0x3c, 0x00, 0x0c, 0x54, 0x65, 0x73, 0x74, 0x2d, 0x43,
+		0x6c, 0x69, 0x65, 0x6e, 0x74, 0x31, 0x00, 0x0a, 0x77, 0x69,
+		0x6c, 0x6c, 0x5f, 0x74, 0x6f, 0x70, 0x69, 0x63, 0x00, 0x07,
+		0x62, 0x79, 0x65, 0x2d, 0x62, 0x79, 0x65, 0x00, 0x05, 0x61,
+		0x6c, 0x76, 0x69, 0x6e, 0x00, 0x09, 0x48, 0x48, 0x48, 0x31,
+		0x32, 0x33, 0x34, 0x35, 0x36
+	};
+
+	size_t sz = sizeof(connect) / sizeof(uint8_t);
+
+	NUTS_PASS(nng_mqtt_msg_alloc(&msg, 0));
+	nng_msg_header_append(msg, connect, 2);
+	nng_msg_append(msg, connect + 2, sz - 2);
+	NUTS_PASS(nng_mqtt_msg_decode(msg));
+
+	NUTS_PASS(nng_msg_dup(&msg2, msg));
+	nng_msg_free(msg);
+
+	NUTS_PASS(nng_mqtt_msg_encode(msg2));
+	nng_msg_free(msg2);
+}
+
+void
+test_dup_publish_from_decoded(void)
+{
+	nng_msg *msg;
+	nng_msg *msg2;
+	uint8_t  publish[] = { 0x30, 0x0a, 0x00, 0x03, 0x61, 0x2f, 0x62, 0x68,
+		0x65, 0x6c, 0x6c, 0x6f };
+
+	size_t sz = sizeof(publish) / sizeof(uint8_t);
+
+	NUTS_PASS(nng_mqtt_msg_alloc(&msg, 0));
+	nng_msg_header_append(msg, publish, 2);
+	nng_msg_append(msg, publish + 2, sz - 2);
+	NUTS_PASS(nng_mqtt_msg_decode(msg));
+
+	NUTS_PASS(nng_msg_dup(&msg2, msg));
+	nng_msg_free(msg);
+
+	NUTS_PASS(nng_mqtt_msg_encode(msg2));
+	nng_msg_free(msg2);
+}
+
+void
+test_dup_subscribe_from_decoded(void)
+{
+	nng_msg *msg;
+	nng_msg *msg2;
+	uint8_t  subscribe[] = { 0x82, 0x06, 0x00, 0x01, 0x00, 0x01, 0x61, 0x00 };
+
+	size_t sz = sizeof(subscribe) / sizeof(uint8_t);
+
+	NUTS_PASS(nng_mqtt_msg_alloc(&msg, 0));
+	nng_msg_header_append(msg, subscribe, 2);
+	nng_msg_append(msg, subscribe + 2, sz - 2);
+	NUTS_PASS(nng_mqtt_msg_decode(msg));
+
+	NUTS_PASS(nng_msg_dup(&msg2, msg));
+	nng_msg_free(msg);
+
+	NUTS_PASS(nng_mqtt_msg_encode(msg2));
+	nng_msg_free(msg2);
+}
+
+void
+test_dup_unsubscribe_from_decoded(void)
+{
+	nng_msg *msg;
+	nng_msg *msg2;
+	uint8_t  unsubscribe[] = { 0xa2, 0x05, 0x00, 0x01, 0x00, 0x01, 0x61 };
+
+	size_t sz = sizeof(unsubscribe) / sizeof(uint8_t);
+
+	NUTS_PASS(nng_mqtt_msg_alloc(&msg, 0));
+	nng_msg_header_append(msg, unsubscribe, 2);
+	nng_msg_append(msg, unsubscribe + 2, sz - 2);
+	NUTS_PASS(nng_mqtt_msg_decode(msg));
+
+	NUTS_PASS(nng_msg_dup(&msg2, msg));
+	nng_msg_free(msg);
+
+	NUTS_PASS(nng_mqtt_msg_encode(msg2));
+	nng_msg_free(msg2);
+}
+
+void
+test_dup_connect_v5_from_decoded(void)
+{
+	nng_msg *msg;
+	nng_msg *msg2;
+	uint8_t  connect[] = { 0x10, 0x10, 0x00, 0x04, 0x4d, 0x51, 0x54, 0x54,
+		0x05, 0x02, 0x00, 0x3c, 0x00, 0x00, 0x03, 0x63, 0x69, 0x64 };
+
+	size_t sz = sizeof(connect) / sizeof(uint8_t);
+
+	NUTS_PASS(nng_mqtt_msg_alloc(&msg, 0));
+	nng_msg_header_append(msg, connect, 2);
+	nng_msg_append(msg, connect + 2, sz - 2);
+	NUTS_PASS(nng_mqttv5_msg_decode(msg));
+
+	NUTS_PASS(nng_msg_dup(&msg2, msg));
+	nng_msg_free(msg);
+
+	NUTS_PASS(nng_mqttv5_msg_encode(msg2));
+	nng_msg_free(msg2);
+}
+
+void
+test_dup_publish_v5_from_decoded(void)
+{
+	nng_msg *msg;
+	nng_msg *msg2;
+	uint8_t  publish[] = { 0x30, 0x0b, 0x00, 0x03, 0x61, 0x2f, 0x62, 0x00,
+		0x68, 0x65, 0x6c, 0x6c, 0x6f };
+
+	size_t sz = sizeof(publish) / sizeof(uint8_t);
+
+	NUTS_PASS(nng_mqtt_msg_alloc(&msg, 0));
+	nng_msg_header_append(msg, publish, 2);
+	nng_msg_append(msg, publish + 2, sz - 2);
+	NUTS_PASS(nng_mqttv5_msg_decode(msg));
+
+	NUTS_PASS(nng_msg_dup(&msg2, msg));
+	nng_msg_free(msg);
+
+	NUTS_PASS(nng_mqttv5_msg_encode(msg2));
+	nng_msg_free(msg2);
+}
+
+void
+test_dup_subscribe_v5_from_decoded(void)
+{
+	nng_msg *msg;
+	nng_msg *msg2;
+	uint8_t  subscribe[] = { 0x82, 0x07, 0x00, 0x01, 0x00, 0x00, 0x01, 0x61,
+		0x00 };
+
+	size_t sz = sizeof(subscribe) / sizeof(uint8_t);
+
+	NUTS_PASS(nng_mqtt_msg_alloc(&msg, 0));
+	nng_msg_header_append(msg, subscribe, 2);
+	nng_msg_append(msg, subscribe + 2, sz - 2);
+	NUTS_PASS(nng_mqttv5_msg_decode(msg));
+
+	NUTS_PASS(nng_msg_dup(&msg2, msg));
+	nng_msg_free(msg);
+
+	NUTS_PASS(nng_mqttv5_msg_encode(msg2));
+	nng_msg_free(msg2);
+}
+
+void
+test_dup_unsubscribe_v5_from_decoded(void)
+{
+	nng_msg *msg;
+	nng_msg *msg2;
+	uint8_t  unsubscribe[] = { 0xa2, 0x06, 0x00, 0x01, 0x00, 0x00, 0x01,
+		0x61 };
+
+	size_t sz = sizeof(unsubscribe) / sizeof(uint8_t);
+
+	NUTS_PASS(nng_mqtt_msg_alloc(&msg, 0));
+	nng_msg_header_append(msg, unsubscribe, 2);
+	nng_msg_append(msg, unsubscribe + 2, sz - 2);
+	NUTS_PASS(nng_mqttv5_msg_decode(msg));
+
+	NUTS_PASS(nng_msg_dup(&msg2, msg));
+	nng_msg_free(msg);
+
+	NUTS_PASS(nng_mqttv5_msg_encode(msg2));
+	nng_msg_free(msg2);
+}
+
+void
 test_encode_connect(void)
 {
 	nng_msg *msg;
@@ -1587,6 +1769,14 @@ TEST_LIST = {
 	{ "dup unsub message", test_dup_unsub },
 	{ "dup suback message", test_dup_suback },
 	{ "dup publish message", test_dup_publish },
+	{ "dup connect from decoded", test_dup_connect_from_decoded },
+	{ "dup publish from decoded", test_dup_publish_from_decoded },
+	{ "dup subscribe from decoded", test_dup_subscribe_from_decoded },
+	{ "dup unsubscribe from decoded", test_dup_unsubscribe_from_decoded },
+	{ "dup connect v5 from decoded", test_dup_connect_v5_from_decoded },
+	{ "dup publish v5 from decoded", test_dup_publish_v5_from_decoded },
+	{ "dup subscribe v5 from decoded", test_dup_subscribe_v5_from_decoded },
+	{ "dup unsubscribe v5 from decoded", test_dup_unsubscribe_v5_from_decoded },
 	{ "encode connect", test_encode_connect },
 	{ "encode connect v5", test_encode_connect_v5 },
 	{ "encode conack", test_encode_connack },
