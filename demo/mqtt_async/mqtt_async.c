@@ -17,7 +17,7 @@
 
 static void loadfile(const char *path, void **datap, size_t *lenp);
 static int  init_dialer_tls(nng_dialer d, const char *cacert, const char *cert,
-     const char *key, const char *pass);
+	const char *key, const char *pass, const char *server_name);
 #endif
 
 static size_t nwork = 32;
@@ -361,13 +361,19 @@ loadfile(const char *path, void **datap, size_t *lenp)
 
 static int
 init_dialer_tls(nng_dialer d, const char *cacert, const char *cert,
-    const char *key, const char *pass)
+    const char *key, const char *pass, const char *server_name)
 {
 	nng_tls_config *cfg;
 	int             rv;
 
 	if ((rv = nng_tls_config_alloc(&cfg, NNG_TLS_MODE_CLIENT)) != 0) {
 		return (rv);
+	}
+
+	if (server_name != NULL) {
+		if ((rv = nng_tls_config_server_name(cfg, server_name)) != 0) {
+			goto out;
+		}
 	}
 
 	if (cert != NULL && key != NULL) {
@@ -395,7 +401,8 @@ out:
 
 int
 tls_client(const char *url, uint8_t proto_ver, const char *ca,
-    const char *cert, const char *key, const char *pass)
+	const char *cert, const char *key, const char *pass,
+	const char *server_name)
 {
 	nng_socket   sock;
 	nng_dialer   dialer;
@@ -433,7 +440,8 @@ tls_client(const char *url, uint8_t proto_ver, const char *ca,
 		fatal("nng_dialer_create", rv);
 	}
 
-	if ((rv = init_dialer_tls(dialer, ca, cert, key, pass)) != 0) {
+	if ((rv = init_dialer_tls(
+	         dialer, ca, cert, key, pass, server_name)) != 0) {
 		fatal("init_dialer_tls", rv);
 	}
 
@@ -466,13 +474,13 @@ usage(void)
 	printf("	-c <cert file path>\n");
 	printf("	-k <key file path>\n");
 	printf("	-p <key password>\n");
+	printf("\t-N <TLS server name for cert verification/SNI>\n");
 #endif
 }
 
 int
 main(int argc, char **argv)
 {
-	int    rc;
 	char * path;
 	size_t file_len;
 
@@ -482,22 +490,23 @@ main(int argc, char **argv)
 	char *  cert       = NULL;
 	char *  key        = NULL;
 	char *  key_psw    = NULL;
+	char *  tls_server_name = NULL;
 	uint8_t proto_ver  = MQTT_PROTOCOL_VERSION_v311;
 
 	int   opt;
-	int   digit_optind  = 0;
 	int   option_index  = 0;
-	char *short_options = "u:V:n:sa:c:k:p:W;";
+	char *short_options = "u:V:n:sa:c:k:p:N:h";
 
 	static struct option long_options[] = {
-		{ "url", required_argument, NULL, 0 },
-		{ "version", required_argument, NULL, 0 },
-		{ "nwork", no_argument, NULL, 'n' },
-		{ "ssl", no_argument, NULL, false },
-		{ "cafile", required_argument, NULL, 0 },
-		{ "cert", required_argument, NULL, 0 },
-		{ "key", required_argument, NULL, 0 },
-		{ "psw", required_argument, NULL, 0 },
+		{ "url", required_argument, NULL, 'u' },
+		{ "version", required_argument, NULL, 'V' },
+		{ "nwork", required_argument, NULL, 'n' },
+		{ "ssl", no_argument, NULL, 's' },
+		{ "cafile", required_argument, NULL, 'a' },
+		{ "cert", required_argument, NULL, 'c' },
+		{ "key", required_argument, NULL, 'k' },
+		{ "psw", required_argument, NULL, 'p' },
+		{ "tls-server-name", required_argument, NULL, 'N' },
 		{ "help", no_argument, NULL, 'h' },
 		{ NULL, 0, NULL, 0 },
 	};
@@ -505,9 +514,6 @@ main(int argc, char **argv)
 	while ((opt = getopt_long(argc, argv, short_options, long_options,
 	            &option_index)) != -1) {
 		switch (opt) {
-		case 0:
-			// TODO
-			break;
 		case '?':
 		case 'h':
 			usage();
@@ -540,6 +546,9 @@ main(int argc, char **argv)
 		case 'p':
 			key_psw = argv[optind - 1];
 			break;
+		case 'N':
+			tls_server_name = argv[optind - 1];
+			break;
 #endif
 		default:
 			fprintf(stderr, "invalid argument: '%c'\n", opt);
@@ -555,7 +564,8 @@ main(int argc, char **argv)
 
 	if (enable_ssl) {
 #ifdef NNG_SUPP_TLS
-		tls_client(url, proto_ver, cafile, cert, key, key_psw);
+		tls_client(url, proto_ver, cafile, cert, key, key_psw,
+		    tls_server_name);
 #else
 		fprintf(stderr, "tls client: Not supported \n");
 #endif
