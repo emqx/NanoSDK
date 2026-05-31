@@ -130,6 +130,10 @@ static QUIC_STATUS verify_peer_cert_tls(QUIC_CERTIFICATE* cert, QUIC_CERTIFICATE
 static QUIC_STATUS
 verify_peer_cert_tls(QUIC_CERTIFICATE* cert, QUIC_CERTIFICATE* chain, char *ca)
 {
+	if (cert == NULL || chain == NULL || ca == NULL) {
+		return QUIC_STATUS_BAD_CERTIFICATE;
+	}
+
 	// local ca
 	X509_LOOKUP *lookup = NULL;
 	X509_STORE *trusted = NULL;
@@ -168,16 +172,24 @@ verify_peer_cert_tls(QUIC_CERTIFICATE* cert, QUIC_CERTIFICATE* chain, char *ca)
 		return QUIC_STATUS_BAD_CERTIFICATE;
 
 	X509_STORE_CTX *ctx = X509_STORE_CTX_new();
+	if (ctx == NULL) {
+		X509_STORE_free(trusted);
+		return QUIC_STATUS_ABORTED;
+	}
 	// X509_STORE_CTX_init(ctx, c_ctx->trusted, crt, untrusted);
-	X509_STORE_CTX_init(ctx, trusted, crt, untrusted);
+	if (X509_STORE_CTX_init(ctx, trusted, crt, untrusted) != 1) {
+		X509_STORE_CTX_free(ctx);
+		X509_STORE_free(trusted);
+		return QUIC_STATUS_ABORTED;
+	}
 	int res = X509_verify_cert(ctx);
+	int errorcode = X509_STORE_CTX_get_error(ctx);
 	X509_STORE_CTX_free(ctx);
 
 	X509_STORE_free(trusted);
 	trusted = NULL;
 
 	if (res <= 0) {
-		int errorcode = X509_STORE_CTX_get_error(ctx);
 		log_error("rv %d: %s", res, X509_verify_cert_error_string(errorcode));
 		return QUIC_STATUS_BAD_CERTIFICATE;
 	} else
@@ -607,6 +619,22 @@ quic_dialer_fini(nni_quic_dialer *d)
 	nni_aio_abort(d->qconaio, NNG_ECLOSED);
 	nni_aio_wait(d->qconaio);
 	nni_aio_free(d->qconaio);
+	if (d->ca != NULL) {
+		nng_free(d->ca, 0);
+		d->ca = NULL;
+	}
+	if (d->cacert != NULL) {
+		nng_free(d->cacert, 0);
+		d->cacert = NULL;
+	}
+	if (d->key != NULL) {
+		nng_free(d->key, 0);
+		d->key = NULL;
+	}
+	if (d->password != NULL) {
+		nng_free(d->password, 0);
+		d->password = NULL;
+	}
 	nni_mtx_fini(&d->mtx);
 	NNI_FREE_STRUCT(d);
 }
@@ -856,11 +884,23 @@ quic_stream_error(void *arg, int err)
 {
 	nni_quic_conn *c = arg;
 	nni_aio *      aio;
+	nni_msg *      msg;
+	QUIC_BUFFER *  buf;
 
 	nni_mtx_lock(&c->mtx);
 	// only close aio of this stream
 	while ((aio = nni_list_first(&c->writeq)) != NULL) {
 		nni_aio_list_remove(aio);
+		buf = nni_aio_get_input(aio, 0);
+		if (buf != NULL) {
+			nni_aio_set_input(aio, 0, NULL);
+			free(buf);
+		}
+		msg = nni_aio_get_msg(aio);
+		if (msg != NULL) {
+			nni_aio_set_msg(aio, NULL);
+			nni_msg_free(msg);
+		}
 		nni_aio_finish_error(aio, err);
 	}
 	while ((aio = nni_list_first(&c->readq)) != NULL) {
@@ -894,11 +934,23 @@ static void
 quic_stream_cancel(nni_aio *aio, void *arg, int rv)
 {
 	nni_quic_conn *c = arg;
+	QUIC_BUFFER *  buf;
+	nni_msg *      msg;
 
 	log_info("[sid%d] quic_stream_cancel", c->id);
 	nni_mtx_lock(&c->mtx);
 	if (nni_aio_list_active(aio)) {
 		nni_aio_list_remove(aio);
+		buf = nni_aio_get_input(aio, 0);
+		if (buf != NULL) {
+			nni_aio_set_input(aio, 0, NULL);
+			free(buf);
+		}
+		msg = nni_aio_get_msg(aio);
+		if (msg != NULL) {
+			nni_aio_set_msg(aio, NULL);
+			nni_msg_free(msg);
+		}
 		nni_aio_finish_error(aio, rv);
 	}
 	nni_mtx_unlock(&c->mtx);
@@ -1577,6 +1629,8 @@ static BOOLEAN
 msquic_load_config(QUIC_SETTINGS *settings, nni_quic_dialer *d)
 {
 	QUIC_CREDENTIAL_CONFIG CredConfig;
+	QUIC_CERTIFICATE_FILE cert_file;
+	QUIC_CERTIFICATE_FILE_PROTECTED cert_file_protected;
 
 	// Allocate/initialize the configuration object, with the configured
 	// ALPN and settings.
@@ -1591,64 +1645,44 @@ msquic_load_config(QUIC_SETTINGS *settings, nni_quic_dialer *d)
 	memset(&CredConfig, 0, sizeof(CredConfig));
 	// Unsecure by default
 	CredConfig.Type  = QUIC_CREDENTIAL_TYPE_NONE;
-	// CredConfig.Flags = QUIC_CREDENTIAL_FLAG_CLIENT | QUIC_CREDENTIAL_FLAG_USE_PORTABLE_CERTIFICATES;
 	CredConfig.Flags = QUIC_CREDENTIAL_FLAG_CLIENT;
 
-	// Start tls need cacert and key at least
 	if (!d->cacert || !d->key) {
-		CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
-		log_warn("No quic TLS/SSL credentials (cacert and key) was specified.");
-		goto settls;
-	}
-
-	char *cert_path = d->cacert;
-	char *key_path  = d->key;
-	char *password  = d->password;
-	BOOLEAN verify = (d->verify_peer == true ? 1 : 0);
-	BOOLEAN has_ca_cert = (d->ca != NULL ? 1 : 0);
-
-	if (password) {
-		QUIC_CERTIFICATE_FILE_PROTECTED *CertFile =
-		    (QUIC_CERTIFICATE_FILE_PROTECTED *) malloc(sizeof(QUIC_CERTIFICATE_FILE_PROTECTED));
-		CertFile->CertificateFile           = cert_path;
-		CertFile->PrivateKeyFile            = key_path;
-		CertFile->PrivateKeyPassword        = password;
-		CredConfig.CertificateFileProtected = CertFile;
-		CredConfig.Type =
-		    QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE_PROTECTED;
+		log_warn("No quic TLS/SSL client credentials (cert/key) were specified.");
+	} else if (d->password) {
+		memset(&cert_file_protected, 0, sizeof(cert_file_protected));
+		cert_file_protected.CertificateFile = d->cacert;
+		cert_file_protected.PrivateKeyFile = d->key;
+		cert_file_protected.PrivateKeyPassword = d->password;
+		CredConfig.CertificateFileProtected = &cert_file_protected;
+		CredConfig.Type = QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE_PROTECTED;
 	} else {
-		QUIC_CERTIFICATE_FILE *CertFile = malloc(sizeof(QUIC_CERTIFICATE_FILE));
-		CertFile->CertificateFile  = cert_path;
-		CertFile->PrivateKeyFile   = key_path;
-		CredConfig.CertificateFile = CertFile;
-		CredConfig.Type =
-		    QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE;
+		memset(&cert_file, 0, sizeof(cert_file));
+		cert_file.CertificateFile = d->cacert;
+		cert_file.PrivateKeyFile = d->key;
+		CredConfig.CertificateFile = &cert_file;
+		CredConfig.Type = QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE;
 	}
 
-	if (!verify) {
+	if (!d->verify_peer) {
 		CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
-	} else if (has_ca_cert) {
-		// Do own validation instead against provided ca certs in cacertfile
-		CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED;
-		CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
+	} else {
+		// Use MsQuic/OpenSSL built-in validation to avoid cross-library X509 object handling.
+		CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_USE_TLS_BUILTIN_CERTIFICATE_VALIDATION;
+		if (d->ca != NULL) {
+			CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_SET_CA_CERTIFICATE_FILE;
+			CredConfig.CaCertificateFile = d->ca;
+		}
 	}
 
-	CredConfig.Type = QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE;
-	CredConfig.Flags |= QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED;
-
-settls:
 	// Loads the TLS credential part of the configuration. This is required
 	// even on client side, to indicate if a certificate is required or
 	// not.
 	if (QUIC_FAILED(rv = MsQuic->ConfigurationLoadCredential(
 	                    configuration, &CredConfig))) {
 		log_error("Configuration Load Credential failed, 0x%x!\n", rv);
-		if (CredConfig.CertificateFile != NULL)
-			nng_free(CredConfig.CertificateFile, sizeof(QUIC_CERTIFICATE_FILE_PROTECTED));
 		return FALSE;
 	}
-	if (CredConfig.CertificateFile != NULL)
-		nng_free(CredConfig.CertificateFile, sizeof(QUIC_CERTIFICATE_FILE_PROTECTED));
 
 	return TRUE;
 }

@@ -151,6 +151,7 @@ quic_dialer_set_tls_ca(void *arg, const void *buf, size_t sz, nni_type t)
 	nni_quic_dialer *d = arg;
 	int              rv;
 	char *           str;
+	char *           old;
 
 	str = nng_alloc(sz + 1);
 	memset(str, '\0', sz + 1);
@@ -161,8 +162,12 @@ quic_dialer_set_tls_ca(void *arg, const void *buf, size_t sz, nni_type t)
 	}
 
 	nni_mtx_lock(&d->mtx);
+	old = d->ca;
 	d->ca = str;
 	nni_mtx_unlock(&d->mtx);
+	if (old != NULL) {
+		nng_free(old, 0);
+	}
 	return 0;
 }
 
@@ -189,6 +194,7 @@ quic_dialer_set_tls_pwd(void *arg, const void *buf, size_t sz, nni_type t)
 	nni_quic_dialer *d = arg;
 	int              rv;
 	char *           str;
+	char *           old;
 
 	str = nng_alloc(sz + 1);
 	memset(str, '\0', sz + 1);
@@ -199,8 +205,12 @@ quic_dialer_set_tls_pwd(void *arg, const void *buf, size_t sz, nni_type t)
 	}
 
 	nni_mtx_lock(&d->mtx);
+	old = d->password;
 	d->password = str;
 	nni_mtx_unlock(&d->mtx);
+	if (old != NULL) {
+		nng_free(old, 0);
+	}
 	return 0;
 }
 
@@ -210,6 +220,7 @@ quic_dialer_set_tls_key(void *arg, const void *buf, size_t sz, nni_type t)
 	nni_quic_dialer *d = arg;
 	int              rv;
 	char *           str;
+	char *           old;
 
 	str = nng_alloc(sz + 1);
 	memset(str, '\0', sz + 1);
@@ -220,8 +231,12 @@ quic_dialer_set_tls_key(void *arg, const void *buf, size_t sz, nni_type t)
 	}
 
 	nni_mtx_lock(&d->mtx);
+	old = d->key;
 	d->key = str;
 	nni_mtx_unlock(&d->mtx);
+	if (old != NULL) {
+		nng_free(old, 0);
+	}
 	return 0;
 }
 
@@ -245,6 +260,7 @@ quic_dialer_set_tls_cacert(void *arg, const void *buf, size_t sz, nni_type t)
 	nni_quic_dialer *d = arg;
 	int              rv;
 	char *           str;
+	char *           old;
 
 	str = nng_alloc(sz + 1);
 	memset(str, '\0', sz + 1);
@@ -255,8 +271,12 @@ quic_dialer_set_tls_cacert(void *arg, const void *buf, size_t sz, nni_type t)
 	}
 
 	nni_mtx_lock(&d->mtx);
+	old = d->cacert;
 	d->cacert = str;
 	nni_mtx_unlock(&d->mtx);
+	if (old != NULL) {
+		nng_free(old, 0);
+	}
 	return 0;
 }
 

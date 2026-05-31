@@ -29,6 +29,7 @@ if (NOT NNG_TLS_ENGINE STREQUAL "none")
 endif ()
 
 add_subdirectory(mbedtls)
+add_subdirectory(wolfssl)
 add_subdirectory(openssl)
 
 nng_sources(tls_common.c)

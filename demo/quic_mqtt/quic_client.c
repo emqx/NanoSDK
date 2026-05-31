@@ -189,11 +189,14 @@ sendmsg_func(void *arg)
 {
 	int rv = 0;
 	nng_socket *sock = arg;
+	
+	nng_msg *msg = mqtt_msg_compose(PUB,
+		    MQTT_PROTOCOL_VERSION_v311, 1, "topic123", "hello quic");
 
 	for (;;) {
 		nng_msleep(1000);
-		nng_msg *smsg = mqtt_msg_compose(PUB,
-		    MQTT_PROTOCOL_VERSION_v311, 1, "topic123", "hello quic");
+		nng_msg *smsg;
+		nng_msg_dup(&smsg, msg);
 		if ((rv = nng_sendmsg(*sock, smsg, NNG_FLAG_ALLOC)) == 0) {
 			printf("Message sent.\n");
 		} else {
@@ -271,6 +274,7 @@ client(int type, uint8_t proto_ver, const char *url, const char *qos,
 
 	if ((rv = nng_dialer_start(dialer, NNG_FLAG_ALLOC)) != 0) {
 		fatal("nng_dialer_start", rv);
+		nng_msg_free(conn_msg);
 		nng_close(sock);
 		return rv;
 	}
