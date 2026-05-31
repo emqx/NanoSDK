@@ -587,9 +587,10 @@ fail:
 int
 run_conn_command(const app_config *cfg, runtime_state *rt)
 {
+	(void) cfg;
 	bool connected_reported = false;
 	bool failed_reported    = false;
-	int  poll_ms            = (cfg->wait_ms > 0) ? cfg->wait_ms : 200;
+	int  poll_ms            = 1000;
 
 	fprintf(stderr, "conn command is running, press Ctrl+C to exit\n");
 	while (1) {

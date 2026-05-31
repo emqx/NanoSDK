@@ -53,7 +53,6 @@ enum options {
 	OPT_RETRY_QOS0,
 	OPT_RETRY_INTERVAL_MS,
 	OPT_RETRY_WAIT_MS,
-	OPT_WAIT_MS,
 };
 
 static nng_optspec opts[] = {
@@ -90,7 +89,6 @@ static nng_optspec opts[] = {
 	{ .o_name = "retry-qos0", .o_val = OPT_RETRY_QOS0 },
 	{ .o_name = "retry-interval-ms", .o_val = OPT_RETRY_INTERVAL_MS, .o_arg = true },
 	{ .o_name = "retry-wait-ms", .o_val = OPT_RETRY_WAIT_MS, .o_arg = true },
-	{ .o_name = "wait-ms", .o_val = OPT_WAIT_MS, .o_arg = true },
 	{ .o_name = NULL, .o_val = 0 },
 };
 
@@ -324,7 +322,6 @@ init_default_config(app_config *cfg)
 	cfg->payload                = (const uint8_t *) "hello";
 	cfg->payload_len            = (uint32_t) (sizeof("hello") - 1);
 	cfg->interval_ms            = 0;
-	cfg->wait_ms                = 1000;
 	cfg->tls_verify             = TLS_VERIFY_REQUIRED;
 	cfg->quic_tls_verify_peer   = true;
 	cfg->sqlite_enable          = false;
@@ -396,7 +393,7 @@ usage(const char *prog)
 	fprintf(stderr, "      --retry-interval-ms <ms>         (default: 10000)\n");
 	fprintf(stderr, "      --retry-wait-ms <ms>             (default: 1000)\n");
 	fprintf(stderr, "\nSubcommand: conn\n");
-	fprintf(stderr, "      --wait-ms <ms>                Poll interval while running (default: 1000)\n");
+	fprintf(stderr, "      (no command-specific options)\n");
 	fprintf(stderr, "\nSubcommand: sub\n");
 	fprintf(stderr, "  -t, --topic <topic>              Repeatable, e.g. -t topic1 -t topic2\n");
 	fprintf(stderr, "  -q, --qos <0|1|2>                Global QoS for all topics (default: 0)\n");
@@ -600,12 +597,6 @@ parse_args(int argc, char **argv, app_config *cfg)
 				return (rv);
 			}
 			cfg->retry_opts_set = true;
-			break;
-		case OPT_WAIT_MS:
-			if ((rv = parse_int_in_range(arg, 0, INT_MAX, &cfg->wait_ms)) != 0) {
-				fprintf(stderr, "invalid wait-ms: %s\n", arg);
-				return (rv);
-			}
 			break;
 		default:
 			return (NNG_EINVAL);

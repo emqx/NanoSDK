@@ -68,7 +68,6 @@ typedef struct app_config {
 	bool                interval_set;
 
 	topic_list          topics;
-	int                 wait_ms;
 
 	const char *        cafile;
 	const char *        cert;
