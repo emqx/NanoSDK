@@ -1214,6 +1214,8 @@ mqtt_tcptran_ep_fini(void *arg)
 		return;
 	}
 	nni_mtx_unlock(&ep->mtx);
+	if (ep->connmsg)
+		nni_msg_free(ep->connmsg);
 
 #ifdef SUPP_SCRAM
 	if (ep->authmsg)
@@ -1659,13 +1661,29 @@ mqtt_tcptran_ep_set_connmsg(
     void *arg, const void *v, size_t sz, nni_opt_type t)
 {
 	mqtt_tcptran_ep *ep = arg;
+	nni_msg *        msg = NULL;
+	nni_msg *        dup = NULL;
+	nni_msg *        old = NULL;
 	int              rv;
 
+	if ((rv = nni_copyin_ptr((void **) &msg, v, sz, t)) != 0) {
+		return (rv);
+	}
+
+	if ((msg != NULL) && ((rv = nni_msg_dup(&dup, msg)) != 0)) {
+		return (rv);
+	}
+
 	nni_mtx_lock(&ep->mtx);
-	rv = nni_copyin_ptr(&ep->connmsg, v, sz, t);
+	old        = ep->connmsg;
+	ep->connmsg = dup;
 	nni_mtx_unlock(&ep->mtx);
 
-	return (rv);
+	if (old != NULL) {
+		nni_msg_free(old);
+	}
+
+	return (0);
 }
 
 // NanoSDK use exponential backoff strategy as default

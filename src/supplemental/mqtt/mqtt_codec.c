@@ -2656,6 +2656,7 @@ nni_mqttv5_msg_decode_puback(nni_msg *msg)
 	    decode_properties(msg, &pos, &prop_len, false);
 	if (check_properties(mqtt->var_header.puback.properties, msg) != SUCCESS) {
 		property_free(mqtt->var_header.puback.properties);
+		mqtt->var_header.puback.properties = NULL;
 		return PROTOCOL_ERROR;
 	}
 
@@ -2706,6 +2707,7 @@ nni_mqttv5_msg_decode_pubrec(nni_msg *msg)
 	    decode_properties(msg, &pos, &prop_len, false);
 	if (check_properties(mqtt->var_header.pubrec.properties, msg) != SUCCESS) {
 		property_free(mqtt->var_header.pubrec.properties);
+		mqtt->var_header.pubrec.properties = NULL;
 		return PROTOCOL_ERROR;
 	}
 
@@ -2763,6 +2765,7 @@ nni_mqttv5_msg_decode_pubrel(nni_msg *msg)
 	    decode_properties(msg, &pos, &prop_len, false);
 	if (check_properties(mqtt->var_header.pubrel.properties, msg) != SUCCESS) {
 		property_free(mqtt->var_header.pubrel.properties);
+		mqtt->var_header.pubrel.properties = NULL;
 		return PROTOCOL_ERROR;
 	}
 
@@ -2813,6 +2816,7 @@ nni_mqttv5_msg_decode_pubcomp(nni_msg *msg)
 	    decode_properties(msg, &pos, &prop_len, false);
 	if (check_properties(mqtt->var_header.pubcomp.properties, msg) != SUCCESS) {
 		property_free(mqtt->var_header.pubcomp.properties);
+		mqtt->var_header.pubcomp.properties = NULL;
 		return PROTOCOL_ERROR;
 	}
 
