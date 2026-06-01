@@ -301,7 +301,7 @@ if (NNG_TESTS)
 endif ()
 
 if(NNG_ENABLE_QUIC)
-    set(NNG_PROTO_MQTT_QUIC_CLIENT ON)
+  set(NNG_PROTO_MQTT_QUIC_CLIENT ON)
   add_definitions(-DSUPP_QUIC)
 endif()
 

@@ -36,10 +36,7 @@
 #include <nng/nng.h>
 #include <nng/supplemental/util/platform.h>
 #include <nng/mqtt/mqtt_client.h>
-
-#if defined(SUPP_QUIC)
 #include <nng/mqtt/mqtt_quic_client.h>
-#endif
 
 
 
@@ -142,7 +139,7 @@ quic_connect_cb(void *rmsg, void *arg)
 static int
 quic_disconnect_cb(void *rmsg, void *arg)
 {
-	printf("bridge client disconnected!\n");
+	printf("quic client disconnected!\n");
 	return 0;
 }
 

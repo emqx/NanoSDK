@@ -61,15 +61,11 @@ target_link_libraries(quic_client PRIVATE
   ${_NNG_TARGET}
   Threads::Threads)
 
-if (TARGET nng::msquic)
-  target_link_libraries(quic_client PRIVATE nng::msquic)
-elseif (TARGET msquic)
-  target_link_libraries(quic_client PRIVATE msquic)
-endif ()
+target_link_libraries(quic_client PRIVATE nng::msquic)
 target_compile_definitions(quic_client PRIVATE NNG_ELIDE_DEPRECATED)
 
 if (NNG_ENABLE_SQLITE)
-    add_definitions(-DNNG_SUPP_SQLITE)
+  add_definitions(-DNNG_SUPP_SQLITE)
   target_link_libraries(quic_client PRIVATE dl)
 endif (NNG_ENABLE_SQLITE)
 
