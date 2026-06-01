@@ -268,18 +268,21 @@ mqtt_client <conn|sub|pub> [options]
 - `--quic-tls-ca-path <path>`
 - `--quic-tls-verify-peer <true|false>`：默认 `true`
 
-### 5.4 SQLite 与重试参数
+### 5.4 SQLite 参数
 
 - `--sqlite-enable`
 - `--sqlite-db-dir <dir>`：默认 `/tmp/nanomq`
 - `--sqlite-db-name <name>`：默认 `mqtt_full.db`
 - `--sqlite-max-rows <N>`：默认 `20`，范围 `[1, INT_MAX]`
 - `--sqlite-flush-threshold <N>`：默认 `10`，范围 `[1, INT_MAX]`
+
+### 5.5 Socket 参数
+
 - `--retry-qos0`
 - `--retry-interval-ms <ms>`：默认 `10000`，范围 `[0, INT_MAX]`
 - `--retry-wait-ms <ms>`：默认 `1000`，范围 `[0, INT_MAX]`
 
-### 5.5 子命令专属参数
+### 5.6 子命令专属参数
 
 `conn`：
 - 无专属参数

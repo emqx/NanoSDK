@@ -12,6 +12,12 @@
 #include <stdio.h>
 #include <string.h>
 
+/**
+ * @brief Program entry for mqtt_full CLI.
+ * @param argc Argument count.
+ * @param argv Argument vector.
+ * @return Exit code, where 0 indicates success.
+ */
 int
 main(int argc, char **argv)
 {
@@ -22,8 +28,6 @@ main(int argc, char **argv)
 	int                rv;
 	int                exit_code = 1;
 	enum command_kind  cmd;
-
-	set_low_memory_runtime_defaults();
 
 	if (argc < 2) {
 		usage(argv[0]);
@@ -92,10 +96,6 @@ main(int argc, char **argv)
 done:
 	if (sock_open) {
 		nng_close(sock);
-	}
-	if (rt.connmsg != NULL) {
-		nng_msg_free(rt.connmsg);
-		rt.connmsg = NULL;
 	}
 	free_config(&cfg);
 	return (exit_code);

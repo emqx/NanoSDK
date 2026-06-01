@@ -55,6 +55,9 @@ enum options {
 	OPT_RETRY_WAIT_MS,
 };
 
+/**
+ * @brief CLI option specification for conn/sub/pub commands.
+ */
 static nng_optspec opts[] = {
 	{ .o_name = "help", .o_short = 'h', .o_val = OPT_HELP },
 	{ .o_name = "url", .o_short = 'u', .o_val = OPT_URL, .o_arg = true },
@@ -92,6 +95,12 @@ static nng_optspec opts[] = {
 	{ .o_name = NULL, .o_val = 0 },
 };
 
+/**
+ * @brief Checks whether text starts with prefix.
+ * @param text Input text.
+ * @param prefix Required prefix.
+ * @return true if prefix matches, otherwise false.
+ */
 static bool
 starts_with(const char *text, const char *prefix)
 {
@@ -101,6 +110,12 @@ starts_with(const char *text, const char *prefix)
 	return (strncmp(text, prefix, strlen(prefix)) == 0);
 }
 
+/**
+ * @brief Performs case-insensitive equality comparison.
+ * @param a First string.
+ * @param b Second string.
+ * @return true when strings are equal ignoring case.
+ */
 static bool
 streq_nocase(const char *a, const char *b)
 {
@@ -118,6 +133,11 @@ streq_nocase(const char *a, const char *b)
 	return (true);
 }
 
+/**
+ * @brief Checks whether a string contains line-break characters.
+ * @param text Input text.
+ * @return true if a line break is present.
+ */
 static bool
 contains_line_break(const char *text)
 {
@@ -127,6 +147,12 @@ contains_line_break(const char *text)
 	return (strchr(text, '\n') != NULL) || (strchr(text, '\r') != NULL);
 }
 
+/**
+ * @brief Validates that a file path is single-line and readable.
+ * @param opt_name Option name used in error messages.
+ * @param path Candidate file path.
+ * @return 0 on success, otherwise an nng error code.
+ */
 static int
 validate_readable_path(const char *opt_name, const char *path)
 {
@@ -150,6 +176,14 @@ validate_readable_path(const char *opt_name, const char *path)
 	return (0);
 }
 
+/**
+ * @brief Parses an integer and enforces range constraints.
+ * @param text Input numeric text.
+ * @param min_v Inclusive minimum.
+ * @param max_v Inclusive maximum.
+ * @param out Parsed value output.
+ * @return 0 on success, otherwise NNG_EINVAL.
+ */
 static int
 parse_int_in_range(const char *text, int min_v, int max_v, int *out)
 {
@@ -166,6 +200,12 @@ parse_int_in_range(const char *text, int min_v, int max_v, int *out)
 	return (0);
 }
 
+/**
+ * @brief Parses common textual booleans.
+ * @param text Input boolean text.
+ * @param out Parsed boolean output.
+ * @return 0 on success, otherwise NNG_EINVAL.
+ */
 static int
 parse_bool_text(const char *text, bool *out)
 {
@@ -188,6 +228,12 @@ parse_bool_text(const char *text, bool *out)
 	return (NNG_EINVAL);
 }
 
+/**
+ * @brief Parses TLS verify mode from text.
+ * @param text Input mode text.
+ * @param mode Parsed mode output.
+ * @return 0 on success, otherwise NNG_EINVAL.
+ */
 static int
 parse_tls_verify_mode(const char *text, enum tls_verify_mode *mode)
 {
@@ -209,6 +255,12 @@ parse_tls_verify_mode(const char *text, enum tls_verify_mode *mode)
 	return (NNG_EINVAL);
 }
 
+/**
+ * @brief Appends one topic to a growable topic list.
+ * @param topics Topic list to modify.
+ * @param topic Topic string.
+ * @return 0 on success, otherwise an nng error code.
+ */
 static int
 topic_list_add(topic_list *topics, const char *topic)
 {
@@ -233,6 +285,10 @@ topic_list_add(topic_list *topics, const char *topic)
 	return (0);
 }
 
+/**
+ * @brief Frees topic list storage.
+ * @param topics Topic list to clear.
+ */
 static void
 topic_list_free(topic_list *topics)
 {
@@ -245,6 +301,11 @@ topic_list_free(topic_list *topics)
 	topics->cap   = 0;
 }
 
+/**
+ * @brief Detects transport type from URL scheme.
+ * @param url Broker URL.
+ * @return Detected transport kind.
+ */
 static enum transport_kind
 detect_transport(const char *url)
 {
@@ -263,6 +324,12 @@ detect_transport(const char *url)
 	return (TRANSPORT_INVALID);
 }
 
+/**
+ * @brief Generates random payload bytes for msg_size mode.
+ * @param payload_len Requested payload length.
+ * @param out Generated payload output buffer.
+ * @return 0 on success, otherwise an nng error code.
+ */
 static int
 generate_random_payload(int payload_len, uint8_t **out)
 {
@@ -291,6 +358,11 @@ generate_random_payload(int payload_len, uint8_t **out)
 	return (0);
 }
 
+/**
+ * @brief Maps subcommand text to enum value.
+ * @param text Subcommand token.
+ * @return Parsed command kind.
+ */
 enum command_kind
 parse_command(const char *text)
 {
@@ -309,6 +381,10 @@ parse_command(const char *text)
 	return (CMD_INVALID);
 }
 
+/**
+ * @brief Initializes config defaults.
+ * @param cfg Config object to initialize.
+ */
 void
 init_default_config(app_config *cfg)
 {
@@ -337,6 +413,10 @@ init_default_config(app_config *cfg)
 #endif
 }
 
+/**
+ * @brief Releases resources owned by app_config.
+ * @param cfg Config object to clean.
+ */
 void
 free_config(app_config *cfg)
 {
@@ -355,6 +435,10 @@ free_config(app_config *cfg)
 #endif
 }
 
+/**
+ * @brief Prints CLI usage text.
+ * @param prog Program name.
+ */
 void
 usage(const char *prog)
 {
@@ -389,6 +473,7 @@ usage(const char *prog)
 	fprintf(stderr, "      --sqlite-db-name <name>          (default: mqtt_full.db)\n");
 	fprintf(stderr, "      --sqlite-max-rows <N>            (default: 20)\n");
 	fprintf(stderr, "      --sqlite-flush-threshold <N>     (default: 10)\n");
+	fprintf(stderr, "\nSocket options:\n");
 	fprintf(stderr, "      --retry-qos0\n");
 	fprintf(stderr, "      --retry-interval-ms <ms>         (default: 10000)\n");
 	fprintf(stderr, "      --retry-wait-ms <ms>             (default: 1000)\n");
@@ -411,6 +496,13 @@ usage(const char *prog)
 	fprintf(stderr, "  %s pub  -u mqtt-quic://127.0.0.1:14567 -t topic1 -m hello -V 5\n", prog);
 }
 
+/**
+ * @brief Parses CLI options into app_config.
+ * @param argc Argument count.
+ * @param argv Argument vector.
+ * @param cfg Output config object.
+ * @return 0 on success, otherwise an nng error code.
+ */
 int
 parse_args(int argc, char **argv, app_config *cfg)
 {
@@ -616,6 +708,11 @@ parse_args(int argc, char **argv, app_config *cfg)
 	return (0);
 }
 
+/**
+ * @brief Validates configuration and computes derived publish fields.
+ * @param cfg In/out config object.
+ * @return 0 on success, otherwise an nng error code.
+ */
 int
 validate_config(app_config *cfg)
 {
@@ -721,15 +818,3 @@ validate_config(app_config *cfg)
 	return (0);
 }
 
-void
-set_low_memory_runtime_defaults(void)
-{
-	// Keep nng system thread pools at their minimum practical sizes.
-	nng_init_set_parameter(NNG_INIT_MAX_TASK_THREADS, 2);
-	nng_init_set_parameter(NNG_INIT_NUM_TASK_THREADS, 2);
-	nng_init_set_parameter(NNG_INIT_MAX_EXPIRE_THREADS, 1);
-	nng_init_set_parameter(NNG_INIT_NUM_EXPIRE_THREADS, 1);
-	nng_init_set_parameter(NNG_INIT_MAX_POLLER_THREADS, 1);
-	nng_init_set_parameter(NNG_INIT_NUM_POLLER_THREADS, 1);
-	nng_init_set_parameter(NNG_INIT_NUM_RESOLVER_THREADS, 1);
-}

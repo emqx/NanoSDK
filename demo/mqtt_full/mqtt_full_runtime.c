@@ -21,11 +21,18 @@
 #include <nng/mqtt/mqtt_quic_client.h>
 #endif
 
+/**
+ * @brief Tracks subscription callback state for one sub command run.
+ */
 typedef struct suback_state {
 	bool suback_seen;
 	bool event_verbose;
 } suback_state;
 
+/**
+ * @brief Applies small send/recv buffers suitable for this CLI tool.
+ * @param sock Target socket.
+ */
 static void
 set_low_memory_socket_opts(nng_socket sock)
 {
@@ -33,6 +40,13 @@ set_low_memory_socket_opts(nng_socket sock)
 	(void) nng_socket_set_int(sock, NNG_OPT_RECVBUF, 1);
 }
 
+/**
+ * @brief Opens an MQTT client socket for the requested transport and version.
+ * @param t Transport kind.
+ * @param proto MQTT protocol version.
+ * @param sock Output socket handle.
+ * @return 0 on success, otherwise an nng error code.
+ */
 static int
 open_socket_for_transport(enum transport_kind t, uint8_t proto, nng_socket *sock)
 {
@@ -57,6 +71,12 @@ open_socket_for_transport(enum transport_kind t, uint8_t proto, nng_socket *sock
 	}
 }
 
+/**
+ * @brief Builds and encodes one MQTT CONNECT message.
+ * @param msgp Output CONNECT message pointer.
+ * @param cfg Parsed application config.
+ * @return 0 on success, otherwise an nng error code.
+ */
 static int
 make_connect_msg(nng_msg **msgp, const app_config *cfg)
 {
@@ -94,6 +114,12 @@ make_connect_msg(nng_msg **msgp, const app_config *cfg)
 }
 
 #if defined(NNG_SUPP_TLS)
+/**
+ * @brief Reads a text file into a NUL-terminated heap buffer.
+ * @param path Input file path.
+ * @param out Output buffer pointer.
+ * @return 0 on success, otherwise an nng error code.
+ */
 static int
 load_text_file(const char *path, char **out)
 {
@@ -143,6 +169,12 @@ load_text_file(const char *path, char **out)
 	return (0);
 }
 
+/**
+ * @brief Applies TLS-over-TCP dialer options from config.
+ * @param d Target dialer.
+ * @param cfg Parsed application config.
+ * @return 0 on success, otherwise an nng error code.
+ */
 static int
 apply_tcp_tls_dialer_opts(nng_dialer d, const app_config *cfg)
 {
@@ -214,6 +246,12 @@ done:
 	return (rv);
 }
 #else
+/**
+ * @brief Returns a clear error when TLS support is unavailable.
+ * @param d Unused dialer handle.
+ * @param cfg Parsed application config.
+ * @return 0 for non-TLS transport, otherwise NNG_ENOTSUP.
+ */
 static int
 apply_tcp_tls_dialer_opts(nng_dialer d, const app_config *cfg)
 {
@@ -226,6 +264,12 @@ apply_tcp_tls_dialer_opts(nng_dialer d, const app_config *cfg)
 }
 #endif
 
+/**
+ * @brief Applies QUIC TLS dialer options when explicitly configured.
+ * @param d Target dialer.
+ * @param cfg Parsed application config.
+ * @return 0 on success, otherwise an nng error code.
+ */
 static int
 apply_quic_tls_dialer_opts(nng_dialer d, const app_config *cfg)
 {
@@ -278,6 +322,12 @@ apply_quic_tls_dialer_opts(nng_dialer d, const app_config *cfg)
 	return (0);
 }
 
+/**
+ * @brief Applies MQTT retry-related socket options.
+ * @param sock Target socket.
+ * @param cfg Parsed application config.
+ * @return 0 on success, otherwise an nng error code.
+ */
 static int
 apply_retry_socket_opts(nng_socket sock, const app_config *cfg)
 {
@@ -300,6 +350,12 @@ apply_retry_socket_opts(nng_socket sock, const app_config *cfg)
 	return (0);
 }
 
+/**
+ * @brief Enables and configures optional SQLite persistence.
+ * @param sock Target socket.
+ * @param cfg Parsed application config.
+ * @return 0 on success, otherwise an nng error code.
+ */
 static int
 apply_sqlite_socket_opts(nng_socket sock, app_config *cfg)
 {
@@ -333,6 +389,12 @@ apply_sqlite_socket_opts(nng_socket sock, app_config *cfg)
 #endif
 }
 
+/**
+ * @brief Generic MQTT connect callback.
+ * @param p Event pipe.
+ * @param ev Event kind.
+ * @param arg Runtime state pointer.
+ */
 static void
 mqtt_connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 {
@@ -349,6 +411,12 @@ mqtt_connect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 	fprintf(stderr, "[connect-cb] reason=%d\n", reason);
 }
 
+/**
+ * @brief Generic MQTT disconnect callback.
+ * @param p Event pipe.
+ * @param ev Event kind.
+ * @param arg Runtime state pointer.
+ */
 static void
 mqtt_disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 {
@@ -366,6 +434,12 @@ mqtt_disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 }
 
 #if defined(SUPP_QUIC)
+/**
+ * @brief QUIC-specific connect callback bridge.
+ * @param msg Callback payload.
+ * @param arg Runtime state pointer.
+ * @return 0.
+ */
 static int
 quic_connect_cb(void *msg, void *arg)
 {
@@ -377,6 +451,12 @@ quic_connect_cb(void *msg, void *arg)
 	return (0);
 }
 
+/**
+ * @brief QUIC-specific disconnect callback bridge.
+ * @param msg Callback payload.
+ * @param arg Runtime state pointer.
+ * @return 0.
+ */
 static int
 quic_disconnect_cb(void *msg, void *arg)
 {
@@ -389,6 +469,12 @@ quic_disconnect_cb(void *msg, void *arg)
 }
 #endif
 
+/**
+ * @brief Async send callback used to inspect SUBACK responses.
+ * @param client MQTT async client.
+ * @param msg Message delivered to callback.
+ * @param arg Subscription state pointer.
+ */
 static void
 suback_send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg)
 {
@@ -424,6 +510,13 @@ suback_send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg)
 	nng_msg_free(msg);
 }
 
+/**
+ * @brief Registers runtime callbacks for connect/disconnect events.
+ * @param sock Target socket.
+ * @param cfg Parsed application config.
+ * @param rt Runtime state storage.
+ * @return Always 0.
+ */
 static int
 register_callbacks(nng_socket sock, const app_config *cfg, runtime_state *rt)
 {
@@ -463,6 +556,12 @@ register_callbacks(nng_socket sock, const app_config *cfg, runtime_state *rt)
 	return (0);
 }
 
+/**
+ * @brief Builds and sends one PUBLISH packet.
+ * @param sock Target socket.
+ * @param cfg Parsed application config.
+ * @return 0 on success, otherwise an nng error code.
+ */
 static int
 publish_once(nng_socket sock, const app_config *cfg)
 {
@@ -490,8 +589,10 @@ publish_once(nng_socket sock, const app_config *cfg)
 		return (rv);
 	}
 
-	// Use blocking send for the CLI path so single-shot pub exits
-	// only after send path has completed.
+	/*
+	 * Use blocking send so single-shot publish exits only after send
+	 * completion on the CLI path.
+	 */
 	rv = nng_sendmsg(sock, msg, 0);
 	if (rv != 0) {
 		nng_msg_free(msg);
@@ -501,6 +602,10 @@ publish_once(nng_socket sock, const app_config *cfg)
 	return (0);
 }
 
+/**
+ * @brief Sleeps for ms when ms is positive.
+ * @param ms Sleep duration in milliseconds.
+ */
 static void
 wait_ms(int ms)
 {
@@ -509,6 +614,14 @@ wait_ms(int ms)
 	}
 }
 
+/**
+ * @brief Opens socket, configures it, and starts the dialer session.
+ * @param cfg Parsed application config.
+ * @param rt Runtime state storage.
+ * @param sock Output socket handle.
+ * @param sock_open Output flag set true after socket open succeeds.
+ * @return 0 on success, otherwise an nng error code.
+ */
 int
 start_session(app_config *cfg, runtime_state *rt, nng_socket *sock, bool *sock_open)
 {
@@ -518,9 +631,6 @@ start_session(app_config *cfg, runtime_state *rt, nng_socket *sock, bool *sock_o
 	bool       dialer_created = false;
 
 	*sock_open = false;
-	if (rt != NULL) {
-		rt->connmsg = NULL;
-	}
 
 	if ((rv = open_socket_for_transport(cfg->transport, cfg->proto_ver, sock)) != 0) {
 		return (rv);
@@ -561,15 +671,11 @@ start_session(app_config *cfg, runtime_state *rt, nng_socket *sock, bool *sock_o
 	if ((rv = nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, connmsg)) != 0) {
 		goto fail;
 	}
+	connmsg = NULL;
 
 	if ((rv = nng_dialer_start(dialer, NNG_FLAG_ALLOC)) != 0) {
 		goto fail;
 	}
-
-	if (rt != NULL) {
-		rt->connmsg = connmsg;
-	}
-	connmsg = NULL;
 
 	return (0);
 
@@ -584,6 +690,12 @@ fail:
 	return (rv);
 }
 
+/**
+ * @brief Runs the conn command event loop.
+ * @param cfg Parsed application config.
+ * @param rt Runtime state updated by callbacks.
+ * @return 0 on success, otherwise an nng error code.
+ */
 int
 run_conn_command(const app_config *cfg, runtime_state *rt)
 {
@@ -614,6 +726,12 @@ run_conn_command(const app_config *cfg, runtime_state *rt)
 	return (0);
 }
 
+/**
+ * @brief Runs subscribe flow and prints received publish messages.
+ * @param sock Open socket.
+ * @param cfg Parsed application config.
+ * @return 0 on success, otherwise an nng error code.
+ */
 int
 run_sub_command(nng_socket sock, const app_config *cfg)
 {
@@ -698,6 +816,12 @@ run_sub_command(nng_socket sock, const app_config *cfg)
 	return (0);
 }
 
+/**
+ * @brief Runs publish flow according to message/count/interval options.
+ * @param sock Open socket.
+ * @param cfg Parsed application config.
+ * @return 0 on success, otherwise an nng error code.
+ */
 int
 run_pub_command(nng_socket sock, const app_config *cfg)
 {
@@ -732,8 +856,10 @@ run_pub_command(nng_socket sock, const app_config *cfg)
 	}
 
 	if ((cfg->transport == TRANSPORT_MQTT_QUIC) && (success_count > 0)) {
-		// QUIC send completion is asynchronous for QoS0; avoid dropping
-		// the final publish when the process closes immediately.
+		/*
+		 * QUIC QoS0 completion can be asynchronous. Delay process exit to
+		 * avoid dropping the final publish in short-lived CLI runs.
+		 */
 		wait_ms(quic_settle_ms);
 	}
 

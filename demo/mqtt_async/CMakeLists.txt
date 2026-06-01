@@ -27,7 +27,12 @@ if (DEBUG)
 endif (DEBUG)
 
 add_executable(mqtt_async mqtt_async.c)
-target_link_libraries(mqtt_async nng::nng)
+if (TARGET nng::nng)
+  set(_NNG_TARGET nng::nng)
+else ()
+  set(_NNG_TARGET nng)
+endif ()
+target_link_libraries(mqtt_async ${_NNG_TARGET})
 target_link_libraries(mqtt_async ${CMAKE_THREAD_LIBS_INIT})
 
 if(NNG_ENABLE_TLS)

@@ -267,18 +267,21 @@ mqtt_client <conn|sub|pub> [options]
 - `--quic-tls-ca-path <path>`
 - `--quic-tls-verify-peer <true|false>`: default `true`
 
-### 5.4 SQLite + Retry Options
+### 5.4 SQLite Options
 
 - `--sqlite-enable`
 - `--sqlite-db-dir <dir>`: default `/tmp/nanomq`
 - `--sqlite-db-name <name>`: default `mqtt_full.db`
 - `--sqlite-max-rows <N>`: default `20`, range `[1, INT_MAX]`
 - `--sqlite-flush-threshold <N>`: default `10`, range `[1, INT_MAX]`
+
+### 5.5 Socket Options
+
 - `--retry-qos0`
 - `--retry-interval-ms <ms>`: default `10000`, range `[0, INT_MAX]`
 - `--retry-wait-ms <ms>`: default `1000`, range `[0, INT_MAX]`
 
-### 5.5 Subcommand-specific Options
+### 5.6 Subcommand-specific Options
 
 `conn`:
 - no command-specific options
