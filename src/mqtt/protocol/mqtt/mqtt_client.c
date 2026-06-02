@@ -228,7 +228,7 @@ mqtt_sock_get_disconnect_prop(void *arg, void *v, size_t *szp, nni_opt_type t)
 
 	nni_mtx_lock(&s->mtx);
 	rv = nni_copyout_ptr(s->dis_prop, v, szp, t);
-	nni_mtx_lock(&s->mtx);
+	nni_mtx_unlock(&s->mtx);
 	return (rv);
 }
 
