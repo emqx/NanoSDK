@@ -110,7 +110,7 @@ void onConnect5(void* context, MQTTAsync_successData5* response)
 	MQTTAsync_responseOptions opts = MQTTAsync_responseOptions_initializer;
 	int rc;
 
-	printf("Successful connection\n");
+	printf("Successful connection5\n");
 
 	printf("Subscribing to topic %s\nfor client %s using QoS%d\n\n"
            "Press Q<Enter> to quit\n\n", TOPIC, CLIENTID, QOS);
@@ -242,8 +242,8 @@ int main(int argc, char* argv[])
 	conn_opts.keepAliveInterval = 64;
 	conn_opts.scram             = true;
 	conn_opts.MQTTVersion       = MQTTVERSION_5;
-	conn_opts.onSuccess         = onConnect;
-	conn_opts.onFailure         = onConnectFailure;
+	// conn_opts.onSuccess         = onConnect;
+	// conn_opts.onFailure         = onConnectFailure;
 	conn_opts.onSuccess5        = onConnect5;
 	conn_opts.onFailure5        = onConnectFailure5;
 	conn_opts.username          = "admin";
