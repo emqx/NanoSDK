@@ -159,15 +159,19 @@ open_net_read(void *ctx, char *buf, int len) {
 	case 0:
 		return ((int) sz);
 	case NNG_EAGAIN:
+		nng_log_debug("NNG-TLS-NET-RD", "NNG_EAGAIN");
 		return 0 - (SSL_ERROR_WANT_READ);
 		// return (WOLFSSL_CBIO_ERR_WANT_READ);
 	case NNG_ECLOSED:
+		nng_log_debug("NNG-TLS-NET-RD", "NNG_ECLOSED");
 		return 0 - (SSL_ERROR_WANT_CONNECT);
 		// return (WOLFSSL_CBIO_ERR_CONN_CLOSE);
 	case NNG_ECONNSHUT:
+		nng_log_debug("NNG-TLS-NET-RD", "NNG_ECONNSHUT");
 		return 0 - (SSL_ERROR_WANT_CONNECT);
 		// return (WOLFSSL_CBIO_ERR_CONN_RST);
 	default:
+		nng_log_debug("NNG-TLS-NET-RD", "UNKNOWN ERROR");
 		return 0 - (SSL_ERROR_WANT_CONNECT);
 		// return (WOLFSSL_CBIO_ERR_GENERAL);
 	}
@@ -189,15 +193,19 @@ open_net_write(void *ctx, const char *buf, int len) {
 		return ((int) sz);
 
 	case NNG_EAGAIN:
+		nng_log_debug("NNG-TLS-NET-WR", "NNG_EAGAIN");
 		return 0 - (SSL_ERROR_WANT_WRITE);
 		// return (WOLFSSL_CBIO_ERR_WANT_WRITE);
 	case NNG_ECLOSED:
+		nng_log_debug("NNG-TLS-NET-WR", "NNG_ECLOSED");
 		return 0 - (SSL_ERROR_WANT_CONNECT);
 		// return (WOLFSSL_CBIO_ERR_CONN_CLOSE);
 	case NNG_ECONNSHUT:
+		nng_log_debug("NNG-TLS-NET-WR", "NNG_ECONNSHUT");
 		return 0 - (SSL_ERROR_WANT_CONNECT);
 		// return (WOLFSSL_CBIO_ERR_CONN_RST);
 	default:
+		nng_log_debug("NNG-TLS-NET-WR", "UNKNOWN ERROR");
 		return 0 - (SSL_ERROR_WANT_CONNECT);
 		// return (WOLFSSL_CBIO_ERR_GENERAL);
 	}
