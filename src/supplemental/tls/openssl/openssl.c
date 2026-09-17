@@ -267,8 +267,10 @@ open_conn_close(nng_tls_engine_conn *ec)
 	nng_log_warn("NNG-TLS-CONN-HANDSHAKE",
 				"openssl conn closed");
 	trace("start");
-	if (ec->wnext)
+	if (ec->wnext) {
 		nng_free(ec->wnext, 0);
+		ec->wnext = NULL;
+	}
 	SSL_shutdown(ec->ssl);
 	trace("end");
 }
