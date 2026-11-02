@@ -18,6 +18,8 @@
 // "trim" operations work from the front, and "chop" work from the end.
 
 extern int      nni_msg_alloc(nni_msg **, size_t);
+extern nni_time nni_msg_get_timestamp(nni_msg *);
+extern void nni_msg_set_timestamp(nni_msg *, nni_time);
 extern void     nni_msg_free(nni_msg *);
 extern int      nni_msg_realloc(nni_msg *, size_t);
 extern int      nni_msg_reserve(nni_msg *, size_t);
