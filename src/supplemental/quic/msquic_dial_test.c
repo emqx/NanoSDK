@@ -1,318 +1,258 @@
-//
-// Copyright 2023 NanoMQ Team, Inc. <wangwei@emqx.io>
-//
-// This software is supplied under the terms of the MIT License, a
-// copy of which should be located in the distribution where this
-// file was obtained (LICENSE.txt).  A copy of the license may also be
-// found online at https://opensource.org/licenses/MIT.
-//
+// Exercise edge cases that cannot be forced reliably over a real network.
+#include "nuts.h"
+#include "msquic_dial.c"
 
-#include <nuts.h>
-#include "nng/mqtt/mqtt_client.h"
-#include "nng/mqtt/mqtt_quic_client.h"
-
-//static const char *quic_test_url  = "mqtt-quic://us.432121.xyz:14567";
-static const char *quic_test_url  = "mqtt-quic://13.49.223.253:14567";
-static const char *quic_test_url2 = "mqtt-quic://127.0.0.1:8";
-static const char *quic_test_clientid = "quic-ut-clientid";
-static const char *quic_test_topic = "quic-ut-topic1";
-static const int   quic_test_qos = 0;
-static const char *quic_test_payload = "quic-ut-payload";
-static const uint8_t quic_test_rap = 0;
-static const uint8_t quic_test_rh  = 0;
-static const uint8_t quic_test_nolocal = 0;
-
-void
-test_msquic_stream_conn_refused(void)
+static quic_send *pending;
+static bool fail_send;
+static bool fail_start = true;
+static QUIC_SEND_FLAGS last_send_flags;
+static QUIC_STATUS QUIC_API fake_send(HQUIC h, const QUIC_BUFFER *b,
+    uint32_t count, QUIC_SEND_FLAGS flags, void *arg)
 {
-	nng_stream_dialer *dialer;
-	nng_aio *          aio;
-
+	(void)h; (void)b; (void)count; (void)flags;
+	if (fail_send) return QUIC_STATUS_ABORTED;
+	pending = arg; last_send_flags = flags;
+	return QUIC_STATUS_SUCCESS;
+}
+static QUIC_STATUS QUIC_API fake_enable(HQUIC h, BOOLEAN enabled)
+{
+	(void)h; (void)enabled;
+	return QUIC_STATUS_SUCCESS;
+}
+static nni_atomic_int destroyed, drain_entered, drain_done;
+static void QUIC_API fake_shutdown(HQUIC h, QUIC_CONNECTION_SHUTDOWN_FLAGS f, QUIC_UINT62 e)
+{ (void)h; (void)f; (void)e; }
+static void QUIC_API fake_close(HQUIC h)
+{ (void)h; nni_atomic_inc(&destroyed); }
+static unsigned stream_closes;
+static QUIC_STATUS QUIC_API fake_stream_open(HQUIC h, QUIC_STREAM_OPEN_FLAGS flags,
+    QUIC_STREAM_CALLBACK_HANDLER handler, void *ctx, HQUIC *out)
+{ (void)h; (void)flags; (void)handler; *out = (HQUIC)ctx; return QUIC_STATUS_SUCCESS; }
+static QUIC_STATUS QUIC_API fake_stream_start(HQUIC h, QUIC_STREAM_START_FLAGS flags)
+{ (void)h; (void)flags; return fail_start ? QUIC_STATUS_OUT_OF_MEMORY : QUIC_STATUS_PENDING; }
+static void QUIC_API fake_stream_close(HQUIC h)
+{ (void)h; ++stream_closes; }
+static const QUIC_API_TABLE table = {
+    .StreamOpen = fake_stream_open,
+    .StreamStart = fake_stream_start,
+    .StreamClose = fake_stream_close,
+	.StreamSend = fake_send,
+    .ConnectionShutdown = fake_shutdown,
+    .ConnectionClose = fake_close,
+	.StreamReceiveSetEnabled = fake_enable,
+};
+static void setup(nni_quic_conn *c, nni_quic_dialer *d)
+{
+	memset(c, 0, sizeof(*c)); memset(d, 0, sizeof(*d));
+	nni_mtx_init(&c->mtx); nni_mtx_init(&d->mtx);
+	d->api = &table; c->dialer = d; c->channels = 1;
+	c->channel[0].conn = c;
+	c->channel[0].handle = (HQUIC)c;
+	nni_aio_list_init(&c->channel[0].readers);
+	NNI_LIST_INIT(&c->channel[0].sends, quic_send, node);
+	fail_send = false; pending = NULL; fail_start = true;
+}
+static void teardown(nni_quic_conn *c, nni_quic_dialer *d)
+{
+	NUTS_TRUE(nni_list_empty(&c->channel[0].readers));
+	NUTS_TRUE(nni_list_empty(&c->channel[0].sends));
+	nni_mtx_fini(&c->mtx); nni_mtx_fini(&d->mtx);
+}
+static void test_stream_start_failure(void)
+{
+    nni_quic_conn c; nni_quic_dialer d; nng_aio *aio;
+    NUTS_PASS(nng_aio_alloc(&aio, NULL, NULL));
+    setup(&c, &d); stream_closes = 0; c.priority = -1;
+    NUTS_PASS(nni_aio_begin(aio)); c.aio = aio;
+    QUIC_CONNECTION_EVENT event = { .Type = QUIC_CONNECTION_EVENT_CONNECTED };
+    connection_cb(NULL, &c, &event);
+    NUTS_TRUE(stream_closes == 1 && c.channel[0].handle == NULL);
+    NUTS_TRUE(c.error == NNG_ECONNREFUSED && !c.connected);
+    c.aio = NULL; nni_aio_finish_error(aio, NNG_ECONNREFUSED);
+    nng_aio_wait(aio); nng_aio_free(aio); teardown(&c, &d);
+}
+static void test_start_completion(void)
+{
+    nni_quic_conn c; nni_quic_dialer d; nng_aio *aio;
+    NUTS_PASS(nng_aio_alloc(&aio, NULL, NULL)); setup(&c, &d);
+    nni_atomic_init(&c.refs); nni_atomic_set(&c.refs, 1);
+    fail_start = false; c.priority = -1;
+    NUTS_PASS(nni_aio_begin(aio)); c.aio = aio;
+    QUIC_CONNECTION_EVENT connected = {.Type = QUIC_CONNECTION_EVENT_CONNECTED};
+    connection_cb(NULL, &c, &connected);
+    NUTS_TRUE(c.aio == aio && !c.connected && nni_aio_busy(aio));
+    QUIC_STREAM_EVENT started = {.Type = QUIC_STREAM_EVENT_START_COMPLETE};
+    started.START_COMPLETE.Status = QUIC_STATUS_SUCCESS;
+    stream_cb(c.channel[0].handle, &c.channel[0], &started);
+    nng_aio_wait(aio); NUTS_PASS(nng_aio_result(aio));
+    NUTS_TRUE(c.aio == NULL && c.connected && nng_aio_get_output(aio, 0) == &c.stream);
+    nng_aio_free(aio); teardown(&c, &d);
+}
+static void test_defaults(void)
+{
+    nni_quic_dialer *d;
+    NUTS_PASS(nni_quic_dialer_init((void **)&d));
+    NUTS_TRUE(!d->enable_mltstrm && !d->enable_0rtt);
+    NUTS_TRUE(d->settings.IdleTimeoutMs == 90000 && d->settings.KeepAliveIntervalMs == 60000);
+    nni_quic_dialer_fini(d);
+}
+static void test_priority_send(void)
+{
+    nni_quic_conn c; nni_quic_dialer d; nng_aio *aio;
+    NUTS_PASS(nng_aio_alloc(&aio, NULL, NULL)); setup(&c, &d);
+    int flags = QUIC_HIGH_PRIOR_MSG;
+    nni_aio_set_prov_data(aio, &flags);
+    nng_iov iov = {(void *)"priority", 8};
+    NUTS_PASS(nng_aio_set_iov(aio, 1, &iov)); stream_send(&c, aio);
+    NUTS_TRUE(last_send_flags & QUIC_SEND_FLAG_PRIORITY_WORK);
+    QUIC_STREAM_EVENT done = {.Type = QUIC_STREAM_EVENT_SEND_COMPLETE};
+    done.SEND_COMPLETE.ClientContext = pending;
+    stream_cb(c.channel[0].handle, &c.channel[0], &done);
+    nng_aio_wait(aio); NUTS_PASS(nng_aio_result(aio));
+    nng_aio_free(aio); teardown(&c, &d);
+}
+static void test_close_during_transport_shutdown(void)
+{
+    nni_quic_conn c; nni_quic_dialer d; nng_aio *aio;
+    NUTS_PASS(nng_aio_alloc(&aio, NULL, NULL)); setup(&c, &d);
+    char byte; nng_iov iov = {&byte, 1};
+    NUTS_PASS(nng_aio_set_iov(aio, 1, &iov)); stream_recv(&c, aio);
+    QUIC_CONNECTION_EVENT event = {.Type = QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER};
+    connection_cb(NULL, &c, &event);
+    conn_close(&c);
+    NUTS_TRUE(!nni_aio_list_active(aio));
+    nng_aio_wait(aio); NUTS_FAIL(nng_aio_result(aio), NNG_ECLOSED);
+    nng_aio_free(aio); teardown(&c, &d);
+}
+static void test_async_start_failure_backoff(void)
+{
+    nni_quic_conn c; nni_quic_dialer d;
+    NUTS_PASS(nni_init()); setup(&c, &d);
+    c.channels = 2; c.connected = true;
+    quic_channel *ch = &c.channel[1]; ch->conn = &c; ch->handle = (HQUIC)ch;
+    nni_aio_list_init(&ch->readers); NNI_LIST_INIT(&ch->sends, quic_send, node);
+    nni_aio_init(&c.reopen_aio, channel_retry, &c); c.reopen_initialized = true;
+    QUIC_STREAM_EVENT event = {.Type = QUIC_STREAM_EVENT_START_COMPLETE};
+    event.START_COMPLETE.Status = QUIC_STATUS_OUT_OF_MEMORY;
+    stream_cb(ch->handle, ch, &event);
+    event.Type = QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE;
+    stream_cb(ch->handle, ch, &event);
+    NUTS_TRUE(ch->handle == NULL && c.retry_pending);
+    nni_aio_stop(&c.reopen_aio); nni_aio_fini(&c.reopen_aio);
+    teardown(&c, &d);
+}
+static void test_receive_buffers(void)
+{
+	nni_quic_conn c; nni_quic_dialer d; nng_aio *aio;
 	NUTS_PASS(nng_aio_alloc(&aio, NULL, NULL));
-	nng_aio_set_timeout(aio, 5000); // 5 sec
-
-	// port 8 is generally not used for anything.
-	NUTS_PASS(nng_stream_dialer_alloc(&dialer, quic_test_url2));
-	nng_stream_dialer_dial(dialer, aio);
-	nng_aio_wait(aio);
-	// NUTS_FAIL(nng_aio_result(aio), NNG_ECONNREFUSED);
-	// SERVER_UNAVAILABLE is the reason code for MQTT.
-	NUTS_FAIL(nng_aio_result(aio), SERVER_UNAVAILABLE);
-
-	nng_aio_free(aio);
-	nng_stream_dialer_free(dialer);
+	setup(&c, &d);
+	uint8_t out[7] = { 0 };
+	nng_iov iov[] = { {out, 2}, {out+2, 5} };
+	NUTS_PASS(nng_aio_set_iov(aio, 2, iov));
+	stream_recv(&c, aio);
+	QUIC_BUFFER buffers[] = { {3, (uint8_t *)"abc"}, {4, (uint8_t *)"defg"} };
+	QUIC_STREAM_EVENT event = { .Type = QUIC_STREAM_EVENT_RECEIVE };
+	event.RECEIVE.Buffers = buffers; event.RECEIVE.BufferCount = 2;
+	event.RECEIVE.TotalBufferLength = 7; event.RECEIVE.Flags = QUIC_RECEIVE_FLAG_FIN;
+	NUTS_TRUE(stream_cb((HQUIC)&c, &c.channel[0], &event) == QUIC_STATUS_SUCCESS);
+	nng_aio_wait(aio); NUTS_PASS(nng_aio_result(aio));
+	NUTS_TRUE(event.RECEIVE.TotalBufferLength == 7);
+	NUTS_TRUE(nng_aio_count(aio) == 7 && memcmp(out, "abcdefg", 7) == 0);
+	/* No posted receive: consume nothing, letting MsQuic retain the bytes. */
+	event.RECEIVE.TotalBufferLength = 7;
+	stream_cb((HQUIC)&c, &c.channel[0], &event);
+	NUTS_TRUE(event.RECEIVE.TotalBufferLength == 0);
+	nng_aio_free(aio); teardown(&c, &d);
 }
-
-void
-test_msquic_stream_connect(void)
+static void test_send_cancel(void)
 {
-	nng_stream_dialer *dialer;
-	nng_aio *          aio;
-	nng_stream *       s;
-	void *             t;
-	uint8_t *          buf;
-	size_t             size = 4;
-
-	// allocate messages
-	NUTS_ASSERT((buf = nng_alloc(size)) != NULL);
-	uint8_t connect[] = {
-		0x10, 0x3f, 0x00, 0x04, 0x4d, 0x51, 0x54, 0x54, 0x04, 0xc6,
-		0x00, 0x3c, 0x00, 0x0c, 0x54, 0x65, 0x73, 0x74, 0x2d, 0x43,
-		0x6c, 0x69, 0x65, 0x6e, 0x74, 0x31, 0x00, 0x0a, 0x77, 0x69,
-		0x6c, 0x6c, 0x5f, 0x74, 0x6f, 0x70, 0x69, 0x63, 0x00, 0x07,
-		0x62, 0x79, 0x65, 0x2d, 0x62, 0x79, 0x65, 0x00, 0x05, 0x61,
-		0x6c, 0x76, 0x69, 0x6e, 0x00, 0x09, 0x48, 0x48, 0x48, 0x31,
-		0x32, 0x33, 0x34, 0x35, 0x36
-	};
-	size_t sz_connect = sizeof(connect) / sizeof(uint8_t);
-
+	nni_quic_conn c; nni_quic_dialer d; nng_aio *aio;
 	NUTS_PASS(nng_aio_alloc(&aio, NULL, NULL));
-	nng_aio_set_timeout(aio, 5000); // 5 sec
-
-	NUTS_PASS(nng_stream_dialer_alloc(&dialer, quic_test_url));
-	nng_stream_dialer_dial(dialer, aio);
-	nng_aio_wait(aio);
-	NUTS_PASS(nng_aio_result(aio));
-
-	NUTS_ASSERT((s = nng_aio_get_output(aio, 0)) != NULL);
-
-	// Instead of quic echo server. We test a mqtt quic server.
-	// To get some data from mqtt quic server. We need to send a connect msg first.
-	t = nuts_stream_send_start(s, connect, sz_connect);
-	NUTS_PASS(nuts_stream_wait(t));
-
-	t = nuts_stream_recv_start(s, buf, size);
-	NUTS_PASS(nuts_stream_wait(t));
-
-	nng_free(buf, size);
-	// nng_stream_free(s);
-	nng_stream_dialer_free(dialer);
+	setup(&c, &d);
+	uint8_t bytes[] = "payload";
+	nng_iov iov = {bytes, 7};
+	NUTS_PASS(nng_aio_set_iov(aio, 1, &iov));
+	stream_send(&c, aio); NUTS_TRUE(pending != NULL);
+	nng_aio_abort(aio, NNG_ETIMEDOUT); nng_aio_wait(aio);
+	NUTS_FAIL(nng_aio_result(aio), NNG_ETIMEDOUT);
 	nng_aio_free(aio);
+	memset(bytes, 0, sizeof(bytes));
+	NUTS_TRUE(memcmp(pending->buffer.Buffer, "payload", 7) == 0);
+	QUIC_STREAM_EVENT event = { .Type = QUIC_STREAM_EVENT_SEND_COMPLETE };
+	event.SEND_COMPLETE.ClientContext = pending; event.SEND_COMPLETE.Canceled = TRUE;
+	stream_cb((HQUIC)&c, &c.channel[0], &event);
+	teardown(&c, &d);
 }
-
-// One main stream Two sub stream
-void
-test_msquic_stream_multi_stream(void)
+static void test_send_failure(void)
 {
-	nng_stream_dialer *dialer;
-	nng_aio *          aio, *aio2, *aio3;
-	nng_stream *       s, *s2, *s3;
-
+	nni_quic_conn c; nni_quic_dialer d; nng_aio *aio;
 	NUTS_PASS(nng_aio_alloc(&aio, NULL, NULL));
-	NUTS_PASS(nng_aio_alloc(&aio2, NULL, NULL));
-	NUTS_PASS(nng_aio_alloc(&aio3, NULL, NULL));
-	nng_aio_set_timeout(aio, 5000); // 5 sec
-	nng_aio_set_timeout(aio2, 5000); // 5 sec
-	nng_aio_set_timeout(aio3, 5000); // 5 sec
-
-	NUTS_PASS(nng_stream_dialer_alloc(&dialer, quic_test_url));
-
-	nng_stream_dialer_dial(dialer, aio);
-	nng_aio_wait(aio);
-	NUTS_PASS(nng_aio_result(aio));
-
-	NUTS_TRUE((s = nng_aio_get_output(aio, 0)) != NULL);
-	nng_stream_close(s);
-	// nng_stream_free(s);
-
-	nng_stream_dialer_dial(dialer, aio2);
-	nng_aio_wait(aio2);
-	NUTS_PASS(nng_aio_result(aio2));
-
-	NUTS_TRUE((s2 = nng_aio_get_output(aio2, 0)) != NULL);
-	nng_stream_close(s2);
-	// nng_stream_free(s2);
-
-	nng_stream_dialer_dial(dialer, aio3);
-	nng_aio_wait(aio3);
-	NUTS_PASS(nng_aio_result(aio3));
-
-	NUTS_TRUE((s3 = nng_aio_get_output(aio3, 0)) != NULL);
-	nng_stream_close(s3);
-	// nng_stream_free(s3);
-
-	nng_aio_free(aio);
-	nng_aio_free(aio2);
-	nng_aio_free(aio3);
-	nng_stream_dialer_free(dialer);
+	setup(&c, &d); fail_send = true;
+	nng_iov iov = {(void *)"x", 1};
+	NUTS_PASS(nng_aio_set_iov(aio, 1, &iov));
+	stream_send(&c, aio); nng_aio_wait(aio);
+	NUTS_FAIL(nng_aio_result(aio), NNG_ECONNSHUT);
+	NUTS_TRUE(pending == NULL);
+	nng_aio_free(aio); teardown(&c, &d);
 }
-
-static inline nng_msg *
-create_connect_msg(uint16_t ver, bool cs, char *clientid)
+static void test_ticket_bounds(void)
 {
-	// create a CONNECT message
-	nng_msg *connmsg;
-	nng_mqtt_msg_alloc(&connmsg, 0);
-	nng_mqtt_msg_set_packet_type(connmsg, NNG_MQTT_CONNECT);
-	nng_mqtt_msg_set_connect_keep_alive(connmsg, 60);
-	nng_mqtt_msg_set_connect_proto_version(connmsg, ver);
-	nng_mqtt_msg_set_connect_clean_session(connmsg, cs);
-	nng_mqtt_msg_set_connect_client_id(connmsg, clientid);
-
-	if (ver == MQTT_PROTOCOL_VERSION_v5) {
-		nng_mqttv5_msg_encode(connmsg);
-	} else {
-		nng_mqtt_msg_encode(connmsg);
-	}
-	return connmsg;
+	nni_quic_conn c; nni_quic_dialer d;
+	NUTS_PASS(nni_init()); setup(&c, &d);
+	uint8_t bytes[4097] = {0};
+	d.enable_0rtt = true; d.rticket_sz = 1; d.rticket[0] = 'x';
+	QUIC_CONNECTION_EVENT event = { .Type = QUIC_CONNECTION_EVENT_RESUMPTION_TICKET_RECEIVED };
+	event.RESUMPTION_TICKET_RECEIVED.ResumptionTicket = bytes;
+	event.RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength = sizeof(bytes);
+	connection_cb(NULL, &c, &event);
+	NUTS_TRUE(d.rticket_sz == 1 && d.rticket[0] == 'x');
+	teardown(&c, &d);
 }
-
-static inline nng_msg *
-create_subscribe_msg(const char *topic, uint8_t qos, uint8_t nolocal,
-	uint8_t rap, uint8_t rh, property *props)
+static void wait_for_reaping(void *arg)
 {
-	// create a SUBSCRIBE message
-	nng_msg *submsg;
-	int cnt = 1;
-	nng_mqtt_msg_alloc(&submsg, 0);
-	nng_mqtt_msg_set_packet_type(submsg, NNG_MQTT_SUBSCRIBE);
-	nng_mqtt_topic_qos *topic_qos = nng_mqtt_topic_qos_array_create(cnt);
-	nng_mqtt_topic_qos_array_set(topic_qos, 0, topic, qos, nolocal, rap, rh);
-	nng_mqtt_msg_set_subscribe_topics(submsg, topic_qos, cnt);
-	if (props)
-		nng_mqtt_msg_set_subscribe_property(submsg, props);
-	nng_mqtt_topic_qos_array_free(topic_qos, cnt);
-
-	return submsg;
+    (void)arg;
+    nni_atomic_set(&drain_entered, 1);
+    nni_reap_drain();
+    nni_atomic_set(&drain_done, 1);
 }
-
-static inline nng_msg *
-create_publish_msg(const char *topic, uint8_t *payload, uint32_t len, bool dup,
-    uint8_t qos, bool retain, property *props)
+static void test_late_shutdown_cleanup(void)
 {
-	// create a PUBLISH message
-	nng_msg *pubmsg;
-	nng_mqtt_msg_alloc(&pubmsg, 0);
-	nng_mqtt_msg_set_packet_type(pubmsg, NNG_MQTT_PUBLISH);
-	nng_mqtt_msg_set_publish_dup(pubmsg, dup);
-	nng_mqtt_msg_set_publish_qos(pubmsg, qos);
-	nng_mqtt_msg_set_publish_retain(pubmsg, retain);
-	nng_mqtt_msg_set_publish_payload(pubmsg, payload, len);
-	nng_mqtt_msg_set_publish_topic(pubmsg, topic);
-	if (props) {
-		nng_mqtt_msg_set_publish_property(pubmsg, props);
-	}
-
-	return pubmsg;
-}
-
-void
-test_msquic_app_conn_refuse(void)
-{
-	nng_socket sock;
-	nng_dialer dialer;
-	nng_msg *connmsg = create_connect_msg(MQTT_PROTOCOL_VERSION_v311,
-			true, (char *)quic_test_clientid);
-	NUTS_ASSERT(connmsg != NULL);
-
-	NUTS_PASS(nng_mqtt_quic_client_open(&sock));
-	NUTS_PASS(nng_dialer_create(&dialer, sock, quic_test_url2));
-	NUTS_PASS(nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, connmsg));
-	NUTS_PASS(nng_socket_set_ptr(sock, NNG_OPT_MQTT_CONNMSG, connmsg));
-	//NUTS_PASS(nng_mqtt_set_connect_cb(sock, test_msquic_connect_cb, NULL));
-	//NUTS_PASS(nng_mqtt_set_disconnect_cb(sock, test_msquic_disconnect_cb, NULL));
-	// Wait connect failed
-	NUTS_FAIL(nng_dialer_start(dialer, NNG_FLAG_ALLOC), SERVER_UNAVAILABLE);
-}
-
-
-void
-test_msquic_app_connect(void)
-{
-	nng_socket sock;
-	nng_dialer dialer;
-	nng_msg *connmsg = create_connect_msg(MQTT_PROTOCOL_VERSION_v311,
-			true, (char *)quic_test_clientid);
-	NUTS_ASSERT(connmsg != NULL);
-
-	NUTS_PASS(nng_mqtt_quic_client_open(&sock));
-	NUTS_PASS(nng_dialer_create(&dialer, sock, quic_test_url));
-	NUTS_PASS(nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, connmsg));
-	NUTS_PASS(nng_socket_set_ptr(sock, NNG_OPT_MQTT_CONNMSG, connmsg));
-	//NUTS_PASS(nng_mqtt_set_connect_cb(sock, test_msquic_connect_cb, NULL));
-	NUTS_PASS(nng_dialer_start(dialer, NNG_FLAG_ALLOC));
-}
-
-void
-test_msquic_app_pub(void)
-{
-	// Connect...
-	nng_socket sock;
-	nng_dialer dialer;
-	nng_msg *connmsg = create_connect_msg(MQTT_PROTOCOL_VERSION_v311,
-			true, (char *)quic_test_clientid);
-	NUTS_ASSERT(connmsg != NULL);
-
-	NUTS_PASS(nng_mqtt_quic_client_open(&sock));
-	NUTS_PASS(nng_dialer_create(&dialer, sock, quic_test_url));
-	NUTS_PASS(nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, connmsg));
-	NUTS_PASS(nng_socket_set_ptr(sock, NNG_OPT_MQTT_CONNMSG, connmsg));
-	//NUTS_PASS(nng_mqtt_set_connect_cb(sock, test_msquic_connect_cb, NULL));
-	NUTS_PASS(nng_dialer_start(dialer, NNG_FLAG_ALLOC));
-
-	// Publish
-	nng_msg *pubmsg = create_publish_msg(quic_test_topic, (uint8_t *)quic_test_payload,
-		strlen(quic_test_payload), 0, quic_test_qos, 0, NULL);
-	nng_mqttv5_msg_encode(pubmsg); // TODO Why no bug? It's a v311 client
-	nng_sendmsg(sock, pubmsg, NNG_FLAG_ALLOC);
-}
-
-void
-test_msquic_app_sub(void)
-{
-	// Connect...
-	nng_socket sock;
-	nng_dialer dialer;
-	nng_msg *connmsg = create_connect_msg(MQTT_PROTOCOL_VERSION_v311,
-			true, (char *)quic_test_clientid);
-	NUTS_ASSERT(connmsg != NULL);
-
-	NUTS_PASS(nng_mqtt_quic_client_open(&sock));
-	NUTS_PASS(nng_dialer_create(&dialer, sock, quic_test_url));
-	NUTS_PASS(nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, connmsg));
-	NUTS_PASS(nng_socket_set_ptr(sock, NNG_OPT_MQTT_CONNMSG, connmsg));
-	//NUTS_PASS(nng_mqtt_set_connect_cb(sock, test_msquic_connect_cb, NULL));
-	NUTS_PASS(nng_dialer_start(dialer, NNG_FLAG_ALLOC));
-
-	// Subscribe
-	nng_msg *submsg = create_subscribe_msg(quic_test_topic, quic_test_qos,
-		quic_test_nolocal, quic_test_rap, quic_test_rh, NULL);
-	NUTS_ASSERT(submsg != NULL);
-	NUTS_PASS(nng_mqtt_msg_encode(submsg));
-	printf("Wait here0\n");
-	NUTS_ASSERT(0 == nng_sendmsg(sock, submsg, NNG_FLAG_ALLOC));
-
-	// Publish
-	nng_msg *pubmsg = create_publish_msg(quic_test_topic, (uint8_t *)quic_test_payload,
-		strlen(quic_test_payload), 0, quic_test_qos, 0, NULL);
-	NUTS_ASSERT(pubmsg != NULL);
-	NUTS_PASS(nng_mqtt_msg_encode(pubmsg));
-	NUTS_PASS(nng_sendmsg(sock, pubmsg, NNG_FLAG_ALLOC));
-
-	// Start to receive connack and publish
-	nng_msg *newmsg;
-	NUTS_PASS(nng_recvmsg(sock, &newmsg, NNG_FLAG_ALLOC));
-	NUTS_ASSERT(nng_mqtt_msg_get_packet_type(newmsg) == NNG_MQTT_CONNACK);
-	nng_msg_free(newmsg);
-	NUTS_PASS(nng_recvmsg(sock, &newmsg, NNG_FLAG_ALLOC));
-	NUTS_ASSERT(nng_mqtt_msg_get_packet_type(newmsg) == NNG_MQTT_PUBLISH);
-	nng_msg_free(newmsg);
-	/*
-	printf("Wait here4\n");
-	NUTS_PASS(nng_recvmsg(sock, &newmsg, NNG_FLAG_ALLOC));
-	NUTS_ASSERT(nng_mqtt_msg_get_packet_type(newmsg) == NNG_MQTT_SUBACK);
-	nng_msg_free(newmsg);
-	*/
+    NUTS_PASS(nni_init());
+    nni_quic_conn *c = NNI_ALLOC_STRUCT(c);
+    nni_quic_dialer d;
+    NUTS_TRUE(c != NULL); setup(c, &d);
+    nni_atomic_init(&c->refs); nni_atomic_set(&c->refs, 2);
+    nni_atomic_flag_reset(&c->reaping);
+    nni_atomic_init64(&d.ref); nni_atomic_set64(&d.ref, 2);
+    nni_atomic_init(&destroyed); nni_atomic_init(&drain_entered); nni_atomic_init(&drain_done);
+    c->handle = (HQUIC)c; d.currcon = c;
+    conn_free(c); // release caller, deliberately defer MsQuic shutdown event
+    nng_thread *thread;
+    NUTS_PASS(nng_thread_create(&thread, wait_for_reaping, NULL));
+    while (!nni_atomic_get(&drain_entered)) nni_msleep(1);
+    nni_msleep(20);
+    NUTS_TRUE(nni_atomic_get(&drain_done) == 0);
+    NUTS_TRUE(nni_atomic_get(&destroyed) == 0);
+    QUIC_CONNECTION_EVENT event = {.Type = QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE};
+    connection_cb((HQUIC)c, c, &event);
+    nng_thread_destroy(thread);
+    NUTS_TRUE(nni_atomic_get(&drain_done) == 1);
+    NUTS_TRUE(nni_atomic_get(&destroyed) == 1);
+    NUTS_TRUE(nni_atomic_get64(&d.ref) == 1 && d.currcon == NULL);
+    nni_mtx_fini(&d.mtx);
 }
 
 TEST_LIST = {
-	{ "msquic stream layer connect refused", test_msquic_stream_conn_refused },
-	{ "msquic stream layer connection", test_msquic_stream_connect},
-	{ "msquic stream layer multi-stream", test_msquic_stream_multi_stream },
-	// And follow tests are app layer test.
-	{ "msquic app layer connect refuse", test_msquic_app_conn_refuse },
-	{ "msquic app layer connect", test_msquic_app_connect },
-	{ "msquic app layer publish", test_msquic_app_pub },
-	{ "msquic app layer subscribe", test_msquic_app_sub },
-	{ NULL, NULL },
+    {"close completes receives during transport shutdown", test_close_during_transport_shutdown},
+    {"async substream start failure retries with backoff", test_async_start_failure_backoff},
+    {"upstream default QUIC settings", test_defaults},
+    {"dial waits for control stream start", test_start_completion},
+    {"priority flag reaches MsQuic", test_priority_send},
+    {"synchronous StreamStart failure closes stream", test_stream_start_failure},
+    {"global cleanup waits for delayed QUIC shutdown", test_late_shutdown_cleanup},
+	{"all receive buffers including FIN", test_receive_buffers},
+	{"cancel frees aio before MsQuic completes", test_send_cancel},
+	{"immediate StreamSend failure", test_send_failure},
+	{"oversized resumption ticket", test_ticket_bounds},
+	{NULL, NULL}
 };
