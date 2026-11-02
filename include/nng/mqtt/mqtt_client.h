@@ -633,4 +633,9 @@ NNG_DECL void nng_mqtt_set_sqlite_flush_threshold(
 }
 #endif
 
+
+#define NNG_OPT_MQTT_RETRY_QOS_0 "mqtt-client-retry-qos-0"
+#define NNG_OPT_MQTT_CLIENT_PIPEID "nng-nano-pipe-id"
+#define NNG_OPT_MQTT_CLIENT_CONNECT_BOOL "nng-nano-connect-status"
+
 #endif // NNG_MQTT_CLIENT_H
