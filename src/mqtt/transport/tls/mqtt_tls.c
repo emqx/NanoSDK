@@ -40,7 +40,7 @@ struct mqtts_tcptran_pipe {
 	nni_reap_node     reap;
 	uint32_t          packmax; // MQTT Maximum Packet Size (Max length)
 	uint16_t          peer;    // broker info
-	uint16_t          keepalive;
+	nni_duration      keepalive;
 	uint16_t          sndmax; // MQTT Receive Maximum (QoS 1/2 packet)
 	uint8_t           proto;   // MQTT version
 	uint8_t           qosmax;
@@ -177,8 +177,6 @@ mqtts_tcptran_pipe_init(void *arg, nni_pipe *npipe)
 	nni_atomic_set_bool(&p->closed, false);
 	// set max value by default
 	p->packmax == 0 ? p->packmax = (uint32_t)0xFFFFFFFF : p->packmax;
-	p->qosmax  == 0 ? p->qosmax  = 2 : p->qosmax;
-	p->keepalive = 0;
 	return (0);
 }
 
@@ -282,31 +280,31 @@ mqtts_tcptran_pipe_nego_cb(void *arg)
 		rv = SERVER_UNAVAILABLE;
 		goto error;
 	}
-	// We start transmitting before we receive.
+	// CONNECT/AUTH can span several writes and multiple iovecs.
 	if (p->gottxhead < p->wanttxhead) {
-		p->gottxhead += nni_aio_count(aio);
+		size_t n = nni_aio_count(aio);
+		p->gottxhead += n;
+		nni_aio_iov_advance(aio, n);
+		if (nni_aio_iov_count(aio) != 0) {
+			nng_stream_send(p->conn, aio);
+			nni_mtx_unlock(&ep->mtx);
+			return;
+		}
 	} else if (p->gotrxhead < p->wantrxhead) {
 		p->gotrxhead += nni_aio_count(aio);
 	}
 
-	if (p->gottxhead < p->wanttxhead) {
-		nni_iov iov;
-		iov.iov_len = p->wanttxhead - p->gottxhead;
-		iov.iov_buf = &p->txlen[p->gottxhead];
-		// send it down...
-		nni_aio_set_iov(aio, 1, &iov);
-		nng_stream_send(p->conn, aio);
-		nni_mtx_unlock(&ep->mtx);
-		return;
-	}
-
 	// receving fixed header
-	if (p->gotrxhead == 0 ||
+	if (p->gotrxhead < 2 ||
 	    (p->gotrxhead <= 5 && p->rxlen[p->gotrxhead - 1] > 0x7f &&
 	        p->rxmsg == NULL)) {
 		nni_iov iov;
+		if (p->gotrxhead == NNI_NANO_MAX_HEADER_SIZE) {
+			rv = PROTOCOL_ERROR;
+			goto error;
+		}
 		iov.iov_buf = &p->rxlen[p->gotrxhead];
-		if (p->gotrxhead == 0) {
+		if (p->gotrxhead < 2) {
 			iov.iov_len = p->wantrxhead - p->gotrxhead;
 		} else {
 			iov.iov_len = 1;
@@ -317,8 +315,8 @@ mqtts_tcptran_pipe_nego_cb(void *arg)
 		return;
 	}
 	// only accept CONNACK/AUTH msg
-	if (((p->rxlen[0] & CMD_CONNACK) != CMD_CONNACK) &&
-	    ((p->rxlen[0] & CMD_AUTH_V5) != CMD_AUTH_V5)) {
+	if ((p->rxlen[0] != CMD_CONNACK) &&
+	    (p->rxlen[0] != CMD_AUTH_V5)) {
 		nng_log_warn("protocol error", "Invalid type received %x %x", p->rxlen[0], p->rxlen[1]);
 		rv = PROTOCOL_ERROR;
 		goto error;
@@ -329,6 +327,12 @@ mqtts_tcptran_pipe_nego_cb(void *arg)
 		if ((rv = mqtt_get_remaining_length(p->rxlen, p->gotrxhead,
 		         (uint32_t *) &var_int, &pos)) != 0) {
 			rv = PAYLOAD_FORMAT_INVALID;
+			goto error;
+		}
+
+		if (p->rcvmax > 0 &&
+		    (size_t) var_int + pos + 1 > p->rcvmax) {
+			rv = PACKET_TOO_LARGE;
 			goto error;
 		}
 
@@ -351,7 +355,8 @@ mqtts_tcptran_pipe_nego_cb(void *arg)
 	if (p->gotrxhead < p->wantrxhead) {
 		nni_iov iov;
 		iov.iov_len = p->wantrxhead - p->gotrxhead;
-		iov.iov_buf = nni_msg_body(p->rxmsg);
+		iov.iov_buf = (uint8_t *) nni_msg_body(p->rxmsg) +
+		    p->gotrxhead - nni_msg_header_len(p->rxmsg);
 		nni_aio_set_iov(aio, 1, &iov);
 		nng_stream_recv(p->conn, aio);
 		nni_mtx_unlock(&ep->mtx);
@@ -480,13 +485,13 @@ mqtts_tcptran_pipe_nego_cb(void *arg)
 						nng_log_info("TRANSPORT: nego_cb","V5 Set max packet size as %ld", p->packmax);
 					}
 				}
+				data = property_get_value(ep->property, SERVER_KEEP_ALIVE);
+				if (data != NULL) {
+					p->keepalive = data->p_value.u16 * NNI_SECOND;
+				}
 				data = property_get_value(ep->property, PUBLISH_MAXIMUM_QOS);
 				if (data) {
 					p->qosmax = data->p_value.u8;
-				}
-				data = property_get_value(ep->property, SERVER_KEEP_ALIVE);
-				if (data) {
-					p->keepalive = data->p_value.u16;
 				}
 #ifdef SUPP_SCRAM
 				data = property_get_value(ep->property, AUTHENTICATION_DATA);
@@ -524,6 +529,10 @@ mqtts_tcptran_pipe_nego_cb(void *arg)
 			ep->property = NULL;
 		}
 		ep->reason_code = nni_mqtt_msg_get_connack_return_code(p->rxmsg);
+		if (ep->reason_code != MQTT_SUCCESS) {
+			rv = NNG_ECONNREFUSED;
+			goto error;
+		}
 		nng_log_debug("MQTT-TLS-TCP-NEGO-CB", "Connack rc %d", ep->reason_code);
 	}
 
@@ -674,10 +683,10 @@ mqtts_tcptran_pipe_recv_cb(void *arg)
 {
 	nni_aio *           aio;
 	nni_iov             iov;
-	uint8_t             type, pos, flags;
+	uint8_t             type, pos = 0, flags;
 	uint32_t            len = 0, rv;
 	size_t              n;
-	nni_msg *           msg;
+	nni_msg *           msg = NULL;
 	mqtts_tcptran_pipe *p     = arg;
 	nni_aio *           rxaio = p->rxaio;
 	bool                ack   = false;
@@ -706,7 +715,8 @@ mqtts_tcptran_pipe_recv_cb(void *arg)
 
 	rv = mqtt_get_remaining_length(p->rxlen, p->gotrxhead, &len, &pos);
 	p->wantrxhead = len + 1 + pos;
-	if (p->gotrxhead <= 5 && p->rxlen[p->gotrxhead - 1] > 0x7f) {
+	if (p->rxmsg == NULL && p->gotrxhead <= 5 &&
+	    p->rxlen[p->gotrxhead - 1] > 0x7f) {
 		if (p->gotrxhead == NNI_NANO_MAX_HEADER_SIZE) {
 			rv = PACKET_TOO_LARGE;
 			goto recv_error;
@@ -720,11 +730,16 @@ mqtts_tcptran_pipe_recv_cb(void *arg)
 		return;
 	}
 
+	if (rv != 0) {
+		rv = PROTOCOL_ERROR;
+		goto recv_error;
+	}
+
 	// fixed header finished
 	if (NULL == p->rxmsg) {
 		// Make sure the message payload is not too big.  If it is
 		// the caller will shut down the pipe.
-		if ((len > p->rcvmax) && (p->rcvmax > 0)) {
+		if (p->rcvmax > 0 && (size_t) len + pos + 1 > p->rcvmax) {
 			rv = PACKET_TOO_LARGE;
 			nng_log_warn("TRANSPORT: mqtt_tcptran_pipe_recv_cb",
 				"recv msg max over limit");
@@ -873,7 +888,9 @@ mqtts_tcptran_pipe_recv_cb(void *arg)
 
 recv_error:
 	nni_aio_list_remove(aio);
-	msg      = p->rxmsg;
+	if (msg == NULL) {
+		msg = p->rxmsg;
+	}
 	p->rxmsg = NULL;
 	nni_pipe_bump_error(p->npipe, rv);
 	nni_mtx_unlock(&p->mtx);
@@ -1095,6 +1112,9 @@ mqtts_tcptran_pipe_getopt(
     void *arg, const char *name, void *buf, size_t *szp, nni_type t)
 {
 	mqtts_tcptran_pipe *p = arg;
+	if (strcmp(name, NNG_OPT_MQTT_KEEPALIVE_INTERVAL) == 0) {
+		return nni_copyout_ms(p->keepalive, buf, szp, t);
+	}
 	return (nni_stream_get(p->conn, name, buf, szp, t));
 }
 
@@ -1112,7 +1132,7 @@ mqtts_tcptran_pipe_start(
 
 	p->conn    = conn;
 	p->ep      = ep;
-	p->qosmax  = 0;
+	p->qosmax  = 2;
 	p->packmax = 0;
 	p->rcvmax  = 0;
 	p->sndmax  = 65535;
@@ -1193,18 +1213,25 @@ mqtts_tcptran_pipe_start(
 	    mqtt_version != MQTT_PROTOCOL_VERSION_v5)) {
 		// Free the msg from user
 		nni_msg_free(connmsg);
+		ep->connmsg = NULL;
 		log_error("Warning. Cancelled a illegal connnect msg from user.\n");
 		// Using MQTT V311 as default protocol version
 		mqtt_version = 4; // Default TODO Notify user as a warning
-		nni_mqtt_msg_alloc(&connmsg, 0);
+		if ((rv = nni_mqtt_msg_alloc(&connmsg, 0)) != 0) {
+			goto start_error;
+		}
 		nni_mqtt_msg_set_packet_type(connmsg, NNG_MQTT_CONNECT);
 		nni_mqtt_msg_set_connect_proto_version(
 		    connmsg, MQTT_PROTOCOL_VERSION_v311);
 		nni_mqtt_msg_set_connect_keep_alive(connmsg, 60);
 		nni_mqtt_msg_set_connect_clean_session(connmsg, true);
 		ep->connmsg = connmsg;
+		if ((rv = nni_mqtt_msg_encode(connmsg)) != 0) {
+			goto start_error;
+		}
 	}
 
+	p->keepalive = nni_mqtt_msg_get_connect_keep_alive(connmsg) * NNI_SECOND;
 	p->gotrxhead  = 0;
 	p->gottxhead  = 0;
 	p->wantrxhead = 2;
@@ -1225,6 +1252,16 @@ mqtts_tcptran_pipe_start(
 
 	nni_aio_set_timeout(p->negoaio, 10000); // 10 sec timeout to negotiate
 	nng_stream_send(p->conn, p->negoaio);
+	return;
+
+start_error:
+	nng_stream_close(p->conn);
+	if (ep->useraio != NULL) {
+		nni_aio *aio = ep->useraio;
+		ep->useraio = NULL;
+		nni_aio_finish_error(aio, rv);
+	}
+	mqtts_tcptran_pipe_reap(p);
 }
 
 static void
