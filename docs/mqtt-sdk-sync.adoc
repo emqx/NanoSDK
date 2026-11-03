@@ -1,0 +1,843 @@
+= MQTT SDK / MQTT over QUIC 同步记录
+:toc:
+
+== 基线与范围
+
+对照日期：2026-10-31；构建与公网补测：2026-11-02。
+NanoSDK 基线：766d85ba；只读来源 nanomq/nng：129e3ab48。
+所有修改都在 NanoSDK 内，nanomq/nng 及其子模块工作区未修改。
+
+本次包括文件新增、构建注册、公开接口和 MsQuic 依赖更新，
+不以 NanoSDK 中是否已有同名文件作为同步边界。
+
+[cols="1,2",options="header"]
+|===
+|文件 |迁移结果
+|src/mqtt/protocol/mqtt/mqtt_client.c
+|同步通用取消、关闭、Keep Alive 和错误处理，保留 SDK 的 ACK 返回及配置所有权。
+|src/mqtt/transport/tcp/mqtt_tcp.c、tls/mqtt_tls.c
+|同步协商校验、CONNACK 拒绝、长度边界和短写修复；补充分片读及零 Keep Alive。
+|src/mqtt/protocol/mqtt/mqtt_quic_client.c
+|新增上游统一的 MQTT 3.1.1/5 QUIC 协议层，替代旧 mqtt_quic.c、mqttv5_quic.c。
+剔除 bridge/conn_param 依赖，修复取消、回调消息引用和未确认消息的关闭释放。
+|src/mqtt/transport/quic/mqtt_quic.c
+|新增真正的 MQTT QUIC transport；执行 CONNECT/CONNACK 协商、
+每流分帧、QoS ACK、消息大小限制以及主流/子流调度。
+|src/supplemental/quic/quic_api.c
+|替换旧直接调用层，采用上游 nng_stream_dialer 接口、URL 与 QUIC/TLS 选项。
+|src/supplemental/quic/msquic_dial.c
+|新增 MsQuic nng_stream 后端。保留上游分层和固定流池接口；
+重新处理其不安全的全局配置、发送取消、接收及引用释放逻辑。
+|src/core/stream.c、src/mqtt/transport.c、CMakeLists.txt、公开头文件
+|注册 quic / mqtt-quic stream dialer 与 mqtt-quic MQTT transport，
+安装新头文件，链接真实 MsQuic，保持 QUIC 关闭时可构建。
+|extern/msquic
+|从 c6931cb1 升到已验证的 87b53085d76bd7920d490a6f226c9999b6614d14
+（2.5.9）；其 quictls 为 ff36838bb69801cad56823159a036977bcbe5c75。
+旧版本缺少本次使用的 CA 文件凭据接口。
+|===
+
+== MsQuic 使用方式的实际变化
+
+旧 SDK 由两个 MQTT 协议实现直接调用 quic_api.c，open 时接收 URL/config，
+以自有 socket/stream 对象管理连接；新实现采用以下路径：
+
+[source,text]
+----
+MQTT 3.1.1 / 5 unified protocol
+    -> nni_pipe
+    -> mqtt/transport/quic
+    -> nng_stream / nng_stream_dialer
+    -> supplemental/quic/msquic_dial.c
+    -> MsQuic
+----
+
+多流模式使用一条控制主流、两条 SUBSCRIBE 子流和两条 PUBLISH 子流。
+每条流独立分帧并在原流回复 QoS ACK。
+单流模式把所有 MQTT 流量送到主流，配置不再是无效的占位选项。
+不再采用旧 SDK 的按 topic 建立流的实现。
+
+MsQuic API/registration 按 dialer 管理，configuration 按连接管理；
+一个连接关闭或修改配置不会覆盖另一个连接的全局配置。
+发送采用独立缓冲区，取消用户 AIO 后仍保留 MsQuic 所需字节直到 SEND_COMPLETE。
+连接释放通过 reaper 完成，避免在 MsQuic 回调线程等待自身退出。
+接收遍历全部 QUIC_BUFFER，FIN 携带的数据正常交付；
+通过 TotalBufferLength 报告同步消费量，让 MsQuic 保留尚未被接收 AIO 消费的数据。
+
+TLS 使用 MsQuic 原生验证及 CA 文件接口，不移植上游手工 OpenSSL 验证器中的
+X509_STORE_CTX 释放后访问；支持仅 CA 的服务端验证及带密码的客户端私钥类型。
+TLS、超时、优先级和多流选项应在 dialer start 前设置。
+
+== 附带修复
+
+* CONNECT 和后续写入按实际 IOV 进度续写，避免从固定头小缓冲区读取 CONNECT 剩余内容。
+* 处理逐字节 CONNACK 固定头/消息体，续读不会覆盖已有字节。
+* 校验剩余长度和 Maximum Packet Size；拒绝 CONNACK 返回 NNG_ECONNREFUSED，
+  reason code 可通过 dialer getter 读取。
+* 保留 Maximum QoS=0，不在 pipe 初始化时重置协商结果。
+  QUIC 对超过协商 QoS 的 PUBLISH 返回错误，不仅修改固定头而遗留非法 packet-id。
+* Keep Alive 使用 CONNECT/Server Keep Alive，支持零值禁用 MQTT PING。
+* 离线发送、在线 ACK 等待、接收 AIO 支持超时/取消；关闭清理未确认表后移除表项，
+  避免 pipe/socket 二次清理同一消息。
+* MQTT callback 与接收 AIO 同时使用时持有独立消息引用；QoS2 在 PUBREL 后交付。
+* 底层发送立即失败会完成 AIO；取消后迟到的 SEND_COMPLETE 不访问已释放的 AIO。
+* 会话票据在长度缩窄和 memcpy 前检查边界。
+* 修正 PUBLISH 的 16 位 topic 长度、packet-id 边界及剩余长度解码越界。
+* 同步 nng_sendmsg 无法返回 MQTT ACK 消息，成功时释放该消息；
+  异步发送仍通过 AIO 返回 ACK。
+* 修复断连回调条件、reason-code getter、配置字符串替换泄漏、
+  ACK 队列状态和 QUIC 资源部分初始化的释放路径。
+
+== 不迁入的服务端代码
+
+不引入 conf_bridge_node、conn_param、bridge 队列和 AIO input 约定、
+broker 状态机、合成连接/断连事件、MQTT Stream、exchange、raw_stream，
+以及通过修改 MQTT 3.1.1 protocol version 高位实现的 no-local 扩展。
+不增加 QUIC listener 服务端；SDK 客户端使用 stream dialer。
+协议的 MQTT CONNACK 是实际服务端回包，不是 broker 专用通知对象。
+
+== 应用接口迁移
+
+新接口采用独立 dialer；包含 mqtt_quic_client.h 使用单参数 open。
+旧 mqtt_quic.h 恢复 conf_quic、open(socket, url)、open_conf 和 ACK callback 的源码兼容入口，
+旧方式在应用发送 CONNECT 时启动内部 dialer，后续自动重连沿用该 CONNECT。
+调用方需要重新编译，不能把旧二进制直接链接到新 open ABI。
+旧 ACK callback 参数仍为 AIO，消息由 callback 释放；成功后可用同一 AIO 调用
+nng_recv_aio 排空 ACK 队列，空队列以 NNG_ECANCELED 结束。
+新代码推荐使用发送 AIO 读取 ACK。conf_quic_tls_free 只释放 helper 创建的配置。
+两个 QUIC 示例已按新方式更新并编译通过。
+
+[source,c]
+----
+nng_socket sock;
+nng_dialer dialer;
+nng_msg *connect;
+
+/* MQTT 5 使用 nng_mqttv5_quic_client_open。 */
+nng_mqtt_quic_client_open(&sock);
+nng_dialer_create(&dialer, sock, "mqtt-quic://127.0.0.1:14567");
+nng_dialer_set_bool(dialer, NNG_OPT_QUIC_ENABLE_MULTISTREAM, true);
+
+nng_mqtt_msg_alloc(&connect, 0);
+nng_mqtt_msg_set_packet_type(connect, NNG_MQTT_CONNECT);
+nng_mqtt_msg_set_connect_proto_version(connect, 4);
+nng_mqtt_msg_set_connect_keep_alive(connect, 60);
+nng_mqtt_msg_set_connect_clean_session(connect, true);
+
+/* 设置成功后 CONNECT 由 dialer 持有；不要再 send/free 此消息。 */
+nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, connect);
+nng_dialer_start(dialer, 0);
+----
+
+上例省略返回值检查；实际示例包含连接错误处理。
+独立 dialer 接口的 CONNECT 必须在 start 前设置；旧兼容入口仍通过 send CONNECT 启动。
+连接/接收 callback 的消息仅在 callback 内借用，需要保留时使用 nng_msg_dup；
+接收 AIO 返回的消息由应用释放。
+ACK 使用发送 AIO 的结果消息读取；同步 nng_sendmsg 只返回完成状态。
+
+[cols="1,1,1",options="header"]
+|===
+|dialer 选项 |类型 |单位/用途
+|NNG_OPT_QUIC_ENABLE_MULTISTREAM |bool |true：五条流；false：单流
+|NNG_OPT_QUIC_ENABLE_0RTT |bool |保存/恢复会话票据，默认关闭
+|NNG_OPT_QUIC_IDLE_TIMEOUT、NNG_OPT_QUIC_CONNECT_TIMEOUT |uint64 |秒
+|NNG_OPT_QUIC_KEEPALIVE、NNG_OPT_QUIC_DISCONNECT_TIMEOUT、NNG_OPT_QUIC_SEND_IDLE_TIMEOUT |int |秒
+|NNG_OPT_QUIC_INITIAL_RTT_MS、NNG_OPT_QUIC_MAX_ACK_DELAY_MS |int |毫秒
+|NNG_OPT_QUIC_PRIORITY / NNG_OPT_MQTT_QUIC_PRIORITY |int |0..65535
+|NNG_OPT_QUIC_TLS_VERIFY_PEER |bool |是否验证服务端证书
+|NNG_OPT_QUIC_TLS_CA_PATH |string |信任 CA 文件
+|NNG_OPT_QUIC_TLS_CACERT_PATH |string |客户端证书文件，沿用上游命名
+|NNG_OPT_QUIC_TLS_KEY_PATH、NNG_OPT_QUIC_TLS_KEY_PASSWORD |string |客户端私钥及密码
+|NNG_OPT_QUIC_CONGESTION_CTL_CUBIC |bool |true：CUBIC；稳定 API 不支持的 false 返回 ENOTSUP
+|===
+
+0RTT 选项当前用于会话恢复；MQTT 数据仍在连接握手完成后发送，
+不将此实现宣称为握手前发送 MQTT early data。
+
+== 验证
+
+本地真实 MsQuic 对端测试覆盖：
+
+* 五条流的字节传输、短读、接收超时；
+* MQTT 3.1.1 / 5 的 QoS 0、1、2，及单流模式；
+* 分片 CONNACK、拒绝 CONNACK 与 reason-code getter；
+* callback 与接收 AIO 并用、断连 callback；
+* 同一 dialer 重连、仅 CA 的 TLS 验证；
+* 离线发送/接收超时、未确认 QoS 的关闭释放。
+
+确定性后端测试覆盖多 buffer+FIN、无接收者时不消费数据、
+取消后先释放 AIO 再到达 SEND_COMPLETE、立即 StreamSend 失败及超长票据。
+
+常规 MQTT/QUIC/TLS/message 回归通过。
+ASan/UBSan 下的 15 个测试程序通过，包括上述测试及 pair0/push/pull/req/rep，
+未关闭泄漏检测。关闭 QUIC 的独立构建及三个 MQTT 回归程序通过。
+Sanitizer 用于 NanoSDK 和测试代码，链接的 MsQuic 依赖为普通 Debug 构建。
+Linux 本地测试以外的公网实测见下节；Windows、长时间弱网及 0RTT early-data 尚未验证。
+
+[source,sh]
+----
+git submodule update --init --recursive
+cmake -S . -B build-quic \
+  -DNNG_TESTS=ON -DNNG_ENABLE_QUIC=ON \
+  -DNNG_ENABLE_TLS=ON -DNNG_TLS_ENGINE=mbed \
+  -DNNG_ENABLE_SQLITE=ON -DBUILD_DEMO=OFF \
+  -DNNG_ENABLE_NNGCAT=OFF -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DQUIC_ENABLE_LOGGING=OFF
+cmake --build build-quic -j8
+ctest --test-dir build-quic \
+  -R 'mqtt|msquic|tls_test|message_test' --output-on-failure
+----
+
+也可指定 MSQUIC_INCLUDE_DIR / MSQUIC_LIBRARY 使用已安装的 MsQuic，
+或 NNG_MSQUIC_SOURCE_DIR 指定独立源码树。
+本次初期在 NanoSDK 已忽略的 build-sdk-sync 目录复制依赖进行构建，
+随后同步 NanoSDK 自身的子模块版本；没有在 nanomq/nng 中生成构建产物。
+Sanitizer 构建额外设置 CMAKE_C_FLAGS=-fsanitize=address,undefined
+及 CMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined。
+
+
+== 2026-11-02：默认构建与实际异常路径补测
+
+=== 构建失败及修复
+
+之前的 TLS=ON 构建不足以覆盖 QUIC=ON 的默认配置。
+在新建的 build-sdk-sync/default-only 中仅传入 -DNNG_ENABLE_QUIC=ON，
+复现 Paho 兼容层 MQTTLastTLS_errno 无条件引用 nng_tls_config 导致的编译失败。
+QUIC 内部 TLS 由 MsQuic 提供，不等于开启 NNG 的 TCP/TLS 模块。
+现按 NNG_SUPP_TLS 条件编译；未启用时返回 -NNG_ENOTSUP，并检查 TLS 配置分配失败。
+此外修复 DEBUG=ON、ASAN/TSAN=OFF 时 nng_testing 丢失依赖链接的问题。
+
+以下最小配置已完整构建成功，缓存中 NNG_ENABLE_TLS=OFF：
+
+[source,sh]
+----
+cmake -S . -B build-quic-default -DNNG_ENABLE_QUIC=ON
+cmake --build build-quic-default -j8
+ctest --test-dir build-quic-default -R 'mqtt|msquic|message_test' --output-on-failure
+----
+
+实际工作区目录为 build-sdk-sync/default-only，相关 6 个 CTest 程序通过。
+DEBUG=ON、不启用 sanitizer、链接已有 MsQuic 的独立构建和集成测试也通过。
+QUIC=OFF 的 mqtt_test、mqtt_tcp_test 重新编译运行通过。
+
+=== 本次实际复现并修复的问题
+
+* 在线 QoS 发送超时后，调用方按 nng_sendmsg 错误返回约定释放原消息，会触发 ASan UAF。
+  现在调用方、未确认表和传输分别持有引用；错误保留调用方原消息，ACK 成功才消费原消息。
+* 多流 SUBSCRIBE 随机选流，UNSUBSCRIBE 却走控制流；公网返回 UNSUBACK 后仍能收到消息。
+  现在订阅变更统一使用同一数据流，支持多 topic 请求；PUBLISH 按 topic 稳定选流以保持顺序。
+* context 关闭时，在线等待 ACK 或离线排队的发送没有结束，只能等待超时。
+  现在显式 context 记录未完成发送并在关闭时取消；同一 context 同时只能有一个发送，
+  普通 socket 的并发发送不受此限制。
+* 重复设置 PUBLISH topic/payload 会遗失旧缓冲区；ASan 检出 64 个发送的旧 payload 泄漏。
+  现在安全替换已有内容，处理输入别名；修改解码消息前复制借用的 topic 和 payload。
+* 隔离旧 pipe 的关闭、定时器及发送回调，避免触碰新连接状态；连接状态 getter 加锁。
+* MsQuic stream priority 使用拨号时的配置快照；重试间隔拒绝零/负值。
+* SQLite 离线入队成功按成功转移所有权，入队失败保留消息；统计长度在刷盘释放消息前读取。
+
+本地真实 MsQuic 集成程序包含 15 个场景，新增在线超时/取消所有权、context 在线/离线关闭、
+64 个并发 QoS1 发送及同 topic 顺序、20 轮服务端关闭/畸形帧后的自动重连、无效重试间隔。
+MQTT codec 回归另覆盖重复设置及修改解码后的 PUBLISH 缓冲区。
+这些测试在 ASan/UBSan 下运行，未禁用 leak detection。
+SQLite 分支虽参与 sanitizer 构建，本次未做数据库故障注入或长时间离线积压测试。
+
+=== 公网测试入口与判定
+
+src/supplemental/quic/mqtt_quic_broker_test.c 链接生产 nng 库。
+它不是自动执行的 CTest：必须显式提供 URL；使用唯一主题、clean session、非保留消息。
+每一步有超时和返回码检查，校验 CONNACK、SUBACK、PUBACK/PUBCOMP、UNSUBACK、
+载荷长度和字节、下行 QoS、同 topic 顺序以及取消订阅后的无消息状态。
+
+[source,sh]
+----
+# VERSION 4 表示 MQTT 3.1.1，5 表示 MQTT 5；MULTISTREAM 0/1；最后一项是连接轮数。
+build-quic-default/src/supplemental/quic/mqtt_quic_broker_test \
+  mqtt-quic://broker.emqx.io:14567 5 1 3
+
+# 仅对测试连接注入丢包、延迟/乱序和七秒双向黑洞，不修改主机防火墙。
+python3 src/supplemental/quic/quic_broker_fault_test.py \
+  build-quic-default/src/supplemental/quic/mqtt_quic_broker_test --version 5
+
+# 显式压力模式，保留严格判定；本次公网未通过，见下文。
+NNG_BROKER_TEST_WINDOW=32 NNG_BROKER_TEST_PAUSE_MS=0 \
+  build-quic-default/src/supplemental/quic/mqtt_quic_broker_test \
+  mqtt-quic://broker.emqx.io:14567 4 0 1
+----
+
+每组三轮包括：每轮 QoS 0/1/2 × 0、127、1024、16384、65536 字节；
+同一 socket/dialer 两次自动重连后重新订阅；额外 32 条带窗口的 QoS1 消息；
+Keep Alive=10 秒时空闲 12 秒后再次收发；取消订阅后发布并验证接收超时。
+默认窗口 4，批次前等待 1000ms，两个参数均可通过上述环境变量覆盖。
+最终日志中的 exchanges=46 指逐条载荷测试，另有单独的 32 条窗口发送验证记录。
+
+弱网代理每第 19 个数据报丢弃、每第 13 个数据报延迟 40ms（排除已丢弃者），
+在第一轮后阻断双向数据报 7 秒。此处没有调用 nng_pipe_close：必须依靠 SDK 检测断网、
+自动拨号并恢复订阅/收发；另一轮仍保留主动 pipe close 测试。
+测试时使用 QUIC idle timeout=3 秒、keepalive=1 秒。
+
+=== 最终实测结果
+
+[cols="2,3",options="header"]
+|===
+|配置/场景 |结果
+|仅 -DNNG_ENABLE_QUIC=ON，TLS=OFF |完整构建通过；相关 6 个 CTest 程序通过
+|ASan/UBSan 本地回归 |15 个相关 CTest 程序通过；最后的 SQLite 统计顺序调整后，消息与集成测试再次通过
+|MQTT 3.1.1/5 × 单流/多流 |四组均 exit=0；每组 3 次连接、2 次自动重连、46 次逐条收发和 32 条窗口发送
+|公网并发参数 |窗口 4、批次间隔 1000ms；四组合计 312 条下行载荷校验、8 次自动重连
+|ASan/UBSan 公网 MQTT 5 多流 |同上三轮测试通过，无 sanitizer 报告
+|MQTT 3.1.1 弱网恢复 |通过；2253 个代理数据报，丢弃 128、延迟 163，黑洞 1 次
+|MQTT 5 弱网恢复 |通过；2239 个代理数据报，丢弃 127、延迟 163，黑洞 1 次
+|===
+
+弱网两组日志来自窗口 4、尚未增加额外批次等待的执行；当前脚本默认会使用
+1000ms 的批次间隔，可设 NNG_BROKER_TEST_PAUSE_MS=0 复现无额外等待的条件。
+上述通过结果不覆盖下述无间隔公网压力异常。
+
+=== 不能计为通过的公网压力结果
+
+无间隔发送 32 条 QoS1，全部收到 PUBACK，但下行未全部到达。
+只减小并发窗口到 4 而不加间隔，也复现下行缺失。
+包级诊断确认 SDK 已发送相应下行 PUBACK，随后仍能正常收发 PINGREQ/PINGRESP。
+
+独立的原始 Python TCP MQTT 对照（broker.emqx.io:1883，不使用 NanoSDK），
+以及绕过 SDK MQTT 层的原始 QUIC 对照，均得到 32 个 PUBACK、10 条下行后接收超时；
+完整 SDK 某次诊断得到 15 条下行。不能把这个现象简单归因于 SDK MQTT 层，
+也不能在缺少 broker 配置/服务端日志的情况下断言具体限流参数或排队策略。
+低速功能测试通过不代表此压力测试已通过。
+
+原始记录保存在 build-sdk-sync/default-only：
+
+* burst32-broker-*.log：32 条无间隔突发失败记录；
+* unpaced-broker-*.log：窗口 4、无批次间隔失败记录；
+* broker-burst-diagnostic.log：诊断时的 MQTT 包类型、packet-id 与 ACK 日志；
+* burst32-independent-controls.log：独立 TCP / 原始 QUIC 对照结果；
+* broker-v4-multi0.log、broker-v4-multi1.log、broker-v5-multi0.log、broker-v5-multi1.log：最终常规矩阵；
+* broker-asan-v5.log：生产 SDK 的 sanitizer 公网测试；
+* broker-fault-v4.log、broker-fault-v5.log：真实弱网恢复日志。
+
+这些构建目录日志不纳入源码提交；测试源文件和复现命令纳入工作区改动。
+所有验证都不足以保证任意负载、无限期运行或所有故障组合的稳定性。
+
+
+== 本轮补充：显式多主题、多流 API 与完整回归
+
+公开头文件：include/nng/mqtt/mqtt_quic_client.h。
+
+[source,c]
+----
+/* dialer start 前启用多流。每条消息的 set_stream 要检查返回值。 */
+nng_dialer_set_bool(dialer, NNG_OPT_QUIC_ENABLE_MULTISTREAM, true);
+nng_mqtt_quic_msg_set_stream(subscribe_topic_a, 1);
+nng_mqtt_quic_msg_set_stream(subscribe_topic_b, 2);
+nng_mqtt_quic_msg_set_stream(publish_topic_a, 3);
+nng_mqtt_quic_msg_set_stream(publish_topic_b, 4);
+/* 取消订阅必须选择建立该订阅的流。 */
+nng_mqtt_quic_msg_set_stream(unsubscribe_topic_a, 1);
+unsigned incoming_stream = nng_mqtt_quic_msg_get_stream(received_message);
+----
+
+0 表示自动路由，1..4 是连接内固定的数据流。可在一个流上订阅多个主题，
+也可把不同主题绑定到不同流；不是为每个主题无限创建新流。
+自动路由使用订阅流 1，并按主题哈希选择发布流 3/4。
+流选择属于本地消息元数据，nng_msg_dup 保留；不会写入 MQTT 报文，
+也不保证 SQLite 持久化后仍保存该选择。单流连接拒绝显式非零流选择，
+包括离线排队后才建立单流连接的情形，失败保留调用方消息所有权。
+接收 QoS2 缓存以“流号 + packet-id”为键，防止不同流复用 packet-id 时覆盖消息。
+
+兼容性修复还包括同步 nng_sendmsg：仅释放 MQTT 返回的替代 ACK，
+不能释放普通 pub/sub AIO 留下的已消费原消息指针。本轮完整回归发现并修复了该问题。
+安装包的 MsQuic/zstd CMake 依赖已修复，独立 C/C++ 项目通过 find_package(nng)
+编译、链接和运行新旧 QUIC open 接口及流选择 API。
+共享库 BUILD_SHARED_LIBS=ON、NNG_TESTS=OFF 构建通过。
+
+=== 每秒 10 条与弱网验证
+
+公网端点：mqtt-quic://broker.emqx.io:14567。消息为唯一测试主题下的非 retained 消息。
+固定 100ms 发一条，不等待上一条 ACK 才发下一条；独立接收线程校验消息内容、
+QoS、主题、流号、序号及重复，发送侧逐一检查 PUBACK/PUBCOMP。
+
+* MQTT 3.1.1 / MQTT 5 的显式双主题多流模式，各 3 轮，每轮 100 条 QoS1 + 100 条 QoS2：
+  两个版本各 600/600 ACK、600/600 收到、无重复，均完成两次断线重连。
+  每轮还验证取消主题 A 后主题 B 仍可收发，取消 A 后不再收到 A。
+* 公网单流同速率测试未通过：MQTT 5 收到 187/200，MQTT 3.1.1 收到 188/200，
+  发送全部获得 ACK；保留失败，不据此宣称单流公网无丢失，也没有修改阈值掩盖失败。
+* 本地真实 MsQuic peer 的单流 MQTT 3.1.1/5 对照：各 200 条、每秒 10 条，
+  QoS1/2 各 100 条，逐一核对 ACK、1024 字节 payload、序号和重复；默认构建和 ASan 均通过。
+* 公网 MQTT 5 多主题、每秒 10 条弱网测试：三轮共 180 条全部确认和收到；
+  UDP 代理丢弃 116 个包、延迟 143 个包、双向断网 7 秒一次，共观察到 3 次连接，exit=0。
+  该代理只影响测试进程，不修改主机防火墙。
+
+[source,sh]
+----
+NNG_BROKER_TEST_RATE_MESSAGES=100 \
+  build-sdk-sync/default-only/src/supplemental/quic/mqtt_quic_broker_test \
+  mqtt-quic://broker.emqx.io:14567 5 1 3
+NNG_BROKER_TEST_RATE_MESSAGES=30 python3 \
+  src/supplemental/quic/quic_broker_fault_test.py \
+  build-sdk-sync/default-only/src/supplemental/quic/mqtt_quic_broker_test --version 5
+----
+
+每个版本的公网速率日志在 build-sdk-sync/default-only/rate10-v*-multi*.log。
+此前无间隔突发的失败不作为每秒 10 条目标的验收依据，也没有删除对应压力测试模式。
+
+=== 扩大检查后的结果与限制
+
+* 仅 NNG_ENABLE_QUIC=ON 的默认完整构建通过；MQTT/QUIC 五个测试程序通过。
+* QUIC=OFF、TLS/SQLite=ON 构建通过，19 个 MQTT/TLS、SQLite、pub/sub、pair、req/rep 相关回归通过。
+* 全量默认本地回归排除两个依赖外部 DNS/网页内容的测试后：98/99 通过。
+  socket transport 的 socket accept 场景偶发 pthread_mutex_lock Invalid argument，
+  堆栈在 sfd_tran_pipe_fini 的 endpoint 释放路径。独立/优化 ASan 下可通过，
+  Release 重复运行仍可复现；原始 HEAD 的隔离 Release 构建也复现相同错误，
+  确认为既有问题，未修改 socket transport；不能把一次重跑成功算作已修复。
+* 扩大 ASan/UBSan 至 91 个测试程序：79 通过，12 失败。
+  其中十项旧 convey 测试报 stack-use-after-scope，tls_tran_test 超时，ws_test 报 HTTP 连接泄漏。
+  原始 HEAD 隔离构建的 device 测试也复现相同 convey 栈生命周期错误。
+  基线只为绕过其原有编译错误而省略 Paho 源文件，未修改 device/socket/WebSocket 逻辑。
+  SQLite 测试整数乘法另有 UBSan overflow，options 的零长度拷贝另有 UBSan null-pointer 报告。
+  因此不能宣称整个 NanoSDK 的全量 sanitizer 检查无问题。
+* 本次 MQTT/QUIC 内存检查覆盖旧 API、QoS0/1/2、分片、拒绝连接、超时/取消所有权、
+  context 关闭、连续 20 次异常重连、64 并发发送、跨流相同 packet-id 以及单流固定速率。
+
+上述限制需与目标功能通过项一起阅读，不构成对所有网络条件及所有原有模块无故障的保证。
+
+
+普通 MQTT 的补充功能回归位于 src/mqtt/transport/tcp/mqtt_tcp_test.c：
+独立字节流 peer 解析实际报文，覆盖 TCP/TLS × MQTT 3.1.1/5 四种组合。
+每种组合在同一 dialer 上连接两次，完成 SUBSCRIBE/SUBACK、QoS0/1/2 双向握手、
+4096 字节 payload 校验、UNSUBSCRIBE/UNSUBACK；强制断开后恢复收发。
+四种组合及原有分片/拒绝/超时用例均通过 ASan/UBSan（13 个场景）。
+该 peer 用于验证线协议和重连，不模拟 broker 的 retained、will 或共享订阅语义。
+最后一轮 MQTT/QUIC/TLS、pub/sub 的十个相关 ASan 测试程序全部通过，
+QUIC 集成程序共 22 个场景；之后增加的 TCP/TLS 功能用例亦单独通过。
+
+旧配置的边界：稳定 MsQuic 使用 CUBIC，qcongestion_control 非零返回 NNG_ENOTSUP；
+qos_first 使用本地消息元数据传入 MsQuic PRIORITY_WORK；保留安全的 AIO 所有权，
+不复用上游禁用取消、将用户 AIO 直接交给 SEND_COMPLETE 的并行旁路。
+TLS 兼容配置使用证书文件路径；原始内存证书字符串字段未映射到新的 MsQuic 凭据接口。
+
+
+== 继续修复：单流低速、关闭竞态与 QUIC 清理
+
+本节更新上一节遗留问题的状态。按用户要求，不继续调查普通 TLS transport 的超时；
+它不是 MsQuic 的 QUIC TLS 握手超时。
+
+=== 已修复的关闭错误
+
+带符号的 Release 堆栈确认，socket transport 的 panic 并非 endpoint mutex 失效，
+而是 sfd_tran_pipe_stop 调用 nni_aio_stop 时，AIO 所属 expire queue 的 mutex 已销毁。
+未完成协商的 pipe 仍由回调持有，但 endpoint fini 退出了 reaper 队列；
+nni_reap_drain 因而可能提前返回，迟到的回调随后才排入 pipe 回收。
+
+修复措施：endpoint 在 pipe 引用归零前一直留在回收队列，避免提前结束全局清理，
+并移除 pipe fini 对同一 endpoint 的重复排队路径。未改 nanomq/nng。
+新增 100 次 socket 关闭、nng_fini、重新打开回归；它还暴露了 reaper 的退出标志
+跨初始化未清零的问题，现已修复。Release 的整个 socket 测试程序连续 20 轮通过，
+包含 2000 次上述循环；相关 ASan/UBSan 测试通过。
+
+MsQuic 后端也补上关闭等待：应用释放 stream 或取消拨号后，连接立即进入回收等待；
+直到迟到的 SHUTDOWN_COMPLETE 释放最后引用才销毁 connection、configuration 及 dialer。
+最终引用归零与回收检查使用连接锁同步，防止重复排队及释放后访问。
+确定性测试延迟 shutdown 回调，验证 reap_drain 在回调到达前不能返回，资源恰好释放一次。
+另增加真实 QUIC/TLS peer 尚存活时，关闭 SDK、nng_fini、重新打开十次的测试，ASan/UBSan 通过。
+
+默认完整构建通过；排除外部 DNS/网页固定内容的两项测试后，本地回归更新为 99/99 通过
+（171.07 秒）。日志保存在 build-sdk-sync/default-only/regression-99-after-close-fix.log。
+QUIC 集成场景现在为 23 项，确定性 MsQuic 后端测试为 5 项。
+这些结果不撤销之前记录的其他模块 sanitizer 失败，不能理解成全仓库 sanitizer 全通过。
+
+=== 单流丢失定位的直接证据
+
+* MQTT 3.1.1 和 MQTT 5 在公网单流、每秒 1 条时，各发送 60 条（QoS1/2 各 30），
+  均为 ACK 60/60、接收 60/60、重复 0；空闲保活及取消订阅检查也通过。
+  因此“每秒 1 条也会丢失”没有在这两次测试中复现，不代表无限时长保证。
+* 每秒 10 条单流再次得到 ACK 200/200、接收 191/200。
+  独立 Paho 客户端完全通过 TCP 收发同样速率，也得到 ACK 200/200、接收 191/200。
+* 严格保证至少 100ms 发送间隔仍出现 190/200，排除了仅仅是测试绝对时钟追赶发送的问题。
+  原始发送节奏保留；最小间隔模式通过 NNG_BROKER_TEST_MIN_SPACING=1 显式启用，未降低默认速率。
+* 进一步用独立 Paho/TCP 订阅者观察 NanoSDK/QUIC 发布的同一批消息：
+  SDK 发布 200 条，全部得到 MQTT ACK；SDK 订阅者和独立 TCP 订阅者均收到 189 条，
+  缺失序号完全相同：10、21、32、43、54、65、76、97、118、159、190。
+* 9 条/秒诊断也出现两端都缺 150、151、152（197/200）；不能断言精确的“10 条/秒限流阈值”。
+
+同批消息在独立 TCP 订阅者处也缺失、且独立 Paho 发布也复现，是 broker 接收/转发路径
+问题的直接定位依据，不是 NanoSDK 接收队列独有现象。具体 broker 策略/内部原因没有
+服务端配置或日志证据，未作断言。公网每秒 10 条单流仍是失败项，不能声称已经修复远端行为，
+也不能通过修改 SDK 接收层保证 broker 把已 ACK 但未转发的消息重新投递。
+
+新增可复现的旁路工具（依赖 paho-mqtt，不加入离线 CTest）：
+
+[source,sh]
+----
+NNG_BROKER_TEST_RATE=1 NNG_BROKER_TEST_RATE_MESSAGES=30 \
+  build-sdk-sync/default-only/src/supplemental/quic/mqtt_quic_broker_test \
+  mqtt-quic://broker.emqx.io:14567 5 0 1
+python3 src/supplemental/quic/quic_broker_observer_test.py \
+  build-sdk-sync/default-only/src/supplemental/quic/mqtt_quic_broker_test \
+  --url mqtt-quic://broker.emqx.io:14567 --rate 10
+----
+
+旁路工具使用唯一测试主题，校验 payload、缺失序号和重复；即便两端缺失完全相同，
+仍返回非零失败状态。其输出区分 SDK 结果与独立订阅者结果，避免把诊断结论冒充测试通过。
+
+
+== Ninja 静态 MsQuic + DEBUG/ASAN 构建修复
+
+此前主要验证共享 MsQuic，遗漏了 `QUIC_BUILD_SHARED=OFF`。原接入代码对
+`msquic` 使用 `$<TARGET_FILE:msquic>`，而静态构建中的同名目标实际是
+INTERFACE library，因此生成失败；直接链接该目标又会导致 NanoSDK 的
+build-tree export 引用未导出的 MsQuic 目标。
+
+修复后，静态模式读取 MsQuic 接口里的合并归档路径，保留显式构建依赖，
+补齐系统链接依赖和 `QUIC_BUILD_STATIC`；共享模式保留共享库路径链接。
+Debug 和 ASAN 设置移到创建目标、加入依赖之前，保证 MsQuic 也使用 Debug，
+并向静态 NanoSDK 的应用传播 sanitizer 链接参数。安装配置同时补齐
+MbedTLS 依赖查找及旧版 MbedTLS 的查找模块。
+
+在 Linux、GCC 15.2、CMake 4.2.3 下使用用户完整参数，未删减选项：
+
+[source,sh]
+----
+cmake -S . -B build-sdk-sync/user-ninja -G Ninja \
+  -DENABLE_LICENSE_STD=OFF -DBUILD_BENCH=OFF -DQUIC_BUILD_SHARED=OFF \
+  -DENABLE_JWT=OFF -DGEN_FILES=OFF -DNNG_ENABLE_SQLITE=ON \
+  -DENABLE_RULE_ENGINE=OFF -DBUILD_ZMQ_GATEWAY=OFF -DDEBUG=ON -DASAN=ON \
+  -DNNG_ENABLE_TLS=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+  -DNNG_ENABLE_QUIC=ON -DNNG_ARROW_VERSION_MAJOR=24
+cmake --build build-sdk-sync/user-ninja -j 8
+ctest --test-dir build-sdk-sync/user-ninja --output-on-failure \
+  -R 'mqtt|msquic|sockfd|pubsub' --timeout 180
+----
+
+完整构建 517 个步骤通过；上述 10 个回归测试全部通过（49.20 秒），
+包括 MQTT TCP/TLS、QoS 数据库、QUIC 分帧、真实 MsQuic 集成、
+MsQuic 回调生命周期、socket 关闭以及 pubsub。此处是针对性 ASAN 回归，
+不表示全仓库 ASAN 测试均通过。`ldd` 确认运行程序加载 ASAN，
+不依赖 `libmsquic.so`。
+
+临时安装后，独立 C/C++ 应用通过 `find_package(nng)` 编译、链接、运行均成功；
+原默认共享 MsQuic 构建也再次通过。构建日志位于
+`build-sdk-sync/user-ninja/build.log`，回归日志位于
+`build-sdk-sync/user-ninja/Testing/Temporary/LastTest.log`。
+
+
+== 自审修复：PUBREC 原因码与流创建失败
+
+复查新增 MQTT over QUIC 实现时发现并修复以下问题，新增用例均在修复前失败：
+
+* MQTT 5 收到失败 PUBREC（原因码不小于 `0x80`）后仍发送 PUBREL。
+  现在将该 PUBREC 作为终止 ACK，移除对应未确认 PUBLISH，并通过发送 AIO
+  返回原始 PUBREC。AIO 的成功表示获得协议响应，调用者仍需检查 ACK 内容，
+  与现有 PUBACK/PUBCOMP 约定一致。
+* 自动回复 PUBREL/PUBCOMP 等 ACK 时错误复制对端的原因码与诊断属性。
+  例如 PUBREC `0x10` 被复制成非法 PUBREL 原因码。现在自动回复使用自身成功状态，
+  不回传对端属性。本地 MsQuic 集成用例覆盖拒绝原因 `0x87` 及成功原因 `0x10`。
+* `StreamOpen` 成功但 `StreamStart` 同步失败时遗漏 `StreamClose`。
+  同步失败没有排队启动操作，不会产生负责清理的流回调。现在立即关闭并清空句柄，
+  保留异步启动失败由回调清理的逻辑。模拟 API 单元用例验证关闭恰好发生一次。
+
+最终验证：用户完整参数的 Ninja 静态 MsQuic + Debug + ASAN 完整编译通过，
+相关 CTest 10/10 通过（49.08 秒）；默认共享 MsQuic Release 完整编译通过，
+相关 CTest 10/10 通过（50.07 秒）。真实 MsQuic 集成现有 24 个场景，
+模拟 API 单元测试现有 6 个场景。此次未改动 `nanomq/nng`。
+
+
+== 再次逐项对照 MsQuic 层
+
+本轮只读来源为 `nanomq/nng` HEAD
+`515fb7935b7ba3040956758e3154f9a71a05c8ef`。
+双方 MsQuic 工作树均为 `87b53085d76bd7920d490a6f226c9999b6614d14`。
+对照包含 `msquic_dial.c`、`quic_api.c/.h`、MQTT QUIC transport、
+两个上游 MQTT QUIC 协议文件、stream 注册、公开选项、构建及上游测试。
+不能以新后端代码更短作为同步完整的证据。
+
+[cols="2,3,3",options="header"]
+|===
+|行为 |差异判断 |此次处理/保留依据
+|默认配置
+|遗漏：NanoSDK 原生拨号器默认打开多流，上游为关闭
+|改为默认单流；0RTT 仍默认关闭；idle 90s、keepalive 60s、priority -1 对齐。
+多流测试改为显式开启。
+|拨号成功时机
+|遗漏：NanoSDK 在 CONNECTED 后立即返回，上游等主流 START_COMPLETE
+|现在等待控制流 START_COMPLETE；启动失败不返回可用 stream。
+|子流中断/FIN
+|遗漏：此前任一子流读失败会关闭整条 MQTT pipe
+|子流 shutdown 后独立重建；取消旧接收以清除半包，再重新挂接接收。
+控制流中断仍交给完整重连处理。连接关闭时禁止子流重建。
+|子流创建失败
+|遗漏：此前直接关闭整个连接
+|保留主流，五秒重试子流创建；重试 AIO 随连接关闭/销毁停止。
+|子流重建时发送
+|遗漏/原有缺陷：ECANCELED 后发送队列可能停止推进
+|保留未确认 QoS 重试，继续推进 transport/protocol 队列。
+|QUIC_CLOSE_REOPEN_FLAGS
+|遗漏内部控制标记
+|恢复子流关闭重建请求，返回 ECANCELED；拒绝用该标记重建控制流。
+上游 MQTT 正常调用链并未设置这一标记。
+|QUIC_HIGH_PRIOR_MSG / qos_first
+|此前 qos_first 仅保存配置，无实际作用
+|从协议消息元数据传递至 transport，再传至 MsQuic PRIORITY_WORK。
+保留可取消 AIO 和 SEND_COMPLETE 自有上下文；不复用上游直接传递用户 AIO、
+禁止取消且绕过队列的并行路径。调度实现不同，不保证完全相同的抢占顺序。
+|发送 buffer 和取消
+|稳定性修复
+|发送数据独立复制；取消用户 AIO 不释放 MsQuic 正在使用的 buffer；
+在 SEND_COMPLETE 后释放。支持短写后的 transport 推进。
+|接收 buffer / FIN / 流控
+|稳定性修复
+|遍历所有 RECEIVE buffers，处理 FIN 携带数据；按实际消费字节回报，
+未消费部分由 MsQuic 保留。未移植上游仅处理首 buffer、忽略 FIN 数据的路径。
+|全局 MsQuic 配置
+|SDK 多实例适配/稳定性修复
+|每个拨号器拥有 registration/API，每次连接拥有 configuration，
+避免上游进程全局 configuration 被不同客户端证书、超时选项覆盖。
+|证书与私钥
+|客户端功能已覆盖，保留安全修复
+|CA 路径、verify_peer、客户端证书/私钥及密码使用 MsQuic 原生凭据接口；
+verify_peer 不再依赖必须提供客户端证书才生效。证书/私钥必须成对配置。
+|0RTT / resumption ticket
+|已同步选项和票据，修复边界
+|默认关闭；启用时保存合法长度票据并用于后续连接恢复。
+不宣称 MQTT CONNECT 在握手完成前发送；上游也没有完整的 MQTT early-data 调用链。
+|QUIC settings
+|保留客户端选项
+|对照 idle/keepalive/handshake/disconnect/send-idle/initial-rtt/max-ack-delay/
+congestion/priority；保留类型、范围、乘法溢出校验。CUBIC=false 返回 ENOTSUP，
+未伪装为可用 BBR。
+|连接错误码
+|独立 stream API 适配
+|底层返回 NNG 错误；MQTT CONNACK 拒绝原因通过 MQTT 层选项和消息暴露，
+避免将 MQTT reason code 当作通用 NNG errno。
+|关闭与回收
+|独立 SDK 生命周期适配/稳定性修复
+|connection/callback/caller 分别持有引用；reap_drain 等待晚到的 shutdown；
+在 MsQuic 回调外执行最终 ConnectionClose，支持反复 nng_fini/初始化。
+|主流与四个子流池
+|已同步基本布局，自动调度有意不同
+|仍为控制流 0、订阅流 1/2、发布流 3/4。
+NanoSDK 自动 PUBLISH 按主题固定路由，SUBSCRIBE/UNSUBSCRIBE 默认同流；
+上游随机路由可能破坏同主题顺序及退订流归属。公开 set_stream API 可显式选择四条子流。
+|超时轮换子流定时器
+|上游非启用功能
+|上游 check_timeout_reopen 存在，但启动 tmoaio 的调用被注释；
+不额外开启该定时器。保留真正启用的 shutdown 后重建和失败后五秒重试。
+|listener、bridge、conn_param、broker 状态机
+|broker 范围
+|未同步服务端接入与 broker 私有状态。上游 QUIC CMake 只编译 dialer，
+quic_api.c 的 listener alloc 仍为空壳；NanoSDK 明确返回 ENOTSUP。
+|===
+
+新增确定性单元用例覆盖默认值、控制流启动完成时机、优先标记；
+新增真实 MsQuic 用例在同一连接上连续四轮重置数据流 3/4，
+校验 QoS1/2 完成、回显收到且 listener 只接受过一次连接。
+该测试不以整个 MQTT 连接重连冒充子流恢复。
+
+最终版本完整编译与回归：
+
+* 用户完整参数的 Ninja 静态 MsQuic + Debug/ASAN：相关 CTest 10/10，69.19 秒。
+* 默认共享 MsQuic Release：相关 CTest 10/10，69.64 秒。
+* MsQuic 集成现为 25 个场景，API 单元用例为 9 个场景。
+* 最终静态 ASAN 产物连接 `mqtt-quic://broker.emqx.io:14567`，MQTT5、多流、
+  两轮连接均完成每秒一条 QoS1/2 共六条的 ACK/回显校验，两轮均 6/6，无重复；
+  多主题独立订阅退订、主动断线自动重连、空闲保活和退订后的接收超时均通过。
+
+此次结果证明上述已测行为，不能推导为与上游所有内部调度逐指令一致，
+也不覆盖所有平台、所有网络故障组合。前文记录的公网单流 10/s 路由缺失问题
+并未因本轮低速多流测试而宣称解决。
+
+
+== nng_stream / MsQuic 接口契约专项复查
+
+直接检查 stream dialer 的 dial/close/free、stream 的 send/recv/cancel/close/free、
+AIO 队列与 MsQuic callback 的交接，不通过 MQTT 封装掩盖底层错误。
+本轮修复：
+
+* 此前 NanoSDK 的 `currcon` 持有已交付 stream 的连接，导致排队第二次拨号
+  返回 EBUSY，且释放 dialer 会关闭调用者已经持有的 stream。
+  现在 `currcon` 只表示尚未交付的拨号；成功交付前即清除。
+  已交付 stream 通过自己的引用保留底层 dialer/registration/API 生命周期。
+* 上游和此前 SDK 的 `quic_dialer_free` 都先停止内部 AIO，未先完成排队用户 AIO。
+  现在先执行 close，完成所有用户 AIO，再停止内部 AIO 和销毁拨号器。
+  同时兼容只完成部分初始化的错误清理路径。
+* 使用显式 `dialing` 状态标识未处理完毕的底层拨号结果，避免把内部 AIO
+  的 callback busy 状态误作拨号状态。取消最后一个请求后，将旧拨号标记为丢弃，
+  防止立即新排队的请求继承旧的 ECANCELED 或旧连接。
+* 原生拨号取消和连接 shutdown 都在完成 AIO 之前清除对应 `currcon`；
+  避免 AIO 回调立即重拨时看到旧连接返回 EBUSY。
+* 对端已发起关闭、但尚未发出 SHUTDOWN_COMPLETE 时，本地 stream close
+  仍立即完成挂起的读写 AIO，不因 closed 标志提前返回而留下等待。
+* 子流异步 START_COMPLETE 失败后，通过 shutdown 清理句柄，再五秒退避重试；
+  避免在失败 callback 间无间隔创建流。用独立 retry_pending 状态替代
+  `nni_aio_busy`，避免重试 callback 尾部和新 stream-start 失败交错时漏掉重试。
+* 发送 iov 跳过零长度段的 memcpy，允许零长度段使用 NULL 地址。
+
+新增真实 MsQuic 用例覆盖：同一拨号器并行排队两个拨号、释放拨号器后两条
+stream 独立收发、释放时完成两个 pending 用户 AIO、连续二十次取消后立即重拨。
+前两个所有权问题已先用新增用例复现（EBUSY / Object closed），再验证修复。
+单元用例补充关闭窗口中的接收 AIO 完成、异步子流启动失败退避。
+
+最终验证：完整静态 MsQuic + Debug/ASAN 构建通过，相关 CTest 10/10（69.89 秒）；
+完整共享 MsQuic Release 构建通过，相关 CTest 10/10（71.90 秒）。
+真实 MsQuic 集成现有 28 个场景，模拟 API 单元测试 11 个场景。
+日志位于对应构建目录的 `stream-review-build.log` 和
+`Testing/Temporary/LastTest.log`。本轮未修改 nanomq/nng。
+
+
+== 桥接调用链重审与发送路径重构（2026-11-03）
+
+本节描述本轮实现，前面的测试数字属于此前版本。
+对照入口是 NanoMQ `nanomq/bridge.c` 的 `nano_set_quic_config`、
+`bridge_quic_client`、`bridge_quic_connect_cb`、`bridge_quic_disconnect_cb`，
+以及其 nng 协议、传输和 MsQuic 适配实现。所有修改只发生在 NanoSDK。
+
+实际调用链：
+
+----
+nng_dialer + CONNECT / QUIC 配置
+  -> MsQuic connection / control stream START_COMPLETE
+  -> nng_stream 交付给 MQTT QUIC transport
+  -> CONNECT / CONNACK 协商成功后交付 nni_pipe
+  -> pipe ADD_POST 回调发起订阅
+  -> MQTT protocol 管理用户 AIO、Packet ID、QoS ACK / 超时
+  -> nni_pipe_send / nni_pipe_recv
+  -> MQTT QUIC transport 分流、帧解析、发送额度、同流回复
+  -> nng_stream_send / nng_stream_recv
+  -> MsQuic StreamSend / RECEIVE / SEND_COMPLETE
+----
+
+以前仅仅建立多条原生 stream，但协议与 transport 各自仍共用一个发送 AIO/
+全局发送队列；这不等价于 NanoMQ qos_first 的并行路径。本轮重做如下：
+
+* 协议层使用有上限的独立发送操作，每次操作独占 transport AIO。
+  用户 QoS1/2、SUBSCRIBE、UNSUBSCRIBE 的 AIO 等待 MQTT ACK；原生
+  SEND_COMPLETE 仅说明字节发送完成。用户、QoS 缓存、transport 分别持有
+  消息引用，ACK 先到和用户取消不会提前释放 transport 正在使用的缓冲。
+  所有协议发送均经 `nni_pipe_send`；协议层不直接调用 MsQuic。
+* stream 路由只在 transport 决定。每条流独立 FIFO，保持同一主题顺序，
+  一条流停滞不会阻挡其他流。自动 PUBLISH 路由到数据流 3/4，普通订阅及
+  退订使用流 1；qos_first 的默认高优先级流恢复为 NanoMQ 使用的控制流。
+  `nng_mqtt_quic_msg_set_stream(msg, 1..4)` 的显式选择优先。
+* 移除忙时将 SUBSCRIBE 当作 QoS0 丢弃的路径，也不再对本地未发送的 QoS0
+  静默丢弃并报告成功。发送容量不足返回错误；QoS0 成功在 transport 完成时
+  通知，错误/取消保留调用者消息。旧 retry_qos_0 配置仍可接受。
+* close 首先标记关闭并完成全部上层 send/recv AIO，再关闭原生 stream 和内部
+  AIO。关闭后 recv 返回 ECLOSED；pipe stop 等待全部协议发送回调退出。
+  endpoint 仍有协商中 pipe 时保留 reaper 可见性。
+* MQTT 5 Receive Maximum 按 stream/Packet ID 记账：重复发送不重复扣额度，
+  重复 ACK 不增加额度，额度不足排队等待；包大小检查失败不消耗额度。
+* 接收队列满时实施背压。transport 每流最多额外保留一条完整消息并暂停
+  读取；协议队列有空位后恢复读取，不再继续 ACK 后直接丢弃接收消息。
+* MsQuic 的 SetParam 和 StreamClose 在非 worker 线程可能同步等待 worker。
+  stream priority 改在 START_COMPLETE 回调设置；同步 StreamStart 失败清理时
+  释放连接锁后执行 StreamClose，并防止旧句柄 shutdown 回调重复关闭。
+
+未导入 broker 的 conf_bridge_node、conn_param、topic remapping、broker 状态机、
+MQTT Stream 服务端语义。SDK 保留独立 MQTT 客户端接口及旧 QUIC 兼容入口。
+
+本轮也发现了影响上述链路的基础问题：
+
+* ASAN 在通用 pubsub 的重连定时器中报告已释放 socket 的访问。
+  根因是旧 AIO stop/close/abort 在没有 cancel_fn 时直接撤销 task busy 引用，
+  但 provider 可能仍处在 begin/schedule 或 finish/dispatch 的窗口中。
+  同步 NanoMQ 的提前取消状态和 schedule 错误处理，并将 fini 也改为等待
+  provider 的真正完成，避免同一竞态在析构时重现。新增三个确定性时序用例。
+* nng_mqtt_client_alloc 将 sub_aio 接到了发布 send_aio 的回调。
+  改回订阅回调后，按 bridge.c 方式从 pipe 回调订阅、断线后重新订阅可运行。
+* SQLite 保留连续回放能力，transport 发送失败的离线消息重新入库。
+  修正 MQTT5 版本判断、数据库显式关闭后释放 option 的重复释放，以及目录
+  字符串释放遗漏。真实 MQTT5 离线缓存回放测试覆盖这些路径。
+* 离线队列第一条消息因流配置不支持而失败时，继续处理后续消息，避免等待
+  一个根本不会出现的字节发送回调。测试在拨号前同时排入失败与有效消息。
+  同时恢复发送报文类型校验，拒绝无 MQTT 元数据及服务端专用报文并保留
+  调用者消息所有权。
+
+新增验证：
+
+* `mqtt_quic_pipe_test` 的 8 个用例穿过真实 protocol / nni_pipe / transport，
+  只替换最底层字节 stream，确定性控制阻塞、短写、取消、ACK 先到、关闭、
+  Receive Maximum、重复 ACK、接收背压和非法发送包的所有权。测试并非仅调用孤立的 MsQuic mock。
+* `msquic_dial_test` 增至 12 个场景，覆盖关闭时锁可重入及 priority 不在
+  reopen timer 线程执行阻塞 SetParam。
+* 真实 MsQuic 集成包含 MQTT4/5 桥接调用模式：每次在 pipe ADD_POST 中订阅，
+  并发 QoS1/2 发布，连续两次关闭 pipe 后自动重连、重新订阅并继续收发。
+  SQLite 开启时增加 MQTT5 离线回放，合计 31 个场景（关闭 SQLite 时 30 个）。
+* 原有真实 MsQuic 用例仍包括每秒 10 条、MQTT4/5 单流分别 200 条 QoS1/2
+  的收发/去重核对、stream reset、取消重拨、关闭重建、QUIC TLS CA 验证。
+
+可复现构建与回归入口（工作区根目录）：
+
+[source,sh]
+----
+cmake --build NanoSDK/build-sdk-sync/user-ninja -j 8
+ctest --test-dir NanoSDK/build-sdk-sync/user-ninja \
+  -R 'core\.|mqtt|msquic|sockfd|pubsub' --output-on-failure --timeout 180
+cmake --build NanoSDK/build-sdk-sync/default-only -j 8
+ctest --test-dir NanoSDK/build-sdk-sync/default-only \
+  -E 'resolver_test|httpclient' --output-on-failure --timeout 120
+cmake --build NanoSDK/build-sdk-sync/nonquic -j 8
+ctest --test-dir NanoSDK/build-sdk-sync/nonquic \
+  -R 'core\.|mqtt|sockfd|pubsub' --output-on-failure --timeout 120
+----
+
+`user-ninja` 保留用户给出的静态 MsQuic、Debug/ASAN、TLS、SQLite 参数；
+`default-only` 为只开启 QUIC 的 Release 共享 MsQuic 配置；`nonquic` 关闭 QUIC。
+完整本地回归建议串行，旧 multistress 与其他压力测试存在固定端口冲突。
+不包含需要外部 DNS/HTTP 的 resolver_test/httpclient，也未扩大调查非 QUIC TLS。
+
+
+本轮最终验证结果：
+
+[cols="2,3",options="header"]
+|===
+|配置 / 验证 |结果
+|用户参数：静态 MsQuic + Debug/ASAN + TLS + SQLite
+|完整构建成功；最终相关 CTest 24/24，75.40 秒；无 ASAN/LeakSanitizer 报告。
+包含真实 MsQuic 31 个场景、跨层确定性测试 8 个场景、原生适配测试 12 个场景。
+|仅开启 QUIC：共享 MsQuic + Release
+|完整构建成功；最终 QUIC 三套测试 3/3，62.33 秒。
+此前扩大本地回归首轮 99/100，multistress 因并行占用固定端口失败，
+串行重跑通过；未把第一次失败隐藏为全通过。
+|关闭 QUIC：Debug + TLS + SQLite
+|完整构建成功；最终核心 / MQTT / sockfd / pubsub 回归 21/21，8.35 秒。
+|公网 MQTT5 单流，每秒 1 条，QoS1/2
+|两轮共 40 条，ACK 40/40，接收 40/40，无重复。
+|公网 MQTT5 多流，每秒 10 条，QoS1/2
+|两轮共 80 条，ACK 80/80，接收 80/80，无重复；实测速率约 9.97 条/秒。
+|===
+
+公网目标均为 `mqtt-quic://broker.emqx.io:14567`。上述公网测试也执行
+主动断线自动重连、重新订阅、空闲保活和退订后接收超时；多流用例额外核对
+多主题独立订阅退订。本地单流 MQTT4/5 各 200 条每秒 10 条的用例通过。
+这些是有限时长的实测结果，不表示所有网络条件下都不会丢失。
+
+[source,sh]
+----
+NNG_BROKER_TEST_RATE=1 NNG_BROKER_TEST_RATE_MESSAGES=10 timeout 180s \
+  NanoSDK/build-sdk-sync/user-ninja/src/supplemental/quic/mqtt_quic_broker_test \
+  mqtt-quic://broker.emqx.io:14567 5 0 2
+NNG_BROKER_TEST_MIN_SPACING=1 NNG_BROKER_TEST_RATE=10 \
+  NNG_BROKER_TEST_RATE_MESSAGES=20 timeout 180s \
+  NanoSDK/build-sdk-sync/user-ninja/src/supplemental/quic/mqtt_quic_broker_test \
+  mqtt-quic://broker.emqx.io:14567 5 1 2
+----
+
+
+公网速率限制补充：随后单流每秒 10 条补测失败。为定位失败，测试工具增加
+ACK 类型、Packet ID、原因码输出，并对 PUBACK/PUBCOMP 的失败原因码进行
+校验；不再只根据 ACK 类型判定成功。重跑记录为：
+
+----
+ACK rejected/mismatched: index=10 expected=4 actual=4 packet_id=12 reason=0x97 body_length=4
+----
+
+`0x97` 为 MQTT5 Quota exceeded，说明该次消息被远端 broker 明确拒绝。
+这不是证明公网单流每秒 10 条已经通过，也不能据此确定 broker 的固定配额值。
+按用户补充的公网限制，后续公网验收改为每秒 1 条；本地真实 MsQuic 的
+MQTT4/5 单流每秒 10 条回归仍保留。
+
+
+增加失败 ACK 原因码校验后，最终公网复测（MQTT5、单流、每秒 1 条、
+两轮各 10 条 QoS1 + 10 条 QoS2）通过：40/40 成功 ACK，40/40 原始数据，
+无重复、无失败原因码。强制断连后自动重连/重新订阅、12 秒空闲保活、
+UNSUBACK 和退订后接收超时均通过，进程正常退出，未报告 ASAN 错误。
+这次复测与表格中的早期低速结果分开记录，不重复累计成同一次测试的数据。
