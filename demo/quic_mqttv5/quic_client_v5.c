@@ -38,10 +38,10 @@
 #include <nng/nng.h>
 #include <nng/supplemental/util/platform.h>
 
-#include "msquic.h"
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define CONN 1
 #define SUB 2
@@ -49,23 +49,7 @@
 
 static nng_socket *g_sock;
 
-conf_quic config_user = {
-	.tls = {
-		.enable = false,
-		.cafile = "",
-		.certfile = "",
-		.keyfile  = "",
-		.key_password = "",
-		.verify_peer = true,
-		.set_fail = true,
-	},
-	.multi_stream = false,
-	.qos_first  = false,
-	.qkeepalive = 10,
-	.qconnect_timeout = 60,
-	.qdiscon_timeout = 30,
-	.qidle_timeout = 30,
-};
+
 
 static void
 fatal(const char *msg, int rv)
@@ -307,8 +291,7 @@ client(int type, const char *url, const char *qos, const char *topic,
 	nng_msg    *msg;
 	const char *arg = "CLIENT FOR QUIC";
 
-	if ((rv = nng_mqttv5_quic_client_open_conf(
-	         &sock, url, &config_user)) != 0) {
+	if ((rv = nng_mqttv5_quic_client_open(&sock)) != 0) {
 		printf("error in quic client open.\n");
 	}
 
@@ -334,7 +317,16 @@ client(int type, const char *url, const char *qos, const char *topic,
 
 	// MQTT Connect...
 	msg = compose_connect();
-	nng_sendmsg(sock, msg, NNG_FLAG_ALLOC);
+	nng_dialer dialer;
+	if ((rv = nng_dialer_create(&dialer, sock, url)) != 0 ||
+	    (rv = nng_dialer_set_bool(dialer, NNG_OPT_QUIC_ENABLE_MULTISTREAM, true)) != 0 ||
+	    (rv = nng_dialer_set_int(dialer, NNG_OPT_QUIC_KEEPALIVE, 10)) != 0 ||
+	    (rv = nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, msg)) != 0 ||
+	    (rv = nng_dialer_start(dialer, 0)) != 0) {
+		fatal("QUIC connect", rv);
+		nng_close(sock);
+		return rv;
+	}
 
 	uint8_t buff[1024] = { 0 };
 	nng_mqtt_msg_dump(msg, buff, sizeof(buff), true);
