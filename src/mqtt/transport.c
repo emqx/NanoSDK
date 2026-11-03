@@ -59,11 +59,16 @@ extern void nni_mqtts_tcp_register();
 extern void nni_mqtt_quic_register();
 #endif
 
+extern void nni_mqtt_quic_register(void);
+
 void
 nni_mqtt_tran_sys_init(void)
 {
 	NNI_LIST_INIT(&mqtt_tran_list, nni_sp_tran, tran_link);
 	nni_rwlock_init(&mqtt_tran_lk);
+#ifdef NNG_TRANSPORT_MQTT_QUIC
+	nni_mqtt_quic_register();
+#endif
 
 #ifdef NNG_TRANSPORT_MQTT_TCP
 	nni_mqtt_tcp_register();

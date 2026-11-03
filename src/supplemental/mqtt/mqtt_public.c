@@ -1,4 +1,6 @@
 #include "mqtt_msg.h"
+#include "nng/mqtt/mqtt_quic_client.h"
+#include "core/nng_impl.h"
 #include <string.h>
 #include "mqtt_qos_db.h"
 #include "nng/supplemental/nanolib/log.h"
@@ -1356,3 +1358,27 @@ nng_mqtt_set_sqlite_flush_threshold(
 }
 
 #endif
+
+int
+nng_mqtt_quic_msg_set_stream(nng_msg *msg, unsigned stream_id)
+{
+    if (msg == NULL || stream_id > 4) return NNG_EINVAL;
+    nni_mqtt_proto_data *p = nni_msg_get_proto_data(msg);
+    if (p == NULL) return NNG_EINVAL;
+    switch (p->fixed_header.common.packet_type) {
+    case NNG_MQTT_PUBLISH:
+    case NNG_MQTT_SUBSCRIBE:
+    case NNG_MQTT_UNSUBSCRIBE:
+        p->quic_stream = (uint8_t)stream_id;
+        return 0;
+    default:
+        return NNG_EINVAL;
+    }
+}
+unsigned
+nng_mqtt_quic_msg_get_stream(const nng_msg *msg)
+{
+    if (msg == NULL) return 0;
+    const nni_mqtt_proto_data *p = nni_msg_get_proto_data((nng_msg *)msg);
+    return p ? p->quic_stream : 0;
+}

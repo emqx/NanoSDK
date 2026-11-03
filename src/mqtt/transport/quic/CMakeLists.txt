@@ -19,3 +19,8 @@ if (NNG_TRANSPORT_MQTT_QUIC)
     nng_headers_if(NNG_TRANSPORT_MQTT_QUIC nng/mqtt/transport/quic/mqtt_quic.h)
     nng_defines_if(NNG_TRANSPORT_MQTT_QUIC NNG_TRANSPORT_MQTT_QUIC)
 endif()
+
+if (NNG_TRANSPORT_MQTT_QUIC AND NNG_PROTO_MQTT_QUIC_CLIENT AND NNG_TESTS)
+    nng_test(mqtt_quic_pipe_test)
+    target_include_directories(mqtt_quic_pipe_test PRIVATE $<TARGET_PROPERTY:nng,INCLUDE_DIRECTORIES>)
+endif ()

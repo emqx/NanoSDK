@@ -7,17 +7,20 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
+#define NANO_MAX_PACKET_SIZE 268435455u
+#define NNI_NANO_MAX_HEADER_SIZE 5
+#define NANO_MAX_QOS_PACKET 65535u
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "core/nng_impl.h"
+#include "nng/supplemental/nanolib/log.h"
 #include "core/sockimpl.h"
 #include "nng/mqtt/mqtt_client.h"
+#include "nng/mqtt/mqtt_quic_client.h"
 #include "supplemental/mqtt/mqtt_msg.h"
-// #include "nng/protocol/mqtt/mqtt_parser.h"
 #include "supplemental/quic/quic_api.h"
-#include "nng/supplemental/nanolib/log.h"
 
 // QUIC transport.   Platform specific QUIC operations must be
 // supplied as well.
@@ -33,8 +36,11 @@ struct mqtt_quic_sub_stream {
 	nni_aio         	 raio;
 	nni_aio         	 qaio;		// qsaio
 	nni_msg             *rxmsg;
+	nni_msg             *pending_rx;
+	nni_list             sendq;
 	uint16_t			 level;
-	uint16_t			 id;	// To command stream layer
+	int id;	// To command stream layer
+    int send_flags;
 	uint8_t         	 txlen[sizeof(uint64_t)];
 	uint8_t          	 rxlen[sizeof(uint64_t)]; // fixed header
 	nni_lmq              rslmq;
@@ -49,6 +55,10 @@ struct mqtt_quic_sub_stream {
 struct mqtt_quictran_pipe {
 	quic_substream   substreams[QUIC_SUB_STREAM_NUM];
 	nng_stream *     conn;
+	nni_msg *connack;
+	bool multi_stream;
+	nni_id_map inflight; // MQTT 5 credit, keyed by stream and packet ID
+    int send_flags;
 	nni_pipe *       npipe;
 	nni_list_node    node;
 	mqtt_quictran_ep *ep;
@@ -57,7 +67,7 @@ struct mqtt_quictran_pipe {
 	uint32_t         packmax; // MQTT Maximum Packet Size (Max length)
 	uint16_t         peer;    // broker info
 	uint16_t         proto;   // MQTT version
-	uint16_t         keepalive;
+	nni_duration     keepalive;
 	uint16_t         sndmax;  // MQTT Receive Maximum (QoS 1/2 packet)
 	uint8_t          qosmax;
 	uint8_t          txlen[sizeof(uint64_t)];
@@ -75,15 +85,12 @@ struct mqtt_quictran_pipe {
 	nni_aio         *negoaio;
 	nni_aio         *rpaio;
 	nni_msg         *rxmsg;
+	nni_msg         *pending_rx;
 	nni_lmq          rslmq;	// resend lmq
 	nni_lmq          rxlmq; // recv lmq, shared by all streams
 	nni_mtx          mtx;
 	nni_atomic_bool  closed;
 	bool             busy;
-#ifdef NNG_HAVE_MQTT_BROKER
-	nni_msg         *connack;
-	conn_param *     cparam;
-#endif
 };
 
 struct mqtt_quictran_ep {
@@ -117,7 +124,7 @@ struct mqtt_quictran_ep {
 
 static void mqtt_share_pipe_send_cb(void *, nni_aio *, quic_substream *);
 static void mqtt_share_pipe_recv_cb(void *, nni_aio *, quic_substream *, nni_msg **);
-static void mqtt_quictran_pipe_send_start(mqtt_quictran_pipe *);
+static void mqtt_quictran_pipe_send_start(mqtt_quictran_pipe *, quic_substream *);
 static void mqtt_quictran_subpipe_send_cb(void *);
 static void mqtt_quictran_subpipe_recv_cb(void *);
 static void mqtt_quictran_pipe_send_cb(void *);
@@ -126,7 +133,6 @@ static void mqtt_quictran_subpipe_qos_cb(void *);
 static void mqtt_quictran_pipe_qos_send_cb(void *);
 static void mqtt_quictran_share_qos_send_cb(void *, nni_aio *, quic_substream *);
 
-static void mqtt_quictran_pipe_recv_start(mqtt_quictran_pipe *, nni_aio *);
 static void mqtt_quictran_pipe_rp_send_cb(void *);
 static void mqtt_quictran_pipe_nego_cb(void *);
 static void mqtt_quictran_ep_fini(void *);
@@ -152,23 +158,34 @@ mqtt_quictran_fini(void)
 {
 }
 
+// Complete every upper-layer operation before stopping the stream AIOs.
+// The stream callbacks may still run, but no longer own an entry in these queues.
 static void
 mqtt_quictran_pipe_close(void *arg)
 {
 	mqtt_quictran_pipe *p = arg;
-
-	nng_stream_close(p->conn);
-	nni_atomic_set_bool(&p->closed, true);
+	nni_aio *aio;
 	nni_mtx_lock(&p->mtx);
-	for (uint8_t i = 0; i < QUIC_SUB_STREAM_NUM; i++)
-	{
+	nni_atomic_set_bool(&p->closed, true);
+	while ((aio = nni_list_first(&p->recvq)) != NULL) {
+		nni_aio_list_remove(aio);
+		nni_aio_finish_error(aio, NNG_ECLOSED);
+	}
+	for (unsigned i = 0; i <= QUIC_SUB_STREAM_NUM; i++) {
+		nni_list *q = i ? &p->substreams[i - 1].sendq : &p->sendq;
+		while ((aio = nni_list_first(q)) != NULL) {
+			nni_aio_list_remove(aio);
+			nni_aio_finish_error(aio, NNG_ECLOSED);
+		}
+	}
+	nni_mtx_unlock(&p->mtx);
+	nng_stream_close(p->conn);
+	for (unsigned i = 0; i < QUIC_SUB_STREAM_NUM; i++) {
 		quic_substream *stream = &p->substreams[i];
 		nni_aio_close(&stream->raio);
 		nni_aio_close(&stream->saio);
 		nni_aio_close(&stream->qaio);
 	}
-	nni_mtx_unlock(&p->mtx);
-
 	nni_aio_close(p->rxaio);
 	nni_aio_close(p->qsaio);
 	nni_aio_close(p->txaio);
@@ -199,18 +216,8 @@ static int
 mqtt_quictran_pipe_init(void *arg, nni_pipe *npipe)
 {
 	mqtt_quictran_pipe *p = arg;
-
 	p->npipe = npipe;
-	nni_lmq_init(&p->rslmq, NNG_MAX_SEND_LMQ);
-	nni_lmq_init(&p->rxlmq, NNG_MAX_RECV_LMQ);
-	p->busy = false;
-	nni_atomic_init_bool(&p->closed);
-	nni_atomic_set_bool(&p->closed, false);
-	// set max value by default
-	p->packmax == 0 ? p->packmax = (uint32_t)0xFFFFFFFF : p->packmax;
-	p->qosmax  == 0 ? p->qosmax  = 2 : p->qosmax;
-	p->keepalive = 0;
-	return (0);
+	return 0;
 }
 
 static void
@@ -226,34 +233,38 @@ mqtt_quictran_pipe_fini(void *arg)
 		nni_mtx_lock(&ep->mtx);
 		nni_list_node_remove(&p->node);
 		ep->refcnt--;
-		if (ep->fini && (ep->refcnt == 0)) {
-			nni_reap(&quictran_ep_reap_list, ep);
-		}
 		nni_mtx_unlock(&ep->mtx);
 	}
 
 	for (uint8_t i = 0; i < QUIC_SUB_STREAM_NUM; i++)
 	{
 		quic_substream *stream = &p->substreams[i];
+		nni_msg_free(stream->rxmsg);
+		nni_msg_free(stream->pending_rx);
+		nni_msg_free(nni_aio_get_msg(&stream->qaio));
+		nni_aio_fini(&stream->raio);
+		nni_aio_fini(&stream->saio);
+		nni_aio_fini(&stream->qaio);
 		nni_lmq_flush(&stream->rslmq);
 		nni_lmq_fini(&stream->rslmq);
 		nni_mtx_fini(&stream->mtx);
 	}
 	nng_stream_free(p->conn);
+	nni_msg_free(p->pending_rx);
+	nni_id_map_fini(&p->inflight);
 	nni_aio_free(p->rxaio);
 	nni_aio_free(p->txaio);
+	nni_msg_free(nni_aio_get_msg(p->qsaio));
 	nni_aio_free(p->qsaio);
 	nni_aio_free(p->negoaio);
 	nni_aio_free(p->rpaio);
 	nni_msg_free(p->rxmsg);
+	nni_msg_free(p->connack);
 	nni_lmq_flush(&p->rxlmq);
 	nni_lmq_fini(&p->rxlmq);
 	nni_lmq_flush(&p->rslmq);
 	nni_lmq_fini(&p->rslmq);
 	nni_mtx_fini(&p->mtx);
-#ifdef NNG_HAVE_MQTT_BROKER
-	conn_param_free(p->cparam);
-#endif
 	NNI_FREE_STRUCT(p);
 }
 
@@ -278,19 +289,15 @@ mqtt_quictran_pipe_alloc(mqtt_quictran_pipe **pipep)
 		return (NNG_ENOMEM);
 	}
 	nni_mtx_init(&p->mtx);
-	if (((rv = nni_aio_alloc(&p->txaio, mqtt_quictran_pipe_send_cb, p)) != 0) ||
-	    ((rv = nni_aio_alloc(&p->rxaio, mqtt_quictran_pipe_recv_cb, p)) != 0) ||
-	    ((rv = nni_aio_alloc(&p->qsaio, mqtt_quictran_pipe_qos_send_cb, p)) != 0) ||
-	    ((rv = nni_aio_alloc(&p->rpaio, mqtt_quictran_pipe_rp_send_cb, p)) != 0) ||
-	    ((rv = nni_aio_alloc(&p->negoaio, mqtt_quictran_pipe_nego_cb, p)) != 0)) {
-		mqtt_quictran_pipe_fini(p);
-		return (rv);
-	}
+	nni_aio_list_init(&p->recvq);
+	nni_aio_list_init(&p->sendq);
+	nni_id_map_init(&p->inflight, 1, 0x4ffff, false);
 
 	for (uint8_t i = 0; i < QUIC_SUB_STREAM_NUM; i++)
 	{
 		quic_substream *stream = &p->substreams[i];
 		stream->pipe = p;
+		nni_aio_list_init(&stream->sendq);
 		stream->id = (i + 1);
 		nni_mtx_init(&stream->mtx);
 		nni_lmq_init(&stream->rslmq, 512);
@@ -300,6 +307,20 @@ mqtt_quictran_pipe_alloc(mqtt_quictran_pipe **pipep)
 		nni_aio_set_prov_data(&stream->qaio, &stream->id);
 		nni_aio_set_prov_data(&stream->raio, &stream->id);
 		nni_aio_set_prov_data(&stream->saio, &stream->id);
+	}
+
+	nni_lmq_init(&p->rslmq, NNG_MAX_SEND_LMQ);
+	nni_lmq_init(&p->rxlmq, NNG_MAX_RECV_LMQ);
+	nni_atomic_init_bool(&p->closed);
+	p->packmax = NANO_MAX_PACKET_SIZE;
+	p->qosmax = 2;
+	if (((rv = nni_aio_alloc(&p->txaio, mqtt_quictran_pipe_send_cb, p)) != 0) ||
+	    ((rv = nni_aio_alloc(&p->rxaio, mqtt_quictran_pipe_recv_cb, p)) != 0) ||
+	    ((rv = nni_aio_alloc(&p->qsaio, mqtt_quictran_pipe_qos_send_cb, p)) != 0) ||
+	    ((rv = nni_aio_alloc(&p->rpaio, mqtt_quictran_pipe_rp_send_cb, p)) != 0) ||
+	    ((rv = nni_aio_alloc(&p->negoaio, mqtt_quictran_pipe_nego_cb, p)) != 0)) {
+		mqtt_quictran_pipe_fini(p);
+		return (rv);
 	}
 
 	nni_aio_list_init(&p->recvq);
@@ -324,14 +345,6 @@ mqtt_quictran_ep_match(mqtt_quictran_ep *ep)
 	nni_list_remove(&ep->waitpipes, p);
 	nni_list_append(&ep->busypipes, p);
 	ep->useraio = NULL;
-#ifdef NNG_HAVE_MQTT_BROKER
-	if (p->cparam == NULL) {
-		p->cparam = nni_get_conn_param_from_msg(ep->connmsg);
-		if (p->keepalive != 0)
-			p->cparam->keepalive_mqtt = p->keepalive;
-		nni_msg_set_conn_param(ep->connmsg, p->cparam);
-	}
-#endif
 	nni_aio_set_output(aio, 0, p);
 	nni_aio_finish(aio, 0, 0);
 }
@@ -354,31 +367,27 @@ mqtt_quictran_pipe_nego_cb(void *arg)
 		rv = SERVER_UNAVAILABLE;
 		goto error;
 	}
-	// We start transmitting before we receive.
+
 	if (p->gottxhead < p->wanttxhead) {
-		p->gottxhead += nni_aio_count(aio);
-	} else if (p->gotrxhead < p->wantrxhead) {
+		size_t n = nni_aio_count(aio);
+		p->gottxhead += n;
+		nni_aio_iov_advance(aio, n);
+		if (nni_aio_iov_count(aio)) {
+			nng_stream_send(p->conn, aio);
+			nni_mtx_unlock(&ep->mtx);
+			return;
+		}
+	} else {
 		p->gotrxhead += nni_aio_count(aio);
 	}
-
-	if (p->gottxhead < p->wanttxhead) {
-		nni_iov iov;
-		iov.iov_len = p->wanttxhead - p->gottxhead;
-		iov.iov_buf = &p->txlen[p->gottxhead];
-		// send it down...
-		nni_aio_set_iov(aio, 1, &iov);
-		nng_stream_send(p->conn, aio);	// only main pipe
-		nni_mtx_unlock(&ep->mtx);
-		return;
-	}
-
 	// receving fixed header
-	if (p->gotrxhead == 0 ||
+	if (p->gotrxhead < 2 ||
 	    (p->gotrxhead <= 5 && p->rxlen[p->gotrxhead - 1] > 0x7f &&
 	        p->rxmsg == NULL)) {
 		nni_iov iov;
+		if (p->gotrxhead >= 5) { rv = NNG_EPROTO; goto error; }
 		iov.iov_buf = &p->rxlen[p->gotrxhead];
-		if (p->gotrxhead == 0) {
+		if (p->gotrxhead < 2) {
 			iov.iov_len = p->wantrxhead - p->gotrxhead;
 		} else {
 			iov.iov_len = 1;
@@ -389,8 +398,8 @@ mqtt_quictran_pipe_nego_cb(void *arg)
 		return;
 	}
 	// only accept CONNACK msg
-	// TODO MQTT V5 Auth
-	if ((p->rxlen[0] & CMD_CONNACK) != CMD_CONNACK) {
+	if ((p->rxlen[0] != CMD_CONNACK) &&
+	    (p->rxlen[0] != CMD_AUTH_V5)) {
 		log_error("Invalid type received %x %x", p->rxlen[0], p->rxlen[1]);
 		rv = PROTOCOL_ERROR;
 		goto error;
@@ -403,7 +412,12 @@ mqtt_quictran_pipe_nego_cb(void *arg)
 			rv = PAYLOAD_FORMAT_INVALID;
 			goto error;
 		}
-
+		size_t rcvmax = p->rcvmax > 0 ? p->rcvmax : NANO_MAX_PACKET_SIZE;
+		if ((size_t) var_int + pos + 1 > rcvmax) {
+			log_error("Packet too large in negotiation: %zu > %zu", (size_t)var_int, rcvmax);
+			rv = PACKET_TOO_LARGE;
+			goto error;
+		}
 		if ((rv = nni_mqtt_msg_alloc(&p->rxmsg, var_int)) != 0) {
 			rv = NNG_ENOMEM;
 			goto error;
@@ -423,7 +437,7 @@ mqtt_quictran_pipe_nego_cb(void *arg)
 	if (p->gotrxhead < p->wantrxhead) {
 		nni_iov iov;
 		iov.iov_len = p->wantrxhead - p->gotrxhead;
-		iov.iov_buf = nni_msg_body(p->rxmsg);
+		iov.iov_buf = (uint8_t *)nni_msg_body(p->rxmsg) + p->gotrxhead - nni_msg_header_len(p->rxmsg);
 		nni_aio_set_iov(aio, 1, &iov);
 		nng_stream_recv(p->conn, aio);
 		nni_mtx_unlock(&ep->mtx);
@@ -439,7 +453,7 @@ mqtt_quictran_pipe_nego_cb(void *arg)
 			property_free(ep->property);
 			ep->property = NULL;
 			property *prop = (void *)nni_mqtt_msg_get_connack_property(p->rxmsg);
-			if (property_dup((property **) &ep->property, prop) != 0)
+			if (prop && (rv = property_dup((property **) &ep->property, prop)) != 0)
 				goto mqtt_error;
 			if (ep->property != NULL) {
 				property_data *data;
@@ -470,7 +484,7 @@ mqtt_quictran_pipe_nego_cb(void *arg)
 				}
 				data = property_get_value(ep->property, SERVER_KEEP_ALIVE);
 				if (data) {
-					p->keepalive = data->p_value.u16;
+					p->keepalive = data->p_value.u16 * NNI_SECOND;
 				}
 			}
 		} else {
@@ -481,46 +495,32 @@ mqtt_quictran_pipe_nego_cb(void *arg)
 			ep->property = NULL;
 		}
 		ep->reason_code = nni_mqtt_msg_get_connack_return_code(p->rxmsg);
+		if (ep->reason_code != MQTT_SUCCESS) {
+			log_warn("Broker rejected CONNECT with reason code %d",
+			    ep->reason_code);
+			rv = NNG_ECONNREFUSED;
+			goto error;
+		}
 	}
-#ifdef NNG_HAVE_MQTT_BROKER
-	nni_msg_clone(p->rxmsg);
-	p->connack = p->rxmsg;
-#endif
 
 
 mqtt_error:
-	// We are ready now.  We put this in the wait list, and
-	// then try to run the matcher.
+	if (rv != MQTT_SUCCESS) goto error;
 	nni_list_remove(&ep->negopipes, p);
 	nni_list_append(&ep->waitpipes, p);
-
-	nni_msg_free(p->rxmsg);
+	p->connack = p->rxmsg;
 	p->rxmsg = NULL;
-
-	if (rv == MQTT_SUCCESS) {
-		// TODO pass reason code of CONNACK to upper layer
-		mqtt_quictran_ep_match(ep);
-	} else {
-		// Fail but still match to let user know ack has arrived
-		mqtt_quictran_ep_match(ep);
-		// send DISCONNECT
-		nni_iov iov;
-		p->txlen[0] = CMD_DISCONNECT;
-		if (p->proto == MQTT_PROTOCOL_VERSION_v5) {
-			p->txlen[1] = 0x02;
-			p->txlen[2] = ep->reason_code;
-			p->txlen[3] = 0; // length of property
-			iov.iov_len = 4;
-		} else {
-			p->txlen[1] = 0x00;
-			iov.iov_len = 2;
-		}
-		iov.iov_buf = p->txlen;
-		nni_aio_set_iov(p->rpaio, 1, &iov);
-		nng_stream_send(p->conn, p->rpaio);
+	/* All stream reads start only after MQTT negotiation and queue setup. */
+	for (unsigned i = 0; i <= (p->multi_stream ? QUIC_SUB_STREAM_NUM : 0); ++i) {
+		nni_aio *raio = i ? &p->substreams[i-1].raio : p->rxaio;
+		nni_iov iov = { i ? p->substreams[i-1].rxlen : p->rxlen, 2 };
+		if (i) p->substreams[i-1].gotrxhead = 0;
+		else p->gotrxhead = 0;
+		nni_aio_set_iov(raio, 1, &iov);
+		nng_stream_recv(p->conn, raio);
 	}
+	mqtt_quictran_ep_match(ep);
 	nni_mtx_unlock(&ep->mtx);
-
 	return;
 
 error:
@@ -562,83 +562,41 @@ mqtt_quictran_pipe_qos_send_cb(void *arg)
 }
 
 static void
-mqtt_quictran_share_qos_send_cb(void *arg, nni_aio *qsaio, quic_substream *stream)
+mqtt_quictran_share_qos_send_cb(void *arg, nni_aio *aio, quic_substream *stream)
 {
 	mqtt_quictran_pipe *p = arg;
-	nni_mtx            *mtx;
-	nni_msg            *msg;
-	size_t              n;
-	int                 rv;
-
-	msg = nni_aio_get_msg(qsaio);
-	if (nni_atomic_get_bool(&p->closed)) {
-		if (msg != NULL)
-			nni_msg_free(msg);
-		return;
-	}
-	stream == NULL ? (mtx = &p->mtx) : (mtx = &stream->mtx);
-	if ((rv = nni_aio_result(qsaio)) != 0) {
-		log_warn("qos send aio error %s", nng_strerror(rv));
-		if (msg != NULL)
-			nni_msg_free(msg);
-		nni_aio_set_msg(qsaio, NULL);
-		if (stream == NULL) {
-			
-		} else {
-			log_info("Send ACK on sub stream failed %d", rv);
-			stream->busy = false;
-		}
-		return;
-	}
-
-	nni_mtx_lock(mtx);
-	n = nni_aio_count(qsaio);
-	nni_aio_iov_advance(qsaio, n);
-
-	// more bytes to send
-	if (nni_aio_iov_count(qsaio) > 0) {
-		nng_stream_send(p->conn, qsaio);
-		nni_mtx_unlock(mtx);
-		return;
-	}
-	if (msg != NULL) {
+	bool *busy = stream ? &stream->busy : &p->busy;
+	nni_lmq *queue = stream ? &stream->rslmq : &p->rslmq;
+	nni_msg *msg;
+	nni_mtx_lock(&p->mtx);
+	msg = nni_aio_get_msg(aio);
+	if (nni_aio_result(aio) || nni_atomic_get_bool(&p->closed)) {
+		nni_aio_set_msg(aio, NULL);
 		nni_msg_free(msg);
-	} else {
-		log_warn("NULL msg detected in send_cb");
-		if (stream == NULL) {
-			nni_mtx_unlock(mtx);
-			nng_stream_close(p->conn);
-		} else {
-			log_info("Send NULL msg on sub stream");
-			stream->busy = false;
-			nni_mtx_unlock(mtx);
-		}
+		*busy = false;
+		nni_mtx_unlock(&p->mtx);
 		return;
 	}
-	nni_aio_set_msg(qsaio, NULL);
-	nni_lmq *lmq;
-	stream == NULL? (lmq = &p->rslmq) : (lmq = &stream->rslmq);
-	if (nni_lmq_get(lmq, &msg) == 0) {
-		nni_iov iov[2];
-		iov[0].iov_len = nni_msg_header_len(msg);
-		iov[0].iov_buf = nni_msg_header(msg);
-		iov[1].iov_len = nni_msg_len(msg);
-		iov[1].iov_buf = nni_msg_body(msg);
-		p->busy        = true;
-		nni_aio_set_msg(qsaio, msg);
-		// send ACK down...
-		nni_aio_set_iov(qsaio, 2, iov);
-		nng_stream_send(p->conn, qsaio);
-		nni_mtx_unlock(mtx);
+	nni_aio_iov_advance(aio, nni_aio_count(aio));
+	if (nni_aio_iov_count(aio)) {
+		nng_stream_send(p->conn, aio);
+		nni_mtx_unlock(&p->mtx);
 		return;
 	}
-	if (stream != NULL)
-		stream->busy = false;
-	else
-		p->busy = false;
-	nni_aio_set_msg(qsaio, NULL);
-	nni_mtx_unlock(mtx);
-	return;
+	nni_aio_set_msg(aio, NULL);
+	nni_msg_free(msg);
+	*busy = false;
+	if (nni_lmq_get(queue, &msg) == 0) {
+		nni_iov iov[2] = {
+			{ nni_msg_header(msg), nni_msg_header_len(msg) },
+			{ nni_msg_body(msg), nni_msg_len(msg) }
+		};
+		*busy = true;
+		nni_aio_set_msg(aio, msg);
+		nni_aio_set_iov(aio, 2, iov);
+		nng_stream_send(p->conn, aio);
+	}
+	nni_mtx_unlock(&p->mtx);
 }
 
 //Only for reply DISCONNECT while negotiating
@@ -702,15 +660,18 @@ mqtt_share_pipe_send_cb(void *arg, nni_aio *txaio, quic_substream *stream)
 	nni_aio *          aio;
 	size_t             n;
 	nni_msg *          msg;
-	NNI_ARG_UNUSED(stream);
+	nni_list *queue = stream ? &stream->sendq : &p->sendq;
 
 	nni_mtx_lock(&p->mtx);
-	aio = nni_list_first(&p->sendq);
+	aio = nni_list_first(queue);
+	if (aio == NULL) { nni_mtx_unlock(&p->mtx); return; }
 
 	log_trace(" ############ mqtt_quictran_pipe_send_cb [%p] ############ ", p);
 	if ((rv = nni_aio_result(txaio)) != 0) {
 		log_warn(" send aio error %s", nng_strerror(rv));
+		nni_aio_set_msg(txaio, NULL);
 		nni_aio_list_remove(aio);
+		mqtt_quictran_pipe_send_start(p, stream);
 		nni_mtx_unlock(&p->mtx);
 		nni_aio_finish_error(aio, rv);
 		return;
@@ -724,26 +685,23 @@ mqtt_share_pipe_send_cb(void *arg, nni_aio *txaio, quic_substream *stream)
 		return;
 	}
 
+	nni_aio_set_msg(txaio, NULL);
 	nni_aio_list_remove(aio);
-	mqtt_quictran_pipe_send_start(p);
+	mqtt_quictran_pipe_send_start(p, stream);
 	msg = nni_aio_get_msg(aio);
 
 	if (msg != NULL) {
 		n = nni_msg_len(msg);
 #ifdef NNG_ENABLE_STATS
 		// nni_pipe_bump_tx(p->npipe, n);
-		nni_sock_bump_tx(p->ep->nsock, n);
+		if (p->ep != NULL) nni_sock_bump_tx(p->ep->nsock, n);
 #endif
 		nni_msg_free(msg);
 	}
 	nni_mtx_unlock(&p->mtx);
 
 	nni_aio_set_msg(aio, NULL);
-	if (stream)
-		stream->busy = false;
-	else
-		p->busy = false;
-	nni_aio_finish_sync(aio, rv, n);
+	nni_aio_finish(aio, rv, n);
 }
 
 static void
@@ -769,116 +727,69 @@ mqtt_quictran_subpipe_recv_cb(void *arg)
 static void
 mqtt_share_pipe_recv_cb(void *arg, nni_aio *rxaio, quic_substream *stream, nni_msg **rxmsg)
 {
-	nni_aio *          aio;
-	nni_iov            iov[2];
-	uint8_t            type, pos, flags;
-	uint32_t           len = 0, rv;
-	size_t             n;
-	nni_msg *          msg;
-	mqtt_quictran_pipe *p    = arg;
-	bool               ack   = false;
-	uint8_t            *rxlen;
-	size_t			   *gotrxhead, *wantrxhead;
+	mqtt_quictran_pipe *p = arg;
+	nni_aio *aio;
+	nni_msg *msg = NULL;
+	nni_iov iov[2];
+	uint8_t *header = stream ? stream->rxlen : p->rxlen;
+	size_t *got = stream ? &stream->gotrxhead : &p->gotrxhead;
+	uint32_t len;
+	uint8_t pos, type, flags;
+	bool ack = false;
+	property *prop = NULL;
+	int rv = nni_aio_result(rxaio);
 
 	nni_mtx_lock(&p->mtx);
-	log_debug(" ###### recv cb of %p stream %p ###### ", rxaio, stream);
-	aio = nni_list_first(&p->recvq);
-	if ((rv = nni_aio_result(rxaio)) != 0) {
-		log_info("aio error result %s stream %p", nng_strerror(rv), stream);
-		if (stream == NULL) {
-			// set close flag to prevent infinit stream recv
-			nni_atomic_set_bool(&p->closed, true);
-			// NNI_ASSERT(rv == NNG_ECANCELED);
-			rv = NNG_ECONNABORTED;
-		}
-		goto recv_error;
-	}
-	if (nni_atomic_get_bool(&p->closed)) {
-		goto recv_error;
-	}
-	uint16_t *id;
-	if (stream != NULL) {
-		rxlen = stream->rxlen;
-		gotrxhead  = &stream->gotrxhead;
-		wantrxhead = &stream->wantrxhead;
-		id = (uint16_t *)nni_aio_get_prov_data(rxaio);
-		if (*id != (stream->id))
-			log_error("Unexpected Stream IO Received!");
-	} else {
-		rxlen = p->rxlen;
-		gotrxhead  = &p->gotrxhead;
-		wantrxhead = &p->wantrxhead;
-	}
-	n = nni_aio_count(rxaio);
-	*gotrxhead += n;
-
-	nni_aio_iov_advance(rxaio, n);
-	if (nni_aio_iov_count(rxaio) > 0) {
+    if (rv == NNG_ECANCELED && stream != NULL && !nni_atomic_get_bool(&p->closed)) {
+        nni_msg_free(*rxmsg); *rxmsg = NULL; *got = 0;
+        iov[0].iov_buf = header; iov[0].iov_len = 2;
+        nni_aio_set_iov(rxaio, 1, iov);
+        nng_stream_recv(p->conn, rxaio);
+        nni_mtx_unlock(&p->mtx);
+        return;
+    }
+	if (rv != 0 || nni_atomic_get_bool(&p->closed)) goto error;
+	*got += nni_aio_count(rxaio);
+	nni_aio_iov_advance(rxaio, nni_aio_count(rxaio));
+	if (nni_aio_iov_count(rxaio)) {
 		nng_stream_recv(p->conn, rxaio);
 		nni_mtx_unlock(&p->mtx);
 		return;
 	}
-
-	rv = mqtt_get_remaining_length(rxlen, *gotrxhead, &len, &pos);
-	*wantrxhead = len + 1 + pos;
-	if (*gotrxhead <= 5 && rxlen[*gotrxhead - 1] > 0x7f) {
-		if (*gotrxhead == NNI_NANO_MAX_HEADER_SIZE) {
-			rv = PACKET_TOO_LARGE;
-			goto recv_error;
-		}
-		// same packet, continue receving next byte of remaining length
-		iov[0].iov_buf = &rxlen[*gotrxhead];
-		iov[0].iov_len = 1;
-		nni_aio_set_iov(rxaio, 1, iov);
-		nng_stream_recv(p->conn, rxaio);
-		nni_mtx_unlock(&p->mtx);
-		return;
-	}
-
-	// fixed header finished
-	if (NULL == *rxmsg) {
-		// Make sure the message payload is not too big.  If it is
-		// the caller will shut down the pipe.
-		if ((len > p->rcvmax) && (p->rcvmax > 0)) {
-			rv = PACKET_TOO_LARGE;
-			goto recv_error;
-		}
-
-		if ((rv = nni_msg_alloc(rxmsg, (size_t) len)) != 0) {
-			rv = UNSPECIFIED_ERROR;
-			goto recv_error;
-		}
-
-		// Submit the rest of the data for a read -- seperate Fixed
-		// header with variable header and so on
-		//  we want to read the entire message now.
-		if (len != 0) {
-			iov[0].iov_buf = nni_msg_body(*rxmsg);
-			iov[0].iov_len = (size_t) len;
-
+	if (*rxmsg == NULL) {
+		if (header[*got - 1] & 0x80) {
+			if (*got >= 5) { rv = NNG_EPROTO; goto error; }
+			iov[0].iov_buf = header + *got;
+			iov[0].iov_len = 1;
 			nni_aio_set_iov(rxaio, 1, iov);
-			// second recv action
+			nng_stream_recv(p->conn, rxaio);
+			nni_mtx_unlock(&p->mtx);
+			return;
+		}
+		if (mqtt_get_remaining_length(header, *got, &len, &pos) != 0) {
+			rv = NNG_EPROTO; goto error;
+		}
+		if ((size_t)len + *got > p->rcvmax) { rv = NNG_EMSGSIZE; goto error; }
+		if ((rv = nni_msg_alloc(rxmsg, len)) != 0) goto error;
+		if ((rv = nni_msg_header_append(*rxmsg, header, *got)) != 0) goto error;
+		if (len) {
+			iov[0].iov_buf = nni_msg_body(*rxmsg);
+			iov[0].iov_len = len;
+			nni_aio_set_iov(rxaio, 1, iov);
 			nng_stream_recv(p->conn, rxaio);
 			nni_mtx_unlock(&p->mtx);
 			return;
 		}
 	}
-	// We read a message completely.  Let the user know the good news. use
-	// as application message callback of users
-	if (aio)
-		nni_aio_list_remove(aio);
-	nni_msg_header_append(*rxmsg, rxlen, pos + 1);
-	msg      = *rxmsg;
+	msg = *rxmsg;
 	*rxmsg = NULL;
-	n        = nni_msg_len(msg);
-	type     = rxlen[0] & 0xf0;
-	flags    = rxlen[0] & 0x0f;
-
-	// set the payload pointer of msg according to packet_type
+    if ((rv = nni_mqtt_msg_proto_data_alloc(msg)) != 0) goto error;
+    ((nni_mqtt_proto_data *)nni_msg_get_proto_data(msg))->quic_stream = stream ? stream->id : 0;
+	type = header[0] & 0xf0;
+	flags = header[0] & 0x0f;
 	uint8_t   qos_pac;
 	uint16_t  packet_id   = 0;
 	uint8_t   reason_code = 0;
-	property *prop        = NULL;
 	uint8_t   ack_cmd     = 0;
 	switch (type) {
 	case CMD_PUBLISH:
@@ -890,11 +801,11 @@ mqtt_share_pipe_recv_cb(void *arg, nni_aio *rxaio, quic_substream *stream, nni_m
 				ack_cmd = CMD_PUBREC;
 			} else {
 				rv = PROTOCOL_ERROR;
-				goto recv_error;
+				goto error;
 			}
 			if ((packet_id = nni_msg_get_pub_pid(msg)) == 0) {
 				rv = PROTOCOL_ERROR;
-				goto recv_error;
+				goto error;
 			}
 			ack = true;
 		}
@@ -903,8 +814,18 @@ mqtt_share_pipe_recv_cb(void *arg, nni_aio *rxaio, quic_substream *stream, nni_m
 		if (nni_mqtt_pubres_decode(msg, &packet_id, &reason_code, &prop,
 		        p->proto) != 0) {
 			rv = PROTOCOL_ERROR;
-			goto recv_error;
+			goto error;
 		}
+        // A negative MQTT 5 PUBREC terminates the QoS 2 exchange.
+        // Preserve it for the protocol layer and do not send PUBREL.
+        if (p->proto == MQTT_PROTOCOL_VERSION_v5 && reason_code >= 0x80) {
+            uint32_t key = packet_id | ((uint32_t) (stream ? stream->id : 0) << 16);
+            if (nni_id_get(&p->inflight, key) != NULL) {
+                nni_id_remove(&p->inflight, key);
+                p->sndmax++;
+            }
+            break;
+        }
 		ack_cmd = CMD_PUBREL;
 		ack     = true;
 		break;
@@ -913,24 +834,28 @@ mqtt_share_pipe_recv_cb(void *arg, nni_aio *rxaio, quic_substream *stream, nni_m
 			if (nni_mqtt_pubres_decode(msg, &packet_id, &reason_code,
 			        &prop, p->proto) != 0) {
 				rv = PROTOCOL_ERROR;
-				goto recv_error;
+				goto error;
 			}
 			ack_cmd = CMD_PUBCOMP;
 			ack     = true;
 			break;
 		} else {
 			rv = PROTOCOL_ERROR;
-			goto recv_error;
+			goto error;
 		}
 	case CMD_PUBACK:
 	case CMD_PUBCOMP:
 		if (nni_mqtt_pubres_decode(
 		        msg, &packet_id, &reason_code, &prop, p->proto) != 0) {
 			rv = PROTOCOL_ERROR;
-			goto recv_error;
+			goto error;
 		}
 		if (p->proto == MQTT_PROTOCOL_VERSION_v5) {
-			p->sndmax++;
+			uint32_t key = packet_id | ((uint32_t) (stream ? stream->id : 0) << 16);
+            if (nni_id_get(&p->inflight, key) != NULL) {
+                nni_id_remove(&p->inflight, key);
+                p->sndmax++;
+            }
 		}
 		break;
 	case CMD_PINGRESP:
@@ -955,14 +880,17 @@ mqtt_share_pipe_recv_cb(void *arg, nni_aio *rxaio, quic_substream *stream, nni_m
 			ack = false;
 			rv  = UNSPECIFIED_ERROR;
 			log_error("Memory error");
-			goto recv_error;
+			goto error;
 		}
 		// TODO set reason code or property here if necessary
-		nni_mqtt_msgack_encode(
-		    qmsg, packet_id, reason_code, prop, p->proto);
+        // Response packets carry our success status, not the peer's reason
+        // code or its diagnostic properties (e.g. PUBREC 0x10 is not a
+        // valid reason for PUBREL).
+		nni_mqtt_msgack_encode(qmsg, packet_id, 0, NULL, p->proto);
 		nni_mqtt_pubres_header_encode(qmsg, ack_cmd);
 		if (p->proto == MQTT_PROTOCOL_VERSION_v5) {
 			property_free(prop);
+			prop = NULL;
 		}
 		if (stream != NULL) {
 			qsaio = &stream->qaio;
@@ -1019,286 +947,162 @@ mqtt_share_pipe_recv_cb(void *arg, nni_aio *rxaio, quic_substream *stream, nni_m
 		ack = false;
 	}
 
-	if (stream == NULL) {
-		// only main stream keep connection & Schedule next receive at here
-		if (!nni_list_empty(&p->recvq)) {
-			mqtt_quictran_pipe_recv_start(p, aio);
-		}
-	}
-#ifdef NNG_HAVE_MQTT_BROKER
-	nni_msg_set_conn_param(msg, p->cparam);
-#endif
-	if (aio)
+	mqtt_quictran_pipe_send_start(p, NULL);
+	for (unsigned i = 0; i < QUIC_SUB_STREAM_NUM; i++)
+		mqtt_quictran_pipe_send_start(p, &p->substreams[i]);
+	property_free(prop);
+	prop = NULL;
+	if ((aio = nni_list_first(&p->recvq)) != NULL) {
+		nni_aio_list_remove(aio);
 		nni_aio_set_msg(aio, msg);
-	if (aio) {
-		log_trace("return msg type %d", type);
-		if (stream != NULL) {
-			nni_aio_set_prov_data(aio, &stream->id);
-		} else {
-			nni_aio_set_prov_data(aio, NULL);
-		}
+		nni_aio_finish(aio, 0, nni_msg_len(msg));
+	} else if (nni_lmq_put(&p->rxlmq, msg) != 0) {
+		// Do not ACK and discard messages when the application is slow.
+		// Stop reading this stream until pipe_recv makes room.
+		*(stream ? &stream->pending_rx : &p->pending_rx) = msg;
 		nni_mtx_unlock(&p->mtx);
-		nni_aio_finish_sync(aio, 0, n);
-#ifdef NNG_ENABLE_STATS
-		// nni_pipe_bump_rx(p->npipe, n);
-		nni_sock_bump_rx(p->ep->nsock, n);
-#endif
 		return;
-	} else if (msg != NULL) {
-		// protocol layer is not ready yet.
-		if (nni_lmq_full(&p->rxlmq)) {
-			nni_msg_free(msg);
-			// lost counter in stats msg_recv_drop
-			log_warn("msg type %d from substream lost!", type);
-		} else {
-			log_debug("cache msg from substream first");
-			if (nni_lmq_put(&p->rxlmq, msg) != 0) {
-				nni_msg_free(msg);
-			}
-		}
-		nni_iov sub_iov;
-		if (stream) {
-			stream->gotrxhead  = 0;
-			stream->wantrxhead = 2;
-			sub_iov.iov_buf    = stream->rxlen;
-			memset(stream->rxlen, '\0',
-			    sizeof(uint64_t) * sizeof(stream->rxlen[0]));
-		} else {
-			p->gotrxhead    = 0;
-			p->wantrxhead   = 2;
-			sub_iov.iov_buf = p->rxlen;
-			memset(p->rxlen, '\0',
-			    sizeof(uint64_t) * sizeof(p->rxlen[0]));
-		}
-		sub_iov.iov_len    = 2;
-		nni_aio_set_iov(rxaio, 1, &sub_iov);
-		log_debug("start recv on aio %p", rxaio);
-		nng_stream_recv(p->conn, rxaio);
-	} else {
-		log_error("NULL msg received?");
 	}
+	*got = 0;
+	iov[0].iov_buf = header;
+	iov[0].iov_len = 2;
+	nni_aio_set_iov(rxaio, 1, iov);
+	nng_stream_recv(p->conn, rxaio);
 	nni_mtx_unlock(&p->mtx);
 	return;
-
-recv_error:
-	if (aio)
-		nni_aio_list_remove(aio);
-	else if (!nni_atomic_get_bool(&p->closed)) {
-		nni_iov sub_iov;
-		if (stream) {
-			// nni_msleep(500);
-			stream->gotrxhead  = 0;
-			stream->wantrxhead = 2;
-			sub_iov.iov_buf    = stream->rxlen;
-			sub_iov.iov_len = 2;
-			nni_aio_set_iov(rxaio, 1, &sub_iov);
-
-			log_info("sub stream %d canceled, keep receving on aio %p",
-					  stream->id, rxaio);
-			nng_stream_recv(p->conn, rxaio);
-		}
-	}
-	msg      = *rxmsg;
-	*rxmsg = NULL;
-	nni_mtx_unlock(&p->mtx);
-
+error:
+	property_free(prop);
 	nni_msg_free(msg);
-	if (aio)
-		nni_aio_finish_error(aio, rv);
-	else if (stream == NULL) {
-		log_info("Main stream aborted! Connection closed!");
-		mqtt_quictran_pipe_close(p);
+	nni_msg_free(*rxmsg);
+	*rxmsg = NULL;
+	nni_atomic_set_bool(&p->closed, true);
+	while ((aio = nni_list_first(&p->recvq)) != NULL) {
+		nni_aio_list_remove(aio);
+		nni_aio_finish_error(aio, rv ? rv : NNG_ECLOSED);
 	}
+	nni_mtx_unlock(&p->mtx);
+	mqtt_quictran_pipe_close(p);
 }
 
-static void
-mqtt_quictran_pipe_send_prior(mqtt_quictran_pipe *p, nni_aio *aio)
+
+// Routing belongs to the transport, not the MQTT protocol. Keep publications
+// on one topic ordered, and keep SUBSCRIBE/UNSUBSCRIBE on the same stream.
+static quic_substream *
+mqtt_quictran_route(mqtt_quictran_pipe *p, nni_msg *msg)
 {
-	nni_msg *msg;
-	int      niov;
-	nni_iov  iov[3];
-
-	if (nni_atomic_get_bool(&p->closed)) {
-		nni_aio_finish_error(aio, SERVER_SHUTTING_DOWN);
-		return;
+	unsigned selected = nng_mqtt_quic_msg_get_stream(msg);
+	uint8_t type = *(uint8_t *) nni_msg_header(msg) & 0xf0;
+	if (!p->multi_stream) return NULL;
+	if (selected != 0) return &p->substreams[selected - 1];
+	nni_mqtt_proto_data *routing = nni_msg_get_proto_data(msg);
+	// NanoMQ's qos_first path uses the control stream to bypass data queues.
+	// Explicit SDK stream selection takes precedence over this default route.
+	if (routing != NULL && routing->quic_priority) return NULL;
+	if (type == CMD_PUBLISH) {
+		uint32_t len, hash = 2166136261u;
+		const char *topic = nni_mqtt_msg_get_publish_topic(msg, &len);
+		for (uint32_t i = 0; i < len; i++) hash = (hash ^ (uint8_t) topic[i]) * 16777619u;
+		return &p->substreams[hash % 2 + 2];
 	}
-
-	// This runs to send the message.
-	msg = nni_aio_get_msg(aio);
-
-	if (msg != NULL && p->proto == MQTT_PROTOCOL_VERSION_v5) {
-		uint8_t *header = nni_msg_header(msg);
-		if ((*header & 0XF0) == CMD_PUBLISH) {
-			// check max qos
-			uint8_t qos = nni_mqtt_msg_get_publish_qos(msg);
-			if (qos > 0)
-				p->sndmax --;
-			if (qos > p->qosmax) {
-				p->qosmax == 1 ? ((*header &= 0XF9), (*header |= 0X02)) : NNI_ARG_UNUSED(*header);
-				p->qosmax == 0? *header &= 0XF9: NNI_ARG_UNUSED(*header);
-			}
-		}
-	}
-
-	// check max packet size for v311 and v5
-	if (nni_msg_header_len(msg) + nni_msg_len(msg) > p->packmax) {
-		nni_aio_finish_error(aio, UNSPECIFIED_ERROR);
-		return;
-	}
-
-	niov  = 0;
-
-	if (nni_msg_header_len(msg) > 0) {
-		iov[niov].iov_buf = nni_msg_header(msg);
-		iov[niov].iov_len = nni_msg_header_len(msg);
-		niov++;
-	}
-	if (nni_msg_len(msg) > 0) {
-		iov[niov].iov_buf = nni_msg_body(msg);
-		iov[niov].iov_len = nni_msg_len(msg);
-		niov++;
-	}
-	nni_aio_set_iov(aio, niov, iov);
-	// For now, we take main stream for high priority msg
-	// int *flag = nni_aio_get_prov_data(aio);
-	// *flag |= p->substreams[nni_random()%2].id;
-	// nni_aio_set_prov_data(aio, flag);
-	nng_stream_send(p->conn, aio);
+	if (type == CMD_SUBSCRIBE || type == CMD_UNSUBSCRIBE) return &p->substreams[0];
+	return NULL;
 }
 
 static void
 mqtt_quictran_pipe_send_cancel(nni_aio *aio, void *arg, int rv)
 {
 	mqtt_quictran_pipe *p = arg;
-
 	nni_mtx_lock(&p->mtx);
 	if (!nni_aio_list_active(aio)) {
 		nni_mtx_unlock(&p->mtx);
 		return;
 	}
-	// If this is being sent, then cancel the pending transfer.
-	// The callback on the txaio will cause the user aio to
-	// be canceled too.
-	if (nni_list_first(&p->sendq) == aio) {
-		nni_aio_abort(p->txaio, rv);
-		nni_mtx_unlock(&p->mtx);
-		return;
+	for (unsigned i = 0; i <= QUIC_SUB_STREAM_NUM; i++) {
+		nni_list *q = i ? &p->substreams[i - 1].sendq : &p->sendq;
+		nni_aio *tx = i ? &p->substreams[i - 1].saio : p->txaio;
+		// The head may be waiting for MQTT Receive Maximum credit.
+		if (nni_list_first(q) == aio && nni_aio_get_msg(tx) != NULL) {
+			nni_aio_abort(tx, rv);
+			nni_mtx_unlock(&p->mtx);
+			return;
+		}
 	}
+	quic_substream *stream = mqtt_quictran_route(p, nni_aio_get_msg(aio));
 	nni_aio_list_remove(aio);
+	mqtt_quictran_pipe_send_start(p, stream);
 	nni_mtx_unlock(&p->mtx);
-
 	nni_aio_finish_error(aio, rv);
 }
 
+// Each stream has an independent FIFO and internal AIO. A blocked stream
+// never prevents another stream (including MQTT keepalive) from making progress.
 static void
-mqtt_quictran_pipe_send_start(mqtt_quictran_pipe *p)
+mqtt_quictran_pipe_send_start(mqtt_quictran_pipe *p, quic_substream *stream)
 {
+	nni_list *q = stream ? &stream->sendq : &p->sendq;
+	nni_aio *tx = stream ? &stream->saio : p->txaio;
 	nni_aio *aio;
-	nni_aio *txaio;
-	nni_msg *msg;
-	int      niov;
-	nni_iov  iov[3];
-
-	if (nni_atomic_get_bool(&p->closed)) {
-		while ((aio = nni_list_first(&p->sendq)) != NULL) {
-			nni_list_remove(&p->sendq, aio);
-			nni_aio_finish_error(aio, SERVER_SHUTTING_DOWN);
-		}
-		return;
-	}
-
-	if ((aio = nni_list_first(&p->sendq)) == NULL) {
-		return;
-	}
-
-	// This runs to send the message.
-	msg = nni_aio_get_msg(aio);
-	if (msg == NULL) {
-		log_error("ERROR: sending null msg! Please report issue");
-		nni_aio_list_remove(aio);
-		return;
-	}
-	if (p->proto == MQTT_PROTOCOL_VERSION_v5) {
-		uint8_t *header = nni_msg_header(msg);
-		if ((*header & 0XF0) == CMD_PUBLISH) {
-			// check max qos
-			uint8_t qos = nni_mqtt_msg_get_publish_qos(msg);
-			if (qos > 0)
-				p->sndmax --;
-			if (qos > p->qosmax) {
-				p->qosmax == 1 ? ((*header &= 0XF9), (*header |= 0X02)) : NNI_ARG_UNUSED(*header);
-				p->qosmax == 0? *header &= 0XF9: NNI_ARG_UNUSED(*header);
+	if (nni_atomic_get_bool(&p->closed) || nni_aio_get_msg(tx) != NULL) return;
+	while ((aio = nni_list_first(q)) != NULL) {
+		nni_msg *msg = nni_aio_get_msg(aio);
+		uint8_t type = *(uint8_t *) nni_msg_header(msg) & 0xf0;
+		if (p->proto == MQTT_PROTOCOL_VERSION_v5 && type == CMD_PUBLISH &&
+		    nni_mqtt_msg_get_publish_qos(msg) != 0) {
+			uint32_t key = nni_mqtt_msg_get_packet_id(msg) |
+			    ((uint32_t) (stream ? stream->id : 0) << 16);
+			if (nni_id_get(&p->inflight, key) == NULL) {
+				if (p->sndmax == 0) return;
+				int rv = nni_id_set(&p->inflight, key, p);
+				if (rv != 0) {
+					nni_aio_list_remove(aio);
+					nni_aio_finish_error(aio, rv);
+					continue;
+				}
+				p->sndmax--;
 			}
 		}
-	}
-	// 2 data stream with low priority 2 sub stream 
-	if (nni_msg_get_type(msg) == CMD_PUBLISH) {
-		txaio = &p->substreams[nni_random()%2 + 2].saio;
-		log_debug("send on sub aio %p", txaio);
-	} else if (nni_msg_get_type(msg) == CMD_SUBSCRIBE) {
-		txaio = &p->substreams[nni_random()%2].saio;
-		log_debug("send on sub aio %p", txaio);
-	} else {
-		txaio = p->txaio;
-		log_debug("send on main aio %p", txaio);
-	}
-	// check max packet size for v311 and v5
-	if (nni_msg_header_len(msg) + nni_msg_len(msg) > p->packmax) {
-		nni_aio_finish_error(txaio, UNSPECIFIED_ERROR);
+		int *flags = stream ? &stream->send_flags : &p->send_flags;
+		*flags = stream ? stream->id : 0;
+		nni_mqtt_proto_data *routing = nni_msg_get_proto_data(msg);
+		if (routing != NULL && routing->quic_priority) *flags |= QUIC_HIGH_PRIOR_MSG;
+		nni_iov iov[2] = {
+			{ nni_msg_header(msg), nni_msg_header_len(msg) },
+			{ nni_msg_body(msg), nni_msg_len(msg) }
+		};
+		nni_aio_set_prov_data(tx, flags);
+		// Non-owning marker: the upper AIO retains the message until completion.
+		nni_aio_set_msg(tx, msg);
+		nni_aio_set_iov(tx, 2, iov);
+		nng_stream_send(p->conn, tx);
 		return;
 	}
-
-	niov  = 0;
-
-	if (nni_msg_header_len(msg) > 0) {
-		iov[niov].iov_buf = nni_msg_header(msg);
-		iov[niov].iov_len = nni_msg_header_len(msg);
-		niov++;
-	}
-	if (nni_msg_len(msg) > 0) {
-		iov[niov].iov_buf = nni_msg_body(msg);
-		iov[niov].iov_len = nni_msg_len(msg);
-		niov++;
-	}
-
-	nni_aio_set_iov(txaio, niov, iov);
-	nng_stream_send(p->conn, txaio);
 }
 
 static void
 mqtt_quictran_pipe_send(void *arg, nni_aio *aio)
 {
 	mqtt_quictran_pipe *p = arg;
-	int                rv;
-
-	if (nni_atomic_get_bool(&p->closed)) {
-		nni_aio_finish_error(aio, NNG_ECLOSED);
-		return;
-	}
+	nni_msg *msg = nni_aio_get_msg(aio);
+	int rv = 0;
+	if (nni_aio_begin(aio) != 0) return;
 	nni_mtx_lock(&p->mtx);
-	// Priority msg
-	int *flags = nni_aio_get_prov_data(aio);
-	if (flags && (*flags & QUIC_HIGH_PRIOR_MSG)) {
-		// This is user aio from app layer
-		mqtt_quictran_pipe_send_prior(p, aio);
-		nni_mtx_unlock(&p->mtx);
-		return;
-	}
-	if (nni_aio_begin(aio) != 0) {
-		nni_mtx_unlock(&p->mtx);
-		return;
-	}
-
-	if ((rv = nni_aio_schedule(aio, mqtt_quictran_pipe_send_cancel, p)) != 0) {
+	if (nni_atomic_get_bool(&p->closed)) rv = NNG_ECLOSED;
+	else if (msg == NULL || nni_msg_header_len(msg) == 0) rv = NNG_EINVAL;
+	else if (nng_mqtt_quic_msg_get_stream(msg) > QUIC_SUB_STREAM_NUM) rv = NNG_EINVAL;
+	else if (!p->multi_stream && nng_mqtt_quic_msg_get_stream(msg) != 0) rv = NNG_ENOTSUP;
+	else if (nni_msg_header_len(msg) + nni_msg_len(msg) > p->packmax) rv = NNG_EMSGSIZE;
+	else if ((*(uint8_t *) nni_msg_header(msg) & 0xf0) == CMD_PUBLISH &&
+	    nni_mqtt_msg_get_publish_qos(msg) > p->qosmax) rv = NNG_EPROTO;
+	if (rv == 0) rv = nni_aio_schedule(aio, mqtt_quictran_pipe_send_cancel, p);
+	if (rv != 0) {
 		nni_mtx_unlock(&p->mtx);
 		nni_aio_finish_error(aio, rv);
 		return;
 	}
-
-	nni_list_append(&p->sendq, aio);
-	if (nni_list_first(&p->sendq) == aio) {
-		mqtt_quictran_pipe_send_start(p);
-	}
+	quic_substream *stream = mqtt_quictran_route(p, msg);
+	nni_list *q = stream ? &stream->sendq : &p->sendq;
+	nni_aio_list_append(q, aio);
+	mqtt_quictran_pipe_send_start(p, stream);
 	nni_mtx_unlock(&p->mtx);
 }
 
@@ -1306,78 +1110,14 @@ static void
 mqtt_quictran_pipe_recv_cancel(nni_aio *aio, void *arg, int rv)
 {
 	mqtt_quictran_pipe *p = arg;
-
-	log_warn("mqtt_quictran_pipe_recv_cancel triggered!");
 	nni_mtx_lock(&p->mtx);
-	if (!nni_aio_list_active(aio)) {
-		nni_mtx_unlock(&p->mtx);
-		return;
+	if (nni_aio_list_active(aio)) {
+		nni_aio_list_remove(aio);
+		nni_aio_finish_error(aio, rv);
 	}
-
-	if (nni_list_first(&p->recvq) == aio) {
-		nni_aio_abort(p->rxaio, rv);
-		nni_mtx_unlock(&p->mtx);
-		return;
-	}
-	nni_aio_list_remove(aio);
 	nni_mtx_unlock(&p->mtx);
-	nni_aio_finish_error(aio, rv);
 }
 
-static void
-mqtt_quictran_pipe_recv_start(mqtt_quictran_pipe *p, nni_aio *aio)
-{
-	nni_iov  iov;
-
-	if (nni_atomic_get_bool(&p->closed)) {
-		log_warn("recv canceled due to disconnect!");
-		while ((aio = nni_list_first(&p->recvq)) != NULL) {
-			nni_list_remove(&p->recvq, aio);
-			nni_aio_finish_error(aio, NNG_ECONNABORTED);
-		}
-		return;
-	}
-	if (nni_list_empty(&p->recvq)) {
-		log_error("recv stopped due to empty recvq!");
-		return;
-	}
-
-	int *flags = nni_aio_get_prov_data(aio);
-
-	// Schedule a read of the header.
-	if (flags) {
-		int strmid = (*flags & QUIC_MULTISTREAM_FLAGS);
-		quic_substream *stream = &p->substreams[strmid-1];
-		if (!nni_aio_list_active(&stream->raio)) {
-			nni_iov sub_iov;
-			stream->gotrxhead  = 0;
-			// 2 = MIN_FIXED_HEADER_LEN
-			stream->wantrxhead = 2;
-			sub_iov.iov_buf   = stream->rxlen;
-			sub_iov.iov_len   = 2;
-			memset(stream->rxlen, '\0', sizeof(uint64_t) * sizeof(stream->rxlen[0]));
-			nni_aio_set_iov(&stream->raio, 1, &sub_iov);
-			log_info(" start recv on sub aio %p", &stream->raio);
-			nni_aio_set_prov_data(&stream->raio, &stream->id);
-			nng_stream_recv(p->conn, &stream->raio);
-		} else {
-			log_error("Init Receving action on a scheduled aio!");
-		}
-	} else if (!nni_aio_list_active(p->rxaio)) {
-		p->gotrxhead  = 0;
-		// 2 = MIN_FIXED_HEADER_LEN
-		p->wantrxhead = 2;
-		iov.iov_buf   = p->rxlen;
-		iov.iov_len   = 2;
-		memset(p->rxlen, '\0', sizeof(uint64_t) * sizeof(p->rxlen[0]));
-		nni_aio_set_iov(p->rxaio, 1, &iov);
-		log_info(" start recv on main aio %p", p->rxaio);
-		nng_stream_recv(p->conn, p->rxaio);
-	} else {
-		// wait last recv action to finish
-		log_error("Main stream aio schedule failed! Aio is already active");
-	}
-}
 
 static void
 mqtt_quictran_pipe_recv(void *arg, nni_aio *aio)
@@ -1390,9 +1130,36 @@ mqtt_quictran_pipe_recv(void *arg, nni_aio *aio)
 		return;
 	}
 	nni_mtx_lock(&p->mtx);
+	if (nni_atomic_get_bool(&p->closed)) {
+		nni_mtx_unlock(&p->mtx);
+		nni_aio_finish_error(aio, NNG_ECLOSED);
+		return;
+	}
 
+	if (p->connack) {
+		msg = p->connack;
+		p->connack = NULL;
+		nni_aio_set_msg(aio, msg);
+		nni_mtx_unlock(&p->mtx);
+		nni_aio_finish(aio, 0, nni_msg_len(msg));
+		return;
+	}
 	if (nni_lmq_get(&p->rxlmq, &msg) == 0) {
-		// nni_aio_list_remove(aio);
+		for (unsigned i = 0; i <= QUIC_SUB_STREAM_NUM; i++) {
+			quic_substream *stream = i ? &p->substreams[i - 1] : NULL;
+			nni_msg **pending = stream ? &stream->pending_rx : &p->pending_rx;
+			if (*pending == NULL) continue;
+			int putrv = nni_lmq_put(&p->rxlmq, *pending);
+			NNI_ASSERT(putrv == 0);
+			NNI_ARG_UNUSED(putrv);
+			*pending = NULL;
+			nni_aio *rx = stream ? &stream->raio : p->rxaio;
+			*(stream ? &stream->gotrxhead : &p->gotrxhead) = 0;
+			nni_iov iov = { stream ? stream->rxlen : p->rxlen, 2 };
+			nni_aio_set_iov(rx, 1, &iov);
+			nng_stream_recv(p->conn, rx);
+			break;
+		}
 		nni_aio_set_msg(aio, msg);
 		nni_mtx_unlock(&p->mtx);
 		nni_aio_finish(aio, 0, nni_msg_len(msg));
@@ -1403,20 +1170,8 @@ mqtt_quictran_pipe_recv(void *arg, nni_aio *aio)
 		nni_aio_finish_error(aio, rv);
 		return;
 	}
-#ifdef NNG_HAVE_MQTT_BROKER
-	if (p->connack != NULL) {
-		nni_aio_set_msg(aio, p->connack);
-		nni_msg_set_conn_param(p->connack, p->cparam);
-		p->connack = NULL;
-		nni_mtx_unlock(&p->mtx);
-		nni_aio_finish(aio, 0, 0);
-		return;
-	}
-#endif
 	nni_list_append(&p->recvq, aio);
-	if (nni_list_first(&p->recvq) == aio) {
-		mqtt_quictran_pipe_recv_start(p, aio);
-	}
+
 	nni_mtx_unlock(&p->mtx);
 }
 
@@ -1433,6 +1188,8 @@ mqtt_quictran_pipe_getopt(
     void *arg, const char *name, void *buf, size_t *szp, nni_type t)
 {
 	mqtt_quictran_pipe *p = arg;
+	if (strcmp(name, NNG_OPT_MQTT_KEEPALIVE_INTERVAL) == 0)
+		return nni_copyout_ms(p->keepalive, buf, szp, t);
 	return (nni_stream_get(p->conn, name, buf, szp, t));
 }
 
@@ -1449,61 +1206,29 @@ mqtt_quictran_pipe_start(
 	ep->refcnt++;
 
 	p->conn   = conn;
+	(void)nng_stream_get_bool(conn, NNG_OPT_QUIC_ENABLE_MULTISTREAM, &p->multi_stream);
 	p->ep     = ep;
-	p->rcvmax = 0;
+	p->rcvmax = NANO_MAX_PACKET_SIZE;
 	p->sndmax = 65535;
-#ifdef NNG_HAVE_MQTT_BROKER
-	p->cparam = NULL;
-#endif
-	nni_dialer_getopt(ep->ndialer, NNG_OPT_MQTT_CONNMSG, &connmsg, NULL,
-	    NNI_TYPE_POINTER);
 
+	connmsg = ep->connmsg;
 	if (connmsg == NULL) {
-		mqtt_version = 0;
-		log_error("User forget to set CONNECT msg!");
-	} else {
-		mqtt_version = nni_mqtt_msg_get_connect_proto_version(connmsg);
-	}
-
-	if (mqtt_version == MQTT_PROTOCOL_VERSION_v311) {
-		if (ep->no_local_v4) {
-			uint8_t proto_ver = mqtt_version;
-			proto_ver |= 0x80;
-			nni_mqtt_msg_set_connect_proto_version(
-			    connmsg, proto_ver);
-		}
-		rv = nni_mqtt_msg_encode(connmsg);
-		// Stupid Mosquitto hack.
-		nni_mqtt_msg_set_connect_proto_version(connmsg, mqtt_version);
-	} else if (mqtt_version == MQTT_PROTOCOL_VERSION_v5) {
-		property *prop = nni_mqtt_msg_get_connect_property(connmsg);
-		property_data *data;
-		data = property_get_value(prop, MAXIMUM_PACKET_SIZE);
-		if (data)
-			p->rcvmax = data->p_value.u32;
-		rv = nni_mqttv5_msg_encode(connmsg);
-	} else {
-		nni_plat_printf("Warning. MQTT protocol version is not specificed.\n");
-		rv = 1;
-	}
-
-	if (rv != MQTT_SUCCESS ||
-	   (mqtt_version != MQTT_PROTOCOL_VERSION_v311 &&
-	    mqtt_version != MQTT_PROTOCOL_VERSION_v5)) {
-		// Free the msg from user
-		nni_msg_free(connmsg);
-		log_error("Warning. Cancelled a illegal connnect msg from user.\n");
-		// Using MQTT V311 as default protocol version
-		mqtt_version = 4; // Default version 4
-		nni_mqtt_msg_alloc(&connmsg, 0);
+		if ((rv = nni_mqtt_msg_alloc(&connmsg, 0)) != 0) goto start_error;
 		nni_mqtt_msg_set_packet_type(connmsg, NNG_MQTT_CONNECT);
-		nni_mqtt_msg_set_connect_proto_version(
-		    connmsg, MQTT_PROTOCOL_VERSION_v311);
+		nni_mqtt_msg_set_connect_proto_version(connmsg, 4);
 		nni_mqtt_msg_set_connect_keep_alive(connmsg, 60);
 		nni_mqtt_msg_set_connect_clean_session(connmsg, true);
 		ep->connmsg = connmsg;
 	}
-
+	mqtt_version = nni_mqtt_msg_get_connect_proto_version(connmsg);
+	if (mqtt_version == 4) rv = nni_mqtt_msg_encode(connmsg);
+	else if (mqtt_version == 5) {
+		property_data *data = property_get_value(nni_mqtt_msg_get_connect_property(connmsg), MAXIMUM_PACKET_SIZE);
+		if (data) p->rcvmax = data->p_value.u32;
+		rv = nni_mqttv5_msg_encode(connmsg);
+	} else rv = NNG_EPROTO;
+	if (rv) goto start_error;
+	p->keepalive = nni_mqtt_msg_get_connect_keep_alive(connmsg) * NNI_SECOND;
 	p->gotrxhead  = 0;
 	p->gottxhead  = 0;
 	p->wantrxhead = 2;
@@ -1527,23 +1252,13 @@ mqtt_quictran_pipe_start(
 
 	nni_aio_set_timeout(p->negoaio, 10000); // 10 sec timeout to negotiate
 	nng_stream_send(p->conn, p->negoaio);
-	nni_iov sub_iov[4];
-	for (uint8_t i = 0; i < QUIC_SUB_STREAM_NUM; i++)
-	{
-		// simply go through all sub stream.
-		quic_substream *stream = &p->substreams[i];
-		if (!nni_aio_list_active(&stream->raio)) {
-			stream->gotrxhead    = 0;
-			// 2 = MIN_FIXED_HEADER_LEN
-			stream->wantrxhead   = 2;
-			sub_iov[i].iov_buf   = stream->rxlen;
-			sub_iov[i].iov_len   = 2;
-			nni_aio_set_iov(&stream->raio, 1, &sub_iov[i]);
-			nni_aio_set_prov_data(&stream->raio, &stream->id);
-			log_debug(" start recv on sub aio %p", &stream->raio);
-			nng_stream_recv(p->conn, &stream->raio);
-		}
+	return;
+start_error:
+	if (ep->useraio) {
+		nni_aio_finish_error(ep->useraio, rv);
+		ep->useraio = NULL;
 	}
+	mqtt_quictran_pipe_reap(p);
 }
 
 static void
@@ -1554,6 +1269,8 @@ mqtt_quictran_ep_fini(void *arg)
 	nni_mtx_lock(&ep->mtx);
 	ep->fini = true;
 	if (ep->refcnt != 0) {
+		// Keep nng_fini's reap drain aware of negotiating pipes as well.
+		nni_reap(&quictran_ep_reap_list, ep);
 		nni_mtx_unlock(&ep->mtx);
 		return;
 	}
@@ -1606,77 +1323,6 @@ mqtt_quictran_ep_close(void *arg)
 
 	nni_mtx_unlock(&ep->mtx);
 }
-
-// This parses off the optional source address that this transport uses.
-// The special handling of this URL format is quite honestly an historical
-// mistake, which we would remove if we could.
-
-
-// we delete mqtt_quictran_url_parse_source
-
-// static void
-// mqtt_quictran_timer_cb(void *arg)
-// {
-// 	mqtt_quictran_ep *ep = arg;
-// 	if (nni_aio_result(ep->timeaio) == 0) {
-// 		nng_stream_listener_accept(ep->listener, ep->connaio);
-// 	}
-// }
-
-// static void
-// mqtt_quictran_accept_cb(void *arg)
-// {
-// 	mqtt_quictran_ep *  ep  = arg;
-// 	nni_aio *          aio = ep->connaio;
-// 	mqtt_quictran_pipe *p;
-// 	int                rv;
-// 	nng_stream *       conn;
-
-// 	nni_mtx_lock(&ep->mtx);
-
-// 	if ((rv = nni_aio_result(aio)) != 0) {
-// 		goto error;
-// 	}
-
-// 	conn = nni_aio_get_output(aio, 0);
-// 	if ((rv = mqtt_quictran_pipe_alloc(&p)) != 0) {
-// 		nng_stream_free(conn);
-// 		goto error;
-// 	}
-
-// 	if (ep->closed) {
-// 		mqtt_quictran_pipe_fini(p);
-// 		nng_stream_free(conn);
-// 		rv = NNG_ECLOSED;
-// 		goto error;
-// 	}
-// 	mqtt_quictran_pipe_start(p, conn, ep);
-// 	nng_stream_listener_accept(ep->listener, ep->connaio);
-// 	nni_mtx_unlock(&ep->mtx);
-// 	return;
-
-// error:
-// 	// When an error here occurs, let's send a notice up to the consumer.
-// 	// That way it can be reported properly.
-// 	if ((aio = ep->useraio) != NULL) {
-// 		ep->useraio = NULL;
-// 		nni_aio_finish_error(aio, rv);
-// 	}
-// 	switch (rv) {
-
-// 	case NNG_ENOMEM:
-// 	case NNG_ENOFILES:
-// 		nng_sleep_aio(10, ep->timeaio);
-// 		break;
-
-// 	default:
-// 		if (!ep->closed) {
-// 			nng_stream_listener_accept(ep->listener, ep->connaio);
-// 		}
-// 		break;
-// 	}
-// 	nni_mtx_unlock(&ep->mtx);
-// }
 
 static void
 mqtt_quictran_dial_cb(void *arg)
@@ -1809,8 +1455,6 @@ mqtt_quictran_ep_connect(void *arg, nni_aio *aio)
 	mqtt_quictran_ep *ep = arg;
 	int              rv;
 
-	// XXX Reset the d_started flag to allow eatablish multistream fast
-	nni_atomic_flag_reset(&ep->ndialer->d_started);
 
 	if ((rv = nni_aio_begin(aio)) != 0) {
 		log_error("ep connect rv %d", rv);
@@ -1819,16 +1463,6 @@ mqtt_quictran_ep_connect(void *arg, nni_aio *aio)
 	if (ep->closed) {
 		nni_aio_finish_error(aio, NNG_ECLOSED);
 		return;
-	}
-	if (ep->backoff != 0) {
-		ep->backoff = ep->backoff * 2;
-		ep->backoff = ep->backoff > ep->backoff_max
-		    ? (nni_duration) (nni_random() % 1000)
-		    : ep->backoff;
-		log_info("reconnect in %ld", ep->backoff);
-		nni_msleep(ep->backoff);
-	} else {
-		ep->backoff = nni_random()%2000;
 	}
 	nni_mtx_lock(&ep->mtx);
 	if (ep->closed) {
@@ -1882,7 +1516,7 @@ mqtt_quictran_ep_get_reasoncode(void *arg, void *v, size_t *sz, nni_opt_type t)
 	int              rv;
 
 	nni_mtx_lock(&ep->mtx);
-	rv = nni_copyin_int(v, &ep->reason_code, sizeof(ep->reason_code), 0, 256, t);
+	rv = nni_copyout_int(ep->reason_code, v, sz, t);
 	nni_mtx_unlock(&ep->mtx);
 	return (rv);
 }
@@ -1909,33 +1543,20 @@ mqtt_quictran_ep_get_property(void *arg, void *v, size_t *szp, nni_opt_type t)
 }
 
 static int
-mqtt_quictran_ep_set_connmsg(
-    void *arg, const void *v, size_t sz, nni_opt_type t)
+mqtt_quictran_ep_set_connmsg(void *arg, const void *v, size_t sz, nni_opt_type t)
 {
 	mqtt_quictran_ep *ep = arg;
-	nni_msg *        msg = NULL;
-	nni_msg *        dup = NULL;
-	nni_msg *        old = NULL;
-	int              rv;
-
-	if ((rv = nni_copyin_ptr((void **) &msg, v, sz, t)) != 0) {
-		return (rv);
-	}
-
-	if ((msg != NULL) && ((rv = nni_msg_dup(&dup, msg)) != 0)) {
-		return (rv);
-	}
-
+	nni_msg *msg;
+	int rv = nni_copyin_ptr((void **)&msg, v, sz, t);
+	if (rv) return rv;
 	nni_mtx_lock(&ep->mtx);
-	old        = ep->connmsg;
-	ep->connmsg = dup;
-	nni_mtx_unlock(&ep->mtx);
-
-	if (old != NULL) {
-		nni_msg_free(old);
+	if (ep->refcnt || ep->useraio) rv = NNG_ESTATE;
+	else if (msg != ep->connmsg) {
+		nni_msg_free(ep->connmsg);
+		ep->connmsg = msg;
 	}
-
-	return (0);
+	nni_mtx_unlock(&ep->mtx);
+	return rv;
 }
 
 // NanoSDK use exponential backoff strategy as default
@@ -1958,111 +1579,14 @@ mqtt_quictran_ep_set_reconnect_backoff(void *arg, const void *v, size_t sz, nni_
 	return (rv);
 }
 
-static int
-mqtt_quictran_ep_set_ep_closed(void *arg, const void *v, size_t sz, nni_opt_type t)
-{
-	mqtt_quictran_ep *ep = arg;
-	bool             tmp;
-	int              rv;
-
-	if ((rv = nni_copyin_bool(&tmp, v, sz, t)) == 0) {
-		nni_mtx_lock(&ep->mtx);
-		ep->closed = tmp;
-		if (tmp == true) {
-			mqtt_quictran_pipe *p;
-			NNI_LIST_FOREACH (&ep->busypipes, p) {
-				nni_pipe_close(p->npipe);
-			}
-		}
-		nni_mtx_unlock(&ep->mtx);
-	}
-	return (rv);
-}
 
 static int
 mqtt_quictran_ep_set_priority(void *arg, const void *v, size_t sz, nni_opt_type t)
 {
-	NNI_ARG_UNUSED(sz);
 	mqtt_quictran_ep *ep = arg;
-	int rv;
-	int tmp;
-
-	nni_mtx_lock(&ep->mtx);
-	if((rv = nni_copyin_int(&tmp, v, sizeof(int), 0, 65535, t)) != 0) {
-		nni_stream_dialer_set(ep->dialer, NNG_OPT_QUIC_PRIORITY, NULL, sizeof(int), NNI_TYPE_INT32);
-		return rv;
-	}
-
-	nni_stream_dialer_set(ep->dialer, NNG_OPT_QUIC_PRIORITY, &tmp, sizeof(int), NNI_TYPE_INT32);
-	nni_mtx_unlock(&ep->mtx);
-
-	return (rv);
+	return nni_stream_dialer_set(ep->dialer, NNG_OPT_QUIC_PRIORITY, v, sz, t);
 }
 
-static int
-mqtt_quictran_ep_set_nolocal_v4(void *arg, const void *v, size_t sz, nni_opt_type t)
-{
-	mqtt_quictran_ep *ep = arg;
-	bool             tmp;
-	int              rv;
-
-	if ((rv = nni_copyin_bool(&tmp, v, sz, t)) == 0) {
-		nni_mtx_lock(&ep->mtx);
-		ep->no_local_v4 = tmp;
-		nni_mtx_unlock(&ep->mtx);
-	}
-	return (rv);
-}
-
-/*
-static int
-mqtt_quictran_ep_bind(void *arg)
-{
-	mqtt_quictran_ep *ep = arg;
-	int              rv;
-
-	nni_mtx_lock(&ep->mtx);
-	rv = nng_stream_listener_listen(ep->listener);
-	nni_mtx_unlock(&ep->mtx);
-
-	return (rv);
-}
-
-static void
-mqtt_quictran_ep_accept(void *arg, nni_aio *aio)
-{
-	mqtt_quictran_ep *ep = arg;
-	int              rv;
-
-	if (nni_aio_begin(aio) != 0) {
-		return;
-	}
-	nni_mtx_lock(&ep->mtx);
-	if (ep->closed) {
-		nni_mtx_unlock(&ep->mtx);
-		nni_aio_finish_error(aio, NNG_ECLOSED);
-		return;
-	}
-	if (ep->useraio != NULL) {
-		nni_mtx_unlock(&ep->mtx);
-		nni_aio_finish_error(aio, NNG_EBUSY);
-		return;
-	}
-	if ((rv = nni_aio_schedule(aio, mqtt_quictran_ep_cancel, ep)) != 0) {
-		nni_mtx_unlock(&ep->mtx);
-		nni_aio_finish_error(aio, rv);
-		return;
-	}
-	ep->useraio = aio;
-	if (!ep->started) {
-		ep->started = true;
-		nng_stream_listener_accept(ep->listener, ep->connaio);
-	} else {
-		mqtt_quictran_ep_match(ep);
-	}
-	nni_mtx_unlock(&ep->mtx);
-}
-*/
 
 static nni_sp_pipe_ops mqtt_quictran_pipe_ops = {
 	.p_init   = mqtt_quictran_pipe_init,
@@ -2098,16 +1622,8 @@ static const nni_option mqtt_quictran_ep_opts[] = {
 	    .o_get  = mqtt_quictran_ep_get_url,
 	},
 	{
-	    .o_name = NNG_OPT_BRIDGE_SET_EP_CLOSED,
-	    .o_set  = mqtt_quictran_ep_set_ep_closed,
-	},
-	{
 	    .o_name = NNG_OPT_MQTT_QUIC_PRIORITY,
 	    .o_set  = mqtt_quictran_ep_set_priority,
-	},
-	{
-	    .o_name = NNG_OPT_MQTT_NO_LOCAL_V4,
-	    .o_set  = mqtt_quictran_ep_set_nolocal_v4,
 	},
 	// terminate list
 	{

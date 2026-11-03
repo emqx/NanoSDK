@@ -17,7 +17,17 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#if defined(SUPP_QUIC)
+
+// Open only creates the socket. Set CONNECT and QUIC/TLS options on an
+// nng_dialer, then call nng_dialer_start. Receive/connect callback messages
+// are borrowed for the duration of the callback; duplicate to retain them.
+// Optional data-stream selection for PUBLISH/SUBSCRIBE/UNSUBSCRIBE.
+// 0 selects automatic routing; 1..4 select a data stream in multistream mode.
+// Subscribe and unsubscribe for a topic must use the same stream. Received
+// messages report their actual stream (0 is the control stream). Selection
+// survives nng_msg_dup and retransmission; it is not encoded in MQTT packets.
+NNG_DECL int nng_mqtt_quic_msg_set_stream(nng_msg *, unsigned stream_id);
+NNG_DECL unsigned nng_mqtt_quic_msg_get_stream(const nng_msg *);
 
 NNG_DECL int nng_mqttv5_quic_client_open(nng_socket *);
 NNG_DECL int nng_mqtt_quic_client_open(nng_socket *);
@@ -32,7 +42,6 @@ NNG_DECL int nng_mqttv5_quic_set_msg_send_cb(nng_socket *sock, int (*cb)(void *,
 NNG_DECL int nng_mqttv5_quic_set_msg_recv_cb(nng_socket *sock, int (*cb)(void *, void *), void *arg);
 NNG_DECL int nng_mqttv5_quic_set_disconnect_cb(nng_socket *sock, int (*cb)(void *, void *), void *arg);
 
-#endif
 #ifdef __cplusplus
 }
 #endif
