@@ -31,9 +31,27 @@ static QUIC_STATUS QUIC_API fake_stream_open(HQUIC h, QUIC_STREAM_OPEN_FLAGS fla
 static QUIC_STATUS QUIC_API fake_stream_start(HQUIC h, QUIC_STREAM_START_FLAGS flags)
 { (void)h; (void)flags; return fail_start ? QUIC_STATUS_OUT_OF_MEMORY : QUIC_STATUS_PENDING; }
 static void QUIC_API fake_stream_close(HQUIC h)
-{ (void)h; ++stream_closes; }
+{
+    quic_channel *ch = (quic_channel *)h;
+    if (ch->opening) {
+        // Model a worker callback acquiring c->mtx while StreamClose waits.
+        nni_mtx_lock(&ch->conn->mtx);
+        nni_mtx_unlock(&ch->conn->mtx);
+    }
+    ++stream_closes;
+}
+static unsigned priority_sets;
+static QUIC_STATUS QUIC_API fake_setparam(HQUIC h, uint32_t param, uint32_t len, const void *value)
+{
+    (void)h;
+    NUTS_TRUE(param == QUIC_PARAM_STREAM_PRIORITY && len == sizeof(uint16_t));
+    NUTS_TRUE(*(const uint16_t *)value == 17);
+    priority_sets++;
+    return QUIC_STATUS_SUCCESS;
+}
 static const QUIC_API_TABLE table = {
     .StreamOpen = fake_stream_open,
+    .SetParam = fake_setparam,
     .StreamStart = fake_stream_start,
     .StreamClose = fake_stream_close,
 	.StreamSend = fake_send,
@@ -242,7 +260,25 @@ static void test_late_shutdown_cleanup(void)
     nni_mtx_fini(&d.mtx);
 }
 
+static void test_retry_priority_on_worker(void)
+{
+    nni_quic_conn c; nni_quic_dialer d;
+    NUTS_PASS(nni_init()); setup(&c, &d);
+    c.channels = 2; c.connected = true; c.priority = 17;
+    quic_channel *ch = &c.channel[1]; ch->conn = &c;
+    nni_aio_list_init(&ch->readers); NNI_LIST_INIT(&ch->sends, quic_send, node);
+    nni_aio_init(&c.reopen_aio, channel_retry, &c); c.reopen_initialized = true;
+    priority_sets = 0; fail_start = false;
+    channel_retry(&c);
+    NUTS_TRUE(ch->handle != NULL && priority_sets == 0);
+    QUIC_STREAM_EVENT event = {.Type = QUIC_STREAM_EVENT_START_COMPLETE};
+    event.START_COMPLETE.Status = QUIC_STATUS_SUCCESS;
+    stream_cb(ch->handle, ch, &event);
+    NUTS_TRUE(priority_sets == 1);
+    nni_aio_fini(&c.reopen_aio); teardown(&c, &d);
+}
 TEST_LIST = {
+    {"reopen timer defers blocking priority update to worker", test_retry_priority_on_worker},
     {"close completes receives during transport shutdown", test_close_during_transport_shutdown},
     {"async substream start failure retries with backoff", test_async_start_failure_backoff},
     {"upstream default QUIC settings", test_defaults},

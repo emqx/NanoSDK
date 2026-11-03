@@ -23,6 +23,7 @@ struct quic_channel {
 	nni_list sends;
 	bool eof;
     bool start_failed;
+    bool opening;
 };
 struct nni_quic_conn {
 	nng_stream stream;
@@ -118,8 +119,8 @@ conn_release(nni_quic_conn *c)
     nni_mtx_unlock(&c->mtx);
 }
 
-// Called with c->mtx held; callbacks for the new stream run later on the
-// connection worker. The channel context survives replacement of its handle.
+// Called with c->mtx held. Temporarily releases it for blocking cleanup.
+// The connection callback or reopen AIO keeps the channel context alive.
 static int
 channel_open(quic_channel *ch)
 {
@@ -129,14 +130,17 @@ channel_open(quic_channel *ch)
         QUIC_STREAM_OPEN_FLAG_NONE, stream_cb, ch, &ch->handle);
     if (QUIC_FAILED(status)) return NNG_ECONNREFUSED;
     api->StreamReceiveSetEnabled(ch->handle, FALSE);
-    if (c->priority >= 0) {
-        uint16_t priority = (uint16_t)c->priority;
-        api->SetParam(ch->handle, QUIC_PARAM_STREAM_PRIORITY, sizeof(priority), &priority);
-    }
     status = api->StreamStart(ch->handle, QUIC_STREAM_START_FLAG_SHUTDOWN_ON_FAIL);
     if (QUIC_FAILED(status)) {
-        api->StreamClose(ch->handle);
+        // StreamClose waits for the MsQuic worker. That worker may already
+        // be entering a connection callback which needs c->mtx.
+        HQUIC failed = ch->handle;
         ch->handle = NULL;
+        ch->opening = true;
+        nni_mtx_unlock(&c->mtx);
+        api->StreamClose(failed);
+        nni_mtx_lock(&c->mtx);
+        ch->opening = false;
         return NNG_ECONNREFUSED;
     }
     ch->eof = false;
@@ -157,7 +161,7 @@ channel_retry(void *arg)
     if (!c->closed && nni_aio_result(&c->reopen_aio) == 0) {
         for (unsigned i = 1; i < c->channels; ++i) {
             quic_channel *ch = &c->channel[i];
-            if (ch->handle == NULL && channel_open(ch) != 0) retry = true;
+            if (ch->handle == NULL && !ch->opening && channel_open(ch) != 0) retry = true;
         }
         if (retry) {
             c->retry_pending = true;
@@ -420,20 +424,31 @@ stream_cb(HQUIC handle, void *arg, QUIC_STREAM_EVENT *event)
                 c->error = NNG_ECONNREFUSED;
                 d->api->ConnectionShutdown(c->handle, QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0);
             }
-        } else if (ch == &c->channel[0] && c->aio != NULL && !c->closed && !c->error) {
-            c->connected = true;
-            // currcon tracks only an in-progress dial. Delivered streams own
-            // a dialer reference and may outlive/free their stream dialer.
-            nni_mtx_lock(&d->mtx);
-            if (d->currcon == c) d->currcon = NULL;
-            nni_mtx_unlock(&d->mtx);
-            nni_atomic_inc(&c->refs);
-            aio = c->aio; c->aio = NULL;
-            nni_aio_set_output(aio, 0, &c->stream);
-            nni_aio_finish(aio, 0, 0);
+        } else {
+            // SetParam is synchronous off-worker. Set priority here, on the
+            // connection worker, rather than from the reopen timer under mtx.
+            if (c->priority >= 0) {
+                uint16_t priority = (uint16_t)c->priority;
+                d->api->SetParam(handle, QUIC_PARAM_STREAM_PRIORITY,
+                    sizeof(priority), &priority);
+            }
+            if (ch == &c->channel[0] && c->aio != NULL && !c->closed && !c->error) {
+                c->connected = true;
+                // currcon tracks only an in-progress dial. Delivered streams own
+                // a dialer reference and may outlive/free their stream dialer.
+                nni_mtx_lock(&d->mtx);
+                if (d->currcon == c) d->currcon = NULL;
+                nni_mtx_unlock(&d->mtx);
+                nni_atomic_inc(&c->refs);
+                aio = c->aio; c->aio = NULL;
+                nni_aio_set_output(aio, 0, &c->stream);
+                nni_aio_finish(aio, 0, 0);
+            }
         }
         break;
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE: {
+        // A synchronous StreamStart failure is closed by channel_open.
+        if (ch->handle != handle) break;
         bool reopen = ch != &c->channel[0] && (c->connected || c->aio != NULL) && !c->closed;
         // Pending receives must discard partial MQTT frames from the old
         // stream before reading the replacement stream.
