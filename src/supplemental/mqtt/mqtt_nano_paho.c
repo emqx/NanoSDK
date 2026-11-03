@@ -34,17 +34,20 @@ datadup(const MQTTLenString *str)
 	return temp;
 }
 
-int MQTTLastTLS_errno()
+int MQTTLastTLS_errno(void)
 {
+#ifdef NNG_SUPP_TLS
 	nng_tls_config *tls_cfg;
-	nng_tls_config_alloc(&tls_cfg, NNG_TLS_MODE_CLIENT);
-	int tls_errno = nng_tls_config_version(tls_cfg, NNG_TLS_1_3, NNG_TLS_1_0);
-	if (tls_errno > 0) {
-		// Should never happen
-		nng_log_err("OPENSSL_LAST_ERRNO", "Invalid OpenSSL rv %d", tls_errno);
+	int rv = nng_tls_config_alloc(&tls_cfg, NNG_TLS_MODE_CLIENT);
+	if (rv != 0) {
+		return -rv;
 	}
+	int tls_errno = nng_tls_config_version(tls_cfg, NNG_TLS_1_3, NNG_TLS_1_0);
 	nng_tls_config_free(tls_cfg);
 	return -tls_errno;
+#else
+	return -NNG_ENOTSUP;
+#endif
 }
 
 const char *MQTTAsync_strerror(int code)

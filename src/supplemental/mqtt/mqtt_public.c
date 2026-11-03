@@ -865,6 +865,7 @@ nng_mqtt_client_sub_cb(void* arg)
 	nni_lmq * lmq = (nni_lmq *)client->subq;
 
 	rv = nng_aio_result(aio);
+	nng_aio_set_msg(aio, NULL);
 	nng_log_debug("App: nng_mqtt_client_sub_cb", "result %d msg %p", rv, msg);
 	if  (rv != 0) {
 		nng_log_warn("sub aio error", "result %d", rv);
@@ -1003,7 +1004,7 @@ nng_mqtt_client_alloc(nng_socket sock, nng_mqtt_send_cb send_cb, nng_mqtt_recv_c
 		// replace nng_mqtt_client_send_cb for lmq
 		if (send_cb != NULL) {
 			nng_aio_alloc(&client->send_aio, nng_mqtt_client_send_cb, client);
-			nng_aio_alloc(&client->sub_aio, nng_mqtt_client_send_cb, client);
+			nng_aio_alloc(&client->sub_aio, nng_mqtt_client_sub_cb, client);
 		}
 		if (recv_cb != NULL)
 			nng_aio_alloc(&client->recv_aio, nng_mqtt_client_recv_cb, client);
@@ -1320,6 +1321,7 @@ nng_mqtt_free_sqlite_opt(nng_mqtt_sqlite_option *opt)
 {
 	if (opt) {
 		nni_mqtt_sqlite_db_fini(opt);
+		nni_strfree(opt->mounted_file_path);
 		nni_free(opt, sizeof(nng_mqtt_sqlite_option));
 	}
 	return 0;
@@ -1334,7 +1336,10 @@ nng_mqtt_set_sqlite_enable(nng_mqtt_sqlite_option *sqlite, bool enable)
 void
 nng_mqtt_set_sqlite_db_dir(nng_mqtt_sqlite_option *sqlite, const char *dir)
 {
-	sqlite->mounted_file_path = nni_strdup(dir);
+	char *copy = dir != NULL ? nni_strdup(dir) : NULL;
+	if (dir != NULL && copy == NULL) return;
+	nni_strfree(sqlite->mounted_file_path);
+	sqlite->mounted_file_path = copy;
 }
 
 void
