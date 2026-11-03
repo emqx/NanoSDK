@@ -1211,12 +1211,6 @@ nng_mqtt_subscribe_async(nng_mqtt_client *client, nng_mqtt_topic_qos *sbs, size_
 	return 0;
 }
 
-/**
- * packet: orginal buffer
- * len: max len to decode
- * remainning_length: result
- * used_bytes: bits used
-*/
 int
 mqtt_get_remaining_length(uint8_t *packet, uint32_t len,
     uint32_t *remainning_length, uint8_t *used_bytes)
@@ -1225,10 +1219,9 @@ mqtt_get_remaining_length(uint8_t *packet, uint32_t len,
 	int32_t  lword      = 0;
 	uint8_t  lbytes     = 0;
 	uint8_t *ptr        = packet + 1;
-	uint8_t *start      = ptr;
 
 	for (size_t i = 0; i < 4; i++) {
-		if ((size_t) (ptr - start + 1) > len) {
+		if ((size_t) (ptr - packet) >= len) {
 			return MQTT_ERR_PAYLOAD_SIZE;
 		}
 		lbytes++;
