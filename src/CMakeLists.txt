@@ -115,6 +115,10 @@ configure_package_config_file(${PROJECT_SOURCE_DIR}/cmake/${PROJECT_NAME}-config
         INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
         PATH_VARS INCLUDE_INSTALL_DIRS)
 
+configure_file(${PROJECT_SOURCE_DIR}/cmake/FindMbedTLS.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/FindMbedTLS.cmake COPYONLY)
+
 install(FILES "${project_config}" "${version_config}"
+        "${CMAKE_CURRENT_BINARY_DIR}/FindMbedTLS.cmake"
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
         COMPONENT Library)
