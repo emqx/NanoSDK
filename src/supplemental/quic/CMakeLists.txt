@@ -32,8 +32,21 @@ if (NNG_ENABLE_QUIC)
     nng_include_directories(${MSQUIC_INCLUDE_DIR})
     nng_sources(quic_api.c msquic_dial.c quic_api.h)
 endif ()
+nng_test(mqtt_frame_test)
+
+if (NNG_ENABLE_QUIC AND NNG_TESTS AND UNIX)
+    nng_test(msquic_integration_test)
+    target_include_directories(msquic_integration_test PRIVATE ${MSQUIC_INCLUDE_DIR})
+    target_compile_definitions(msquic_integration_test PRIVATE SUPP_QUIC)
+endif ()
 
 if (NNG_ENABLE_QUIC AND NNG_TESTS)
     nng_test(msquic_dial_test)
     target_include_directories(msquic_dial_test PRIVATE ${MSQUIC_INCLUDE_DIR})
+endif ()
+
+# Explicit opt-in: this executable contacts the URL passed by the operator.
+if (NNG_ENABLE_QUIC AND NNG_TESTS AND UNIX)
+    add_executable(mqtt_quic_broker_test mqtt_quic_broker_test.c)
+    target_link_libraries(mqtt_quic_broker_test PRIVATE nng Threads::Threads)
 endif ()
