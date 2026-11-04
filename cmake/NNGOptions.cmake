@@ -116,6 +116,11 @@ else ()
     set(NNG_QUIC_LIB none)
 endif ()
 
+option(NNG_ENABLE_SCRAM "Enable SCRAM support." OFF)
+if (NNG_ENABLE_SCRAM)
+    set(SUPP_SCRAM ON)
+endif ()
+
 # TLS support.
 
 # Enabling TLS is required to enable support for the TLS transport
@@ -133,6 +138,10 @@ if (NNG_ENABLE_TLS)
 else ()
     set(NNG_TLS_ENGINE none)
 endif ()
+
+# Optional OpenSSL vendor extensions. Ordinary OpenSSL stays the default.
+option(NNG_TLS_OPENSSL_HAVE_GM "Enable TASSL GM/TLS support." OFF)
+option(NNG_TLS_OPENSSL_HAVE_GM_NW "Enable Nanwang GM/TLS support." OFF)
 
 # HTTP API support.
 option (NNG_ENABLE_HTTP "Enable HTTP API." ON)

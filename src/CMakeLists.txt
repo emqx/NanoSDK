@@ -64,12 +64,10 @@ elseif (TSAN)
         target_link_options(nng PUBLIC -fsanitize=thread)
 endif ()
 
-set(_NNG_EXPORT_TARGETS ${PROJECT_NAME})
-if(TARGET msquic)
-        list(APPEND _NNG_EXPORT_TARGETS msquic)
-endif()
-
-install(TARGETS ${_NNG_EXPORT_TARGETS}
+# MsQuic installs its own library; nng-config resolves nng::msquic.
+# Exporting its static INTERFACE target here leaks build-tree paths and
+# conflicts with the imported target used for installed-library consumers.
+install(TARGETS ${PROJECT_NAME}
         EXPORT ${PROJECT_NAME}-target
         FRAMEWORK DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT Library
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT Library
