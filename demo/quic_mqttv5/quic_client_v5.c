@@ -296,7 +296,7 @@ client(int type, const char *url, const char *qos, const char *topic,
 	}
 
 #if defined(NNG_SUPP_SQLITE)
-	sqlite_config(&sock, MQTT_PROTOCOL_VERSION_v311);
+	sqlite_config(&sock, MQTT_PROTOCOL_VERSION_v5);
 #endif
 
 	if (0 !=

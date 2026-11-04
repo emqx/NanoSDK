@@ -131,11 +131,18 @@ client_connect(const char **urls, int len)
 		if ((rv = nng_dialer_create(&dialer, sock, url)) != 0) {
 			fatal("nng_dialer_create", rv);
 		}
-		nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, connmsg);
+		nng_msg *dial_connect = NULL;
+		if ((rv = nng_msg_dup(&dial_connect, connmsg)) != 0 ||
+		    (rv = nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, dial_connect)) != 0) {
+			nng_msg_free(dial_connect);
+			nng_close(sock);
+			fatal("CONNECT configuration", rv);
+		}
 
 		printf("Connecting to server [%d]%s ...\n", cnt, url);
 		if ((rv = nng_dialer_start(dialer, NNG_FLAG_ALLOC)) != 0) {
 			printf("Failed to connect to %s rv%d\n", url, rv);
+			nng_close(sock);
 			continue;
 		}
 		// connected

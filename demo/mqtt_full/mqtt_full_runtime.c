@@ -476,7 +476,7 @@ quic_disconnect_cb(void *msg, void *arg)
  * @param arg Subscription state pointer.
  */
 static void
-suback_send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg)
+suback_send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg, int rv)
 {
 	suback_state *state = arg;
 	uint8_t       ptype;
@@ -485,6 +485,11 @@ suback_send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg)
 	size_t        i;
 
 	(void) client;
+	if (rv != 0) {
+		fprintf(stderr, "[send-cb] %s\n", nng_strerror(rv));
+		nng_msg_free(msg);
+		return;
+	}
 	if (msg == NULL) {
 		return;
 	}
@@ -756,10 +761,11 @@ run_sub_command(nng_socket sock, const app_config *cfg)
 	}
 	for (i = 0; i < cfg->topics.count; i++) {
 		nng_mqtt_topic_qos_array_set(
-		    subs, i, cfg->topics.items[i], (uint8_t) cfg->qos, 0, 0, 0);
+		    subs, i, cfg->topics.items[i],
+		    (uint32_t) strlen(cfg->topics.items[i]), (uint8_t) cfg->qos, 0, 0, 0);
 	}
 
-	client = nng_mqtt_client_alloc(sock, suback_send_callback, true);
+	client = nng_mqtt_client_alloc(sock, suback_send_callback, NULL, true);
 	if (client == NULL) {
 		nng_mqtt_topic_qos_array_free(subs, cfg->topics.count);
 		return (NNG_ENOMEM);
