@@ -841,3 +841,143 @@ MQTT4/5 单流每秒 10 条回归仍保留。
 无重复、无失败原因码。强制断连后自动重连/重新订阅、12 秒空闲保活、
 UNSUBACK 和退订后接收超时均通过，进程正常退出，未报告 ASAN 错误。
 这次复测与表格中的早期低速结果分开记录，不重复累计成同一次测试的数据。
+
+== 2026-11-04：nanwang-dev rebase main 与合并回归
+
+此节是 rebase 后的新一轮验证；前文记录的是 rebase 前的历史结果，不合并计数。
+
+=== 历史与范围
+
+* rebase 基线：main `2d30f37ac`；原 nanwang-dev：`199990d92`。
+* 使用 `git rebase --rebase-merges main`，保留两处 merge 关系。
+  main 已有的等价修改不重复应用；rebase 完成时有 156 个相对 main 的提交，
+  之后按核心/QUIC、MQTT、TLS、构建、示例、文档分别提交集成修复。
+* 原分支保存在 `backup/nanwang-dev-before-main-rebase-20261104` 和
+  `backup/main-before-nanwang-sync-20261104`，可用于逐项对照。
+* 只修改 NanoSDK；没有修改 nanomq/nng。MsQuic 采用 nanwang-dev 的
+  `87b53085d76bd7920d490a6f226c9999b6614d14`（2.5.9）。
+* 保留 main 的 NNG 1.11 核心、统计、新增 MQTT API、mqtt_full 示例、
+  HTTP 等更新。合并完成后将本地 main 快进到 nanwang-dev；远端推送另行处理。
+
+=== 用户确认的兼容性选择
+
+[cols="2,4",options="header"]
+|===
+|项目 |合并后的约定
+|MQTT helper
+|`nng_mqtt_client_alloc(sock, send_cb, recv_cb, is_async)`；
+发送回调增加 `int rv`。main 调用者必须迁移、重新编译。
+|主题 QoS 数组
+|`nng_mqtt_topic_qos_array_set(array, index, topic, len, qos, nolocal, rap, rh)`。
+len 是显式字节长度，允许没有 NUL 结尾的主题片段。
+普通 `nng_mqtt_topic_array_set` 仍为三个参数，没有增加长度参数。
+|CONNECT
+|`NNG_OPT_MQTT_CONNMSG` 设置成功后由 dialer 接管消息；失败时仍归调用者。
+TCP/TLS 在拨号或连接正在使用消息时拒绝替换，返回 EBUSY。
+多个 dialer 使用同一 CONNECT 模板时，调用者需逐个复制。
+|队列
+|接收 256，发送 1024。
+|TCP/TLS 在线重发
+|关闭未收到 ACK 消息的在线定时重发；保留 keepalive、离线缓存等用途的定时器。
+此选择不改变独立 QUIC 协议层的策略。
+|SQLite
+|配置对象由调用者持有，所有借用该对象的 socket 关闭后，再调用
+`nng_mqtt_free_sqlite_opt`。socket 不释放配置。
+|OpenSSL
+|普通 OpenSSL 默认；TASSL 使用 `NNG_TLS_OPENSSL_HAVE_GM=ON`
+及 `OPENSSL_ROOT_DIR`；南网使用 `NNG_TLS_OPENSSL_HAVE_GM_NW=ON`。
+南网库按目标架构选择 lib/libx86，也可指定 `NNG_TLS_NW_LIBRARY_DIR`。
+|===
+
+=== 合并后的实现审查与修复
+
+* main 的 TCP/TLS QoS 缓存已改为 socket 的 Packet ID → AIO 映射，
+  不能直接覆盖为旧版 pipe 的 Packet ID → message 映射。
+  保留 main 的结构，移植 nanwang-dev 的取消和关闭生命周期处理；
+  ACK、取消、pipe close、socket close 均先摘除映射及 provider data，
+  再释放缓存引用、完成用户 AIO。新增四条 QoS1/2 并发等待场景，
+  验证超时、pipe 关闭和 socket 关闭都能结束全部 AIO。
+* CONNECT setter 统一所有权，覆盖替换和重复设置同一指针；
+  修正 keepalive 的毫秒单位、保留服务端协商值。
+* 修正断线原因 getter 把 copyin 当作 copyout 使用的问题；
+  初始化非 PUBLISH 发送路径的 qos，避免 SQLite 分支读取未初始化值。
+* 保留 main 的 MQTT 编解码校验及深复制更新，同时恢复 nanwang-dev
+  的空 payload 和发布缓冲区替换语义；测试验证清空后的长度为零，
+  并验证显式长度主题无需 NUL 结尾。
+* 补回 SQLite 缓存数量查询公共 API；保留发送回调先解绑消息的处理，
+  释放异步订阅队列满时的消息，修正 UNSUBSCRIBE 的属性 setter。
+* 清除自动合并产生的重复 timestamp 字段、声明、QUIC 目录和 transport
+  注册；QUIC 协议的 pipe_close 适配 main 的 int 返回接口；
+  QUIC ACK 队列限制采用独立宏，避免与 main MQTT packet 宏冲突。
+* 修复普通 OpenSSL 的服务器 CA/证书配置遗漏及未初始化返回值，
+  保留国密客户端分派。保留普通 OpenSSL 和南网两种可构建配置。
+* 移除重复 DEBUG/ASAN 配置；恢复 SCRAM 开关及依赖声明，
+  nng_testing 与 SDK 同时链接所需的 Crypto/zstd。
+* main 的安装导出与 nanwang-dev 的 imported MsQuic 目标冲突：
+  不再把 MsQuic 静态 INTERFACE 目标加入 nng 导出集合，避免重复定义
+  `nng::msquic` 和泄露构建树 archive 路径。
+* 迁移 mqtt_full 回调及主题 API、multiurls_switch 的 CONNECT 模板复制；
+  修复 MQTT5 QUIC 示例链接错目标、独立安装包链接及 SQLite 协议版本。
+
+=== 验证结果与限制
+
+[cols="3,2,5",options="header"]
+|===
+|配置/检查 |结果 |说明
+|Debug、ASAN、静态 MsQuic、MbedTLS、SQLite
+|构建通过；24/24 CTest 通过
+|覆盖核心 AIO/socket、MQTT TCP/TLS、编解码、SQLite、QUIC pipe、
+真实 MsQuic、mock dialer、pubsub。新增显式长度断言后再次通过 MQTT 单元及传输测试。
+|全部示例
+|构建通过
+|含 main 的 mqtt_full、MQTT4/5 QUIC；OpenSSL+SCRAM 配置也编译 Paho/SCRAM 示例。
+|非 QUIC、MbedTLS、SQLite
+|构建通过；21/21
+|同一组核心及 MQTT 回归，排除 QUIC。
+|非 QUIC、MbedTLS、SQLite、SCRAM
+|构建通过；22/22
+|上述回归加 SCRAM，验证加密依赖适用于测试库。
+|Release、共享 MsQuic
+|构建通过；全量 101/103
+|QUIC 与本地核心测试通过。resolver_test 假定 Google DNS 名解析为
+8.8.8.8，但当前网络实际返回 198.18.0.13；httpclient 的公网 httpbin
+chunked exchange 失败。没有更改测试断言掩盖这两个外部依赖失败。
+|普通 OpenSSL、SCRAM
+|构建通过；本地 MQTT 15/15（排除两项）
+|TCP/TLS 的 MQTT3/5 订阅、QoS0/1/2、退订、重连和所有权通过。
+完整 MQTT suite 在 TLS fragmented CONNACK/QoS timeout 场景超时；
+单独验证时排除该项及 TLS rejected CONNACK。按用户范围要求，
+不继续调查非 QUIC TLS 异常协商超时，不能宣称该配置全量通过。
+其余 codec/SQLite/framing/SCRAM 四个 CTest 通过。
+|南网 OpenSSL 扩展
+|nng 静态库编译通过
+|显式开启 GM_NW，使用仓库 x86-64 库。未验证生产南网设备、
+证书、硬件 engine 或 TASSL 专用运行环境。
+|安装包
+|配置、编译、运行通过
+|独立 C/C++ 消费者通过 find_package(nng) 链接并运行新旧 QUIC open
+及多流消息 API；独立 MQTT5 QUIC demo 配置及链接通过。
+|公网 MQTT5 单流
+|1 msg/s，两轮 20/20
+|broker.emqx.io:14567；每轮 QoS1 5 条 + QoS2 5 条，1024 字节。
+全部 ACK、完整下行、无重复；自动重连及重新订阅通过。
+12 秒空闲后额外 QoS1 收发、退订、退订后接收超时通过，正常退出。
+|===
+
+可复现的主要命令（在 NanoSDK 根目录执行，配置参数见对应 CMakeCache）：
+
+[source,sh]
+----
+cmake --build build-sdk-sync/user-ninja -j 8
+ctest --test-dir build-sdk-sync/user-ninja \
+  -R 'mqtt|msquic|core\.|sockfd|pubsub' --output-on-failure --timeout 180
+ctest --test-dir build-sdk-sync/nonquic \
+  -R 'mqtt|scram|core\.|sockfd|pubsub' --output-on-failure --timeout 180
+ctest --test-dir build-sdk-sync/default-only -j 1 --output-on-failure --timeout 180
+NNG_BROKER_TEST_MIN_SPACING=1 NNG_BROKER_TEST_RATE=1 \
+  NNG_BROKER_TEST_RATE_MESSAGES=5 \
+  timeout 120s build-sdk-sync/user-ninja/src/supplemental/quic/mqtt_quic_broker_test \
+  mqtt-quic://broker.emqx.io:14567 5 0 2
+----
+
+这些结果验证了所列平台和场景，不等于所有平台、TLS 引擎及供应商环境均已通过。
