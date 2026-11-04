@@ -1,6 +1,3 @@
-#ifdef NNG_SUPP_QUIC
-#include "supplemental/quic/quic_api.h"
-#endif
 //
 // Copyright 2024 Staysail Systems, Inc. <info@staysail.tech>
 //
@@ -23,7 +20,7 @@
 #include "supplemental/tls/tls_api.h"
 #include "supplemental/websocket/websocket.h"
 
-#ifdef SUPP_QUIC
+#ifdef NNG_SUPP_QUIC
 #include "supplemental/quic/quic_api.h"
 #endif
 

@@ -8,8 +8,7 @@
 //
 
 #define NANO_MAX_PACKET_SIZE 268435455u
-#define NNI_NANO_MAX_HEADER_SIZE 5
-#define NANO_MAX_QOS_PACKET 65535u
+#define MQTT_QUIC_MAX_ACK_QUEUE 65535u
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -919,7 +918,7 @@ mqtt_share_pipe_recv_cb(void *arg, nni_aio *rxaio, quic_substream *stream, nni_m
 		} else {
 			if (nni_lmq_full(rlmq)) {
 				// Make space for the new message.
-				if (nni_lmq_cap(rlmq) <= NANO_MAX_QOS_PACKET) {
+				if (nni_lmq_cap(rlmq) <= MQTT_QUIC_MAX_ACK_QUEUE) {
 					if ((rv = nni_lmq_resize(rlmq,
 					         nni_lmq_cap(rlmq) * 2)) == 0) {
 						nni_lmq_put(rlmq, qmsg);

@@ -49,7 +49,7 @@ static int  mqtt_quic_pipe_init(void *arg, nni_pipe *qstrm, void *sock);
 static void mqtt_quic_pipe_fini(void *arg);
 static int  mqtt_quic_pipe_start(void *arg);
 static void mqtt_quic_pipe_stop(void *arg);
-static void mqtt_quic_pipe_close(void *arg);
+static int mqtt_quic_pipe_close(void *arg);
 
 static void mqtt_quic_ctx_init(void *arg, void *sock);
 static void mqtt_quic_ctx_fini(void *arg);
@@ -1035,7 +1035,7 @@ mqtt_quic_pipe_stop(void *arg)
 	nni_aio_stop(&p->time_aio);
 }
 
-static void
+static int
 mqtt_quic_pipe_close(void *arg)
 {
 	log_trace(" ##### mqtt_quic_pipe_close ##### ");
@@ -1045,7 +1045,7 @@ mqtt_quic_pipe_close(void *arg)
 	nni_mtx_lock(&s->mtx);
 	if (nni_atomic_swap_bool(&p->closed, true)) {
 		nni_mtx_unlock(&s->mtx);
-		return;
+		return 0;
 	}
 	bool active = s->pipe == p;
 	int (*disconnect_cb)(void *, void *) = active ? s->cb.disconnect_cb : NULL;
@@ -1067,7 +1067,7 @@ mqtt_quic_pipe_close(void *arg)
 	nni_mtx_unlock(&s->mtx);
 	if (disconnect_cb) disconnect_cb(NULL, disconnect_arg);
 
-	return;
+	return 0;
 }
 
 /******************************************************************************

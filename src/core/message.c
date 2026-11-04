@@ -25,7 +25,6 @@ typedef struct {
 
 // Underlying message structure.
 struct nng_msg {
-	nni_time times;
 	uint32_t           m_header_buf[(NNI_MAX_MAX_TTL + 1)];
 	size_t             m_header_len;
 	nni_chunk          m_body;

@@ -55,9 +55,6 @@ extern void nni_mqtt_tcp_register();
 #ifdef NNG_TRANSPORT_MQTT_TLS
 extern void nni_mqtts_tcp_register();
 #endif
-#ifdef NNG_TRANSPORT_MQTT_QUIC
-extern void nni_mqtt_quic_register();
-#endif
 
 extern void nni_mqtt_quic_register(void);
 
@@ -75,9 +72,6 @@ nni_mqtt_tran_sys_init(void)
 #endif
 #ifdef NNG_TRANSPORT_MQTT_TLS
 	nni_mqtts_tcp_register();
-#endif
-#ifdef NNG_TRANSPORT_MQTT_QUIC
-	nni_mqtt_quic_register();
 #endif
 }
 
