@@ -799,9 +799,11 @@ static int
 open_config_ca_chain(
     nng_tls_engine_config *cfg, const char *certs, const char *crl)
 {
-	int rv;
+	int rv = NNG_EINVAL;
 	nng_tls_mode mode = cfg->mode;
-	if (mode == NNG_TLS_MODE_CLIENT) {
+	if (mode == NNG_TLS_MODE_SERVER) {
+		rv = open_config_ca_chain_std(cfg, certs, crl);
+	} else if (mode == NNG_TLS_MODE_CLIENT) {
 #if defined(NNG_TLS_OPENSSL_HAVE_GM) && !defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
 		rv = open_config_ca_chain_gm(cfg, certs, crl);
 #else
@@ -1174,9 +1176,11 @@ static int
 open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
     const char *key, const char *pass)
 {
-	int rv;
+	int rv = NNG_EINVAL;
 	nng_tls_mode mode = cfg->mode;
-	if (mode == NNG_TLS_MODE_CLIENT) {
+	if (mode == NNG_TLS_MODE_SERVER) {
+		rv = open_config_own_cert_std(cfg, cert, key, pass);
+	} else if (mode == NNG_TLS_MODE_CLIENT) {
 #if defined(NNG_TLS_OPENSSL_HAVE_GM) && !defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
 		rv = open_config_own_cert_gm(cfg, cert, key, pass);
 #else

@@ -2,56 +2,42 @@ include(FindThreads)
 
 if (NNG_TLS_ENGINE STREQUAL "open")
     set(NNG_TLS_OPENSSL ON)
-    set(NNG_TLS_OPENSSL_HAVE_GM ON)
-    message("Enable TASSL !!")
-    message(NOTICE "
-        ************************************************************
-        Linking against OpenSSL may change license terms.
-        Consult a lawyer and the license files for details.
-        ************************************************************")
     nng_sources(openssl.c)
 
-    # If OpenSSL was added by a consuming project, then we should use that
-    # instance of it, instead of configuring our own.
-    if (TARGET openssl)
+    if (NNG_TLS_OPENSSL_HAVE_GM_NW)
+        # The bundled vendor libraries have distinct ARM64 and x86-64 builds.
+        set(NNG_TLS_NW_ROOT "${PROJECT_SOURCE_DIR}/extern/nw" CACHE PATH
+            "Nanwang TLS SDK root")
+        if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+            set(_nw_libdir "${NNG_TLS_NW_ROOT}/libx86")
+        else ()
+            set(_nw_libdir "${NNG_TLS_NW_ROOT}/lib")
+        endif ()
+        set(NNG_TLS_NW_LIBRARY_DIR "${_nw_libdir}" CACHE PATH
+            "Nanwang TLS library directory for the target architecture")
+        nng_include_directories("${NNG_TLS_NW_ROOT}/include")
+        foreach (_lib cn_x509_common cn_x509_crypto cn_x509_engine cn_x509_proxy ssl crypto)
+            nng_link_libraries_public("${NNG_TLS_NW_LIBRARY_DIR}/lib${_lib}.so")
+        endforeach ()
+        nng_defines(NNG_TLS_OPENSSL_HAVE_GM_NW)
+    elseif (TARGET openssl)
+        # Honor an OpenSSL or TASSL target supplied by the parent project.
         nng_link_libraries(openssl)
-    else()
-        # We want to prefer config mode over our local find package.
-        if (NOT (DEFINED CMAKE_FIND_PACKAGE_PREFER_CONFIG))
+    else ()
+        # OPENSSL_ROOT_DIR can point to TASSL when GM support is requested.
+        if (NOT DEFINED CMAKE_FIND_PACKAGE_PREFER_CONFIG)
             set(CMAKE_FIND_PACKAGE_PREFER_CONFIG TRUE)
             nng_find_package(OpenSSL)
             unset(CMAKE_FIND_PACKAGE_PREFER_CONFIG)
-        else()
+        else ()
             nng_find_package(OpenSSL)
-        endif()
-		if(NNG_TLS_OPENSSL_HAVE_GM_NW)
-			message("==OPENSSL CONF WITH GM FOR NW: " ${NNG_TLS_OPENSSL_NW_CONF})
-			nng_include_directories(${CMAKE_SOURCE_DIR}/extern/nw/include)
-			nng_link_libraries_public(
-				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcn_x509_common.so
-				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcn_x509_crypto.so
-				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcn_x509_engine.so
-				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcn_x509_proxy.so
-				${CMAKE_SOURCE_DIR}/extern/nw/lib/libssl.so
-				${CMAKE_SOURCE_DIR}/extern/nw/lib/libcrypto.so)
+        endif ()
+        nng_link_libraries_public(OpenSSL::SSL OpenSSL::Crypto)
+    endif ()
 
-			#nng_link_libraries_public(
-			#	${CMAKE_SOURCE_DIR}/extern/nw/libx86/libcn_x509_common.so
-			#	${CMAKE_SOURCE_DIR}/extern/nw/libx86/libcn_x509_crypto.so
-			#	${CMAKE_SOURCE_DIR}/extern/nw/libx86/libcn_x509_engine.so
-			#	${CMAKE_SOURCE_DIR}/extern/nw/libx86/libcn_x509_proxy.so
-			#	${CMAKE_SOURCE_DIR}/extern/nw/libx86/libssl.so
-			#	${CMAKE_SOURCE_DIR}/extern/nw/libx86/libcrypto.so)
-		elseif(NNG_TLS_OPENSSL_HAVE_GM)
-			nng_include_directories(${OPENSSL_ROOT_DIR}/include)
-			nng_link_libraries_public(
-				${OPENSSL_ROOT_DIR}/lib/libssl.a
-				${OPENSSL_ROOT_DIR}/lib/libcrypto.a)
-		else()
-			nng_link_libraries_public(OpenSSL::SSL OpenSSL::Crypto)
-		endif()
-    endif()
-
+    if (NNG_TLS_OPENSSL_HAVE_GM)
+        nng_defines(NNG_TLS_OPENSSL_HAVE_GM)
+    endif ()
     nng_defines(NNG_TLS_ENGINE_INIT=nng_tls_engine_init_open)
     nng_defines(NNG_TLS_ENGINE_FINI=nng_tls_engine_fini_open)
     nng_defines(NNG_SUPP_TLS)
