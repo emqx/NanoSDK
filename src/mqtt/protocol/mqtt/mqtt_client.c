@@ -205,10 +205,7 @@ mqtt_sock_fini(void *arg)
 {
 	mqtt_sock_t *s = arg;
 	nni_id_map_fini(&s->sent_unack);
-#ifdef NNG_SUPP_SQLITE
-	nni_mqtt_sqlite_db_fini(s->sqlite_opt);
-	nng_mqtt_free_sqlite_opt(s->sqlite_opt);
-#endif
+	// SQLite configuration is borrowed; the caller releases it after close.
 	mqtt_ctx_fini(&s->master);
 
 	nni_mtx_fini(&s->mtx);
@@ -235,13 +232,11 @@ mqtt_sock_get_disconnect_prop(void *arg, void *v, size_t *szp, nni_opt_type t)
 static int
 mqtt_sock_get_disconnect_code(void *arg, void *v, size_t *sz, nni_opt_type t)
 {
-	NNI_ARG_UNUSED(sz);
 	mqtt_sock_t *s = arg;
 	int          rv;
 
 	nni_mtx_lock(&s->mtx);
-	rv = nni_copyin_int(
-	    v, &s->disconnect_code, sizeof(reason_code), 0, 256, t);
+	rv = nni_copyout_int(s->disconnect_code, v, sz, t);
 	nni_mtx_unlock(&s->mtx);
 	return (rv);
 }
@@ -1273,7 +1268,7 @@ mqtt_ctx_send(void *arg, nni_aio *aio)
 	mqtt_sock_t *s   = ctx->mqtt_sock;
 	mqtt_pipe_t *p;
 	nni_msg     *msg;
-	uint8_t      qos;
+	uint8_t      qos = 0;
 	uint16_t     packet_id;
 
 	if (nni_aio_begin(aio) != 0) {

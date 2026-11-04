@@ -61,6 +61,9 @@ extern "C" {
 // (TODO: What about session expiry?)
 #define NNG_OPT_MQTT_EXPIRES "expires"
 
+// A successful dialer setter transfers CONNECT ownership. On failure the
+// caller retains it. Configure before starting the dialer; duplicate a
+// template when using it for several dialers.
 #define NNG_OPT_MQTT_CONNMSG "mqtt-connect-msg"
 
 #define NNG_OPT_MQTT_SCRAM_USERNAME "mqtt-connect-scram-username"
@@ -89,6 +92,8 @@ extern "C" {
 
 #define NNG_OPT_MQTT_DISCONNECT_REASON "mqtt-disconnect-reason"
 
+// Borrowed configuration: keep it alive until the socket is closed, then
+// release it with nng_mqtt_free_sqlite_opt().
 #define NNG_OPT_MQTT_SQLITE "mqtt-sqlite-option"
 
 #define NNG_OPT_MQTT_ENABLE_SCRAM "mqtt-scram-option"
@@ -528,7 +533,7 @@ NNG_DECL void nng_mqtt_topic_array_set(nng_mqtt_topic *, size_t, const char *);
 NNG_DECL void nng_mqtt_topic_array_free(nng_mqtt_topic *, size_t);
 NNG_DECL nng_mqtt_topic_qos *nng_mqtt_topic_qos_array_create(size_t);
 NNG_DECL void nng_mqtt_topic_qos_array_set(nng_mqtt_topic_qos *, size_t,
-           const char *, uint8_t, uint8_t, uint8_t, uint8_t);
+           const char *, uint32_t, uint8_t, uint8_t, uint8_t, uint8_t);
 NNG_DECL void nng_mqtt_topic_qos_array_free(nng_mqtt_topic_qos *, size_t);
 NNG_DECL int  nng_mqtt_set_connect_cb(nng_socket, nng_pipe_cb, void *);
 NNG_DECL int  nng_mqtt_set_disconnect_cb(nng_socket, nng_pipe_cb, void *);
@@ -621,6 +626,7 @@ NNG_DECL int  nng_mqtt_free_sqlite_opt(nng_mqtt_sqlite_option *);
 NNG_DECL void nng_mqtt_sqlite_db_init(
     nng_mqtt_sqlite_option *, const char *, uint8_t);
 NNG_DECL void nng_mqtt_sqlite_db_fini(nng_mqtt_sqlite_option *);
+NNG_DECL size_t nng_mqtt_sqlite_db_get_cached_size(nng_mqtt_sqlite_option *);
 NNG_DECL void nng_mqtt_set_sqlite_enable(nng_mqtt_sqlite_option *, bool);
 NNG_DECL void nng_mqtt_set_sqlite_db_dir(
     nng_mqtt_sqlite_option *, const char *);

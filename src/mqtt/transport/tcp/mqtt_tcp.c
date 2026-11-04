@@ -1740,29 +1740,28 @@ mqtt_tcptran_ep_set_connmsg(
     void *arg, const void *v, size_t sz, nni_opt_type t)
 {
 	mqtt_tcptran_ep *ep = arg;
-	nni_msg *        msg = NULL;
-	nni_msg *        dup = NULL;
-	nni_msg *        old = NULL;
-	int              rv;
+	nni_msg *msg, *old;
+	int rv;
 
 	if ((rv = nni_copyin_ptr((void **) &msg, v, sz, t)) != 0) {
-		return (rv);
+		return rv;
 	}
-
-	if ((msg != NULL) && ((rv = nni_msg_dup(&dup, msg)) != 0)) {
-		return (rv);
-	}
-
 	nni_mtx_lock(&ep->mtx);
-	old        = ep->connmsg;
-	ep->connmsg = dup;
+	if (ep->closed || ep->useraio != NULL ||
+	    !nni_list_empty(&ep->negopipes) ||
+	    !nni_list_empty(&ep->waitpipes) ||
+	    !nni_list_empty(&ep->busypipes)) {
+		rv = ep->closed ? NNG_ECLOSED : NNG_EBUSY;
+		nni_mtx_unlock(&ep->mtx);
+		return rv;
+	}
+	old = ep->connmsg;
+	ep->connmsg = msg;
 	nni_mtx_unlock(&ep->mtx);
-
-	if (old != NULL) {
+	if (old != msg) {
 		nni_msg_free(old);
 	}
-
-	return (0);
+	return 0;
 }
 
 #if SUPP_SCRAM

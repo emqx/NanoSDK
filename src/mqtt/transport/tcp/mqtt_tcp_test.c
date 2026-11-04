@@ -74,7 +74,7 @@ reject_server_accept_cb(void *arg)
 
 static void
 check_connack(uint8_t type, uint8_t reason_code, int expected,
-    bool fragmented, bool tls, bool v5, bool qos_timeout)
+    bool fragmented, bool tls, bool v5, int qos_timeout)
 {
 	reject_server server = {
 		.connack = { type, 0x02, 0x00, reason_code },
@@ -150,23 +150,32 @@ check_connack(uint8_t type, uint8_t reason_code, int expected,
 		NUTS_TRUE(keepalive == 0);
 	}
 	if (expected == 0 && qos_timeout) {
-		nng_aio *aio;
-		nng_msg *msg;
-		NUTS_PASS(nng_aio_alloc(&aio, NULL, NULL));
-		NUTS_PASS(nng_mqtt_msg_alloc(&msg, 0));
-		nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_PUBLISH);
-		nng_mqtt_msg_set_publish_topic(msg, "unacked");
-		nng_mqtt_msg_set_publish_qos(msg, 1);
-		nng_aio_set_msg(aio, msg);
-		nng_aio_set_timeout(aio, 50);
-		nng_send_aio(socket, aio);
-		nng_aio_wait(aio);
-		NUTS_TRUE(nng_aio_result(aio) == NNG_ETIMEDOUT);
-		NUTS_TRUE(nng_aio_get_msg(aio) == NULL);
-		nng_aio_free(aio);
+		nng_aio *aio[4];
+		for (unsigned i = 0; i < 4; i++) {
+			nng_msg *msg;
+			NUTS_PASS(nng_aio_alloc(&aio[i], NULL, NULL));
+			NUTS_PASS(nng_mqtt_msg_alloc(&msg, 0));
+			nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_PUBLISH);
+			nng_mqtt_msg_set_publish_topic(msg, "unacked");
+			nng_mqtt_msg_set_publish_qos(msg, 1 + (i % 2));
+			nng_aio_set_msg(aio[i], msg);
+			nng_aio_set_timeout(aio[i], qos_timeout == 1 ? 50 : 2000);
+			nng_send_aio(socket, aio[i]);
+		}
+		if (qos_timeout == 2) NUTS_PASS(nng_pipe_close(pipe));
+		if (qos_timeout == 3) NUTS_PASS(nng_close(socket));
+		for (unsigned i = 0; i < 4; i++) {
+			nng_aio_wait(aio[i]);
+			NUTS_TRUE(nng_aio_result(aio[i]) ==
+			    (qos_timeout == 1 ? NNG_ETIMEDOUT : NNG_ECLOSED));
+			NUTS_TRUE(nng_aio_get_msg(aio[i]) == NULL);
+			nng_aio_free(aio[i]);
+		}
 	}
-	NUTS_PASS(nng_dialer_close(dialer));
-	NUTS_PASS(nng_close(socket));
+	if (qos_timeout != 3) {
+		NUTS_PASS(nng_dialer_close(dialer));
+		NUTS_PASS(nng_close(socket));
+	}
 	nng_stream_listener_close(listener);
 	if (server.stream != NULL) {
 		nng_stream_close(server.stream);
@@ -235,6 +244,56 @@ static void test_fragmented_connack(void)
 static void test_qos_timeout(void)
 {
 	check_connack(0x20, 0, 0, false, false, false, true);
+}
+static void test_pending_pipe_close(void)
+{
+	check_connack(0x20, 0, 0, false, false, false, 2);
+}
+static void test_pending_socket_close(void)
+{
+	check_connack(0x20, 0, 0, false, false, true, 3);
+}
+#ifdef NNG_SUPP_SQLITE
+static void test_sqlite_ownership(void)
+{
+	nng_socket sock;
+	nng_mqtt_sqlite_option *opt;
+	NUTS_PASS(nng_mqtt_alloc_sqlite_opt(&opt));
+	NUTS_PASS(nng_mqtt_client_open(&sock));
+	NUTS_PASS(nng_socket_set_ptr(sock, NNG_OPT_MQTT_SQLITE, opt));
+	NUTS_PASS(nng_close(sock));
+	// Under ASAN this detects socket finalization freeing the caller's object.
+	nng_mqtt_set_sqlite_enable(opt, false);
+	NUTS_PASS(nng_mqtt_free_sqlite_opt(opt));
+}
+#endif
+static void test_connect_ownership(void)
+{
+	const char *urls[] = {
+		"mqtt-tcp://127.0.0.1:1883",
+#ifdef NNG_SUPP_TLS
+		"tls+mqtt-tcp://127.0.0.1:8883",
+#endif
+	};
+	for (size_t i = 0; i < sizeof(urls) / sizeof(urls[0]); i++) {
+		nng_socket sock;
+		nng_dialer dialer;
+		nng_msg *msg, *got;
+		int reason = -1;
+		NUTS_PASS(nng_mqtt_client_open(&sock));
+		NUTS_PASS(nng_socket_get_int(sock, NNG_OPT_MQTT_DISCONNECT_REASON, &reason));
+		NUTS_TRUE(reason == 0);
+		NUTS_PASS(nng_dialer_create(&dialer, sock, urls[i]));
+		for (int j = 0; j < 2; j++) {
+			NUTS_PASS(nng_mqtt_msg_alloc(&msg, 0));
+			nng_mqtt_msg_set_packet_type(msg, NNG_MQTT_CONNECT);
+			NUTS_PASS(nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, msg));
+			NUTS_PASS(nng_dialer_get_ptr(dialer, NNG_OPT_MQTT_CONNMSG, (void **) &got));
+			NUTS_TRUE(got == msg);
+			NUTS_PASS(nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, msg));
+		}
+		NUTS_PASS(nng_close(sock));
+	}
 }
 static void test_v5_keepalive(void)
 {
@@ -427,6 +486,9 @@ static void test_tls_success_v5(void) { successful_exchange(true, true); }
 #endif
 
 NUTS_TESTS = {
+#ifdef NNG_SUPP_SQLITE
+    { "SQLite configuration remains caller owned after close", test_sqlite_ownership },
+#endif
     { "TCP MQTT 3.1.1 subscribe QoS unsubscribe reconnect", test_tcp_success_v4 },
     { "TCP MQTT 5 subscribe QoS unsubscribe reconnect", test_tcp_success_v5 },
 #ifdef NNG_SUPP_TLS
@@ -435,6 +497,9 @@ NUTS_TESTS = {
 #endif
 	{ "fragmented CONNACK body", test_fragmented_connack },
 	{ "QoS send timeout", test_qos_timeout },
+	{ "pending QoS completed on pipe close", test_pending_pipe_close },
+	{ "pending QoS completed on socket close", test_pending_socket_close },
+	{ "CONNECT setter owns message and permits same pointer", test_connect_ownership },
 	{ "MQTT v5 server keepalive zero", test_v5_keepalive },
 #ifdef NNG_SUPP_TLS
 	{ "TLS fragmented CONNACK and QoS timeout", test_tls_fragmented_connack },
