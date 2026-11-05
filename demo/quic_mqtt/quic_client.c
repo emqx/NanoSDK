@@ -261,17 +261,27 @@ client(int type, uint8_t proto_ver, const char *url, const char *qos,
 		return rv;
 	}
 
+	if ((rv = nng_dialer_set_bool(dialer, NNG_OPT_QUIC_ENABLE_MULTISTREAM, true)) != 0 ||
+	    (rv = nng_dialer_set_int(dialer, NNG_OPT_QUIC_KEEPALIVE, 10)) != 0) {
+		nng_close(sock);
+		fatal("QUIC options", rv);
+		return rv;
+	}
+
 	conn_msg = mqtt_msg_compose(CONN, proto_ver, 0, NULL, NULL);
 
 	if ((rv = nng_dialer_set_ptr(dialer, NNG_OPT_MQTT_CONNMSG, conn_msg)) != 0) {
+		nng_msg_free(conn_msg);
+		conn_msg = NULL;
 		fatal("nng_dialer_set_ptr", rv);
 		nng_close(sock);
 		return rv;
 	}
 
-	if ((rv = nng_dialer_start(dialer, NNG_FLAG_ALLOC)) != 0) {
+	// The dialer owns CONNECT after a successful setter.
+	conn_msg = NULL;
+	if ((rv = nng_dialer_start(dialer, 0)) != 0) {
 		fatal("nng_dialer_start", rv);
-		nng_msg_free(conn_msg);
 		nng_close(sock);
 		return rv;
 	}

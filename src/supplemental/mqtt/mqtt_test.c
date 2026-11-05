@@ -1668,10 +1668,19 @@ test_topic_qos_array_create_free(void)
 
 	tq = nng_mqtt_topic_qos_array_create(size);
 	nng_mqtt_topic_qos_array_set(
-	    tq, 0, topic_name1, qos1, nolocal, rap, rh);
+	    tq, 0, topic_name1, (uint32_t) strlen(topic_name1), qos1, nolocal, rap, rh);
 	nng_mqtt_topic_qos_array_set(
-	    tq, 1, topic_name2, qos2, nolocal, rap, rh);
+	    tq, 1, topic_name2, (uint32_t) strlen(topic_name2), qos2, nolocal, rap, rh);
 	nng_mqtt_topic_qos_array_free(tq, size);
+
+	// The explicit length accepts a non-NUL-terminated topic slice.
+	const char topic_bytes[] = { 'a', '/', 'b' };
+	tq = nng_mqtt_topic_qos_array_create(1);
+	nng_mqtt_topic_qos_array_set(tq, 0, topic_bytes, sizeof(topic_bytes), 2, 1, 0, 0);
+	NUTS_TRUE(tq[0].topic.length == sizeof(topic_bytes));
+	NUTS_TRUE(memcmp(tq[0].topic.buf, topic_bytes, sizeof(topic_bytes)) == 0);
+	NUTS_TRUE(tq[0].topic.buf[sizeof(topic_bytes)] == '\0');
+	nng_mqtt_topic_qos_array_free(tq, 1);
 }
 
 void
@@ -1761,9 +1770,43 @@ test_property_api(void)
 	NUTS_PASS(mqtt_property_free(plist));
 }
 
+
+static void test_replace_publish_buffers(void)
+{
+    for (int version = 4; version <= 5; ++version) {
+        nng_msg *m, *decoded;
+        NUTS_PASS(nng_mqtt_msg_alloc(&m, 0));
+        nng_mqtt_msg_set_packet_type(m, NNG_MQTT_PUBLISH);
+        nng_mqtt_msg_set_publish_topic(m, "original");
+        nng_mqtt_msg_set_publish_payload(m, (uint8_t *)"first", 5);
+        nng_mqtt_msg_set_publish_topic(m, "replacement");
+        nng_mqtt_msg_set_publish_payload(m, (uint8_t *)"second", 6);
+        NUTS_PASS(version == 4 ? nng_mqtt_msg_encode(m) : nng_mqttv5_msg_encode(m));
+        NUTS_PASS(nng_mqtt_msg_alloc(&decoded, nng_msg_len(m)));
+        NUTS_PASS(nng_msg_header_append(decoded, nng_msg_header(m), nng_msg_header_len(m)));
+        memcpy(nng_msg_body(decoded), nng_msg_body(m), nng_msg_len(m));
+        nng_msg_free(m);
+        NUTS_PASS(version == 4 ? nng_mqtt_msg_decode(decoded) : nng_mqttv5_msg_decode(decoded));
+        uint32_t len;
+        uint8_t *data = nng_mqtt_msg_get_publish_payload(decoded, &len);
+        NUTS_TRUE(len == 6);
+        /* Input aliases the message; replacing it must copy before freeing. */
+        nng_mqtt_msg_set_publish_payload(decoded, data + 1, len - 1);
+        nng_mqtt_msg_set_publish_topic(decoded, "changed");
+        data = nng_mqtt_msg_get_publish_payload(decoded, &len);
+        NUTS_TRUE(len == 5 && memcmp(data, "econd", 5) == 0);
+        NUTS_PASS(nng_mqtt_msg_set_publish_payload(decoded, NULL, 0));
+        data = nng_mqtt_msg_get_publish_payload(decoded, &len);
+        NUTS_TRUE(len == 0);
+        NUTS_PASS(version == 4 ? nng_mqtt_msg_encode(decoded) : nng_mqttv5_msg_encode(decoded));
+        nng_msg_free(decoded);
+    }
+}
+
 TEST_LIST = {
 	// TODO: there is still some encode & decode functions should be
 	// tested.
+    { "replace owned and decoded publish buffers", test_replace_publish_buffers },
 	{ "alloc message", test_alloc },
 	{ "dup message", test_dup },
 	{ "dup unsub message", test_dup_unsub },

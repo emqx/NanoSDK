@@ -75,6 +75,29 @@ set(NNG_TEST_PREFIX nng)
 # This flag is equal to CMAKE_BUILD_TYPE=DEBUG
 set(DEBUG 0 CACHE STRING "gdb support")
 
+if (CMAKE_BUILD_TYPE MATCHES "Debug" OR DEBUG)
+  message("-- MODE [Debug] --")
+  set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type" FORCE)
+  add_definitions(-DDEBUG)
+  add_definitions(-DLOG_USE_COLOR)
+  if (ASAN)
+    message("* ASAN is enabled")
+    set(NNG_DEBUG_SANITIZER -fsanitize=address)
+    add_definitions(-DASAN)
+  elseif (TSAN)
+    message("* TSAN is enabled")
+    set(NNG_DEBUG_SANITIZER -fsanitize=thread)
+    add_definitions(-DTSAN)
+  endif (ASAN)
+else()
+  message("-- MODE [Release] --")
+endif()
+
+if (NNG_DEBUG_SANITIZER)
+    add_compile_options(-g ${NNG_DEBUG_SANITIZER})
+    add_link_options(${NNG_DEBUG_SANITIZER})
+endif ()
+
 # Enable access to private APIs for our own use.
 add_definitions(-DNNG_PRIVATE)
 
@@ -89,6 +112,8 @@ if (NOT NOLOG)
   add_definitions(-DENABLE_LOG)
 endif ()
 
+add_compile_definitions(NNG_TLS_OPENSSL_NW_CONF="${NNG_TLS_OPENSSL_NW_CONF}")
+
 # These are library targets.  The "nng" library is the main public library.
 # The "nng_testing" is a full build of the library for test cases
 # only, which is done statically and includes even portions of the code
@@ -99,6 +124,10 @@ endif ()
 add_library(nng)
 
 add_library(nng_testing STATIC EXCLUDE_FROM_ALL)
+if (NNG_DEBUG_SANITIZER)
+    target_link_options(nng PUBLIC ${NNG_DEBUG_SANITIZER})
+    target_link_options(nng_testing PUBLIC ${NNG_DEBUG_SANITIZER})
+endif ()
 target_compile_definitions(nng_testing PUBLIC NNG_STATIC_LIB NNG_TEST_LIB NNG_PRIVATE)
 
 add_library(nng_private INTERFACE)
@@ -289,7 +318,16 @@ endif ()
 
 if (NNG_ENABLE_TLS)
     add_definitions(-DNNG_SUPP_TLS)
+    add_definitions(-DNNG_TLS_OPENSSL)
+    #add_definitions(-DNNG_TLS_OPENSSL_HAVE_GM)
+    if (NNG_TLS_OPENSSL_HAVE_GM_NW)
+        add_definitions(-DNNG_TLS_OPENSSL_HAVE_GM_NW)
+    endif()
 endif ()
+
+# Customer requires
+find_package(zstd CONFIG REQUIRED)
+nng_link_libraries(zstd::libzstd_shared)
 
 if (NNG_ENABLE_SQLITE)
     add_definitions(-DNNG_SUPP_SQLITE)
@@ -306,32 +344,15 @@ if(NNG_ENABLE_QUIC)
 endif()
 
 if (NNG_ENABLE_SCRAM)
-    find_package(OpenSSL)
-    if (NNG_ENABLE_QUIC)
-    else ()
-        target_link_libraries(nng PRIVATE OpenSSL::SSL OpenSSL:Crypto)
-    endif (NNG_ENABLE_QUIC)
-
     add_definitions(-DSUPP_SCRAM)
+    # Both the SDK and nng_testing use SCRAM. Record the package dependency
+    # for installed consumers, and honor OPENSSL_ROOT_DIR for vendor builds.
+    # Nanwang's TLS engine supplies its own crypto library below.
+    if (NOT (NNG_TLS_ENGINE STREQUAL "open" AND NNG_TLS_OPENSSL_HAVE_GM_NW))
+        nng_find_package(OpenSSL)
+        nng_link_libraries(OpenSSL::Crypto)
+    endif ()
 endif ()
-
-if (CMAKE_BUILD_TYPE MATCHES "Debug" OR DEBUG)
-    message("-- MODE [Debug] --")
-    SET(CMAKE_BUILD_TYPE "Debug")
-    add_definitions(-DDEBUG)
-    add_definitions(-DLOG_USE_COLOR)
-    if (ASAN)
-        message("* ASAN is enabled")
-        SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -fsanitize=address")
-        add_definitions(-DASAN)
-    elseif (TSAN)
-        message("* TSAN is enabled")
-        SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -fsanitize=thread")
-        add_definitions(-DTSAN)
-    endif (ASAN)
-else()
-    message("-- MODE [Release] --")
-endif()
 
 add_subdirectory(src)
 
@@ -363,10 +384,14 @@ if (BUILD_DEMO)
   add_subdirectory(demo/async)
   add_subdirectory(demo/mqtt)
   add_subdirectory(demo/mqttv5)
+  if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/demo/paho_mqttv5/CMakeLists.txt")
+    add_subdirectory(demo/paho_mqttv5)
+  endif ()
   add_subdirectory(demo/mqtt_async)
-    add_subdirectory(demo/mqtt_full)
+  add_subdirectory(demo/mqtt_full)
   if (NNG_ENABLE_SCRAM)
     add_subdirectory(demo/mqttv5_scram)
+    add_subdirectory(demo/paho)
   endif()
   add_subdirectory(demo/rest)
   add_subdirectory(demo/http_client)

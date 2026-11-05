@@ -14,8 +14,31 @@ set(NNG_PATCH_VERSION "@NNG_PATCH_VERSION@")
 
 set_and_check(NNG_INCLUDE_DIRS "@PACKAGE_INCLUDE_INSTALL_DIRS@")
 
-# Make sure we find packages for our dependencies
 include(CMakeFindDependencyMacro)
+find_dependency(zstd CONFIG)
+if ("@NNG_TLS_ENGINE@" STREQUAL "mbed" AND NOT TARGET MbedTLS::mbedtls)
+    find_package(MbedTLS CONFIG QUIET)
+    if (NOT MbedTLS_FOUND)
+        set(_nng_module_path "${CMAKE_MODULE_PATH}")
+        list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
+        find_dependency(MbedTLS MODULE)
+        set(CMAKE_MODULE_PATH "${_nng_module_path}")
+        unset(_nng_module_path)
+    endif ()
+endif ()
+if (@NNG_ENABLE_QUIC@ AND NOT TARGET nng::msquic)
+    find_library(NNG_MSQUIC_LIBRARY NAMES msquic
+        HINTS "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@")
+    if (NOT NNG_MSQUIC_LIBRARY)
+        set(nng_FOUND FALSE)
+        set(nng_NOT_FOUND_MESSAGE "NanoSDK requires the MsQuic library")
+        return()
+    endif ()
+    add_library(nng::msquic UNKNOWN IMPORTED)
+    set_target_properties(nng::msquic PROPERTIES IMPORTED_LOCATION "${NNG_MSQUIC_LIBRARY}")
+endif ()
+
+# Make sure we find packages for our dependencies
 foreach(_PKG IN ITEMS @NNG_PKGS@)
 	find_dependency(${_PKG})
 endforeach ()

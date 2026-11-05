@@ -1036,6 +1036,7 @@ tls_do_recv(tls_conn *conn)
 		if (rv == NNG_EAGAIN) {
 			// Nothing more we can do, the engine doesn't
 			// have anything else for us (yet).
+			nng_log_info("TLS", "TLS socket blocked");
 			return;
 		}
 

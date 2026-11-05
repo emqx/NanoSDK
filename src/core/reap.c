@@ -105,6 +105,13 @@ nni_reap_sys_init(void)
 {
 	int rv;
 
+    // nng_fini followed by a new socket must start a live reaper again.
+    // The queue was drained before the previous worker exited.
+    nni_mtx_lock(&reap_mtx);
+    reap_exit = false;
+    reap_empty = true;
+    nni_mtx_unlock(&reap_mtx);
+
 	// If this fails, we don't fail init, instead we will try to
 	// start up at reap time.
 	if ((rv = nni_thr_init(&reap_thr, reap_worker, NULL)) != 0) {

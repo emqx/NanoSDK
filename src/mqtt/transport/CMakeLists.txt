@@ -12,5 +12,6 @@ nng_directory(transport)
 
 add_subdirectory(tcp)
 add_subdirectory(tls)
-add_subdirectory(quic)
 
+
+add_subdirectory(quic)

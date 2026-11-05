@@ -18,7 +18,6 @@ else ()
 endif (BUILD_DEMO)
 
 find_package(Threads)
-find_package(msquic)
 
 if (DEBUG)
   SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
@@ -32,10 +31,16 @@ endif (DEBUG)
 
 add_executable(quic_client_v5 quic_client_v5.c)
 
-target_link_libraries(quic_client_v5 nng msquic pthread)
+
+if (TARGET nng::nng)
+  set(_NNG_TARGET nng::nng)
+else ()
+  set(_NNG_TARGET nng)
+endif ()
+target_link_libraries(quic_client_v5 PRIVATE ${_NNG_TARGET} Threads::Threads)
 target_compile_definitions(quic_client_v5 PRIVATE NNG_ELIDE_DEPRECATED)
 
 if (NNG_ENABLE_SQLITE)
     add_definitions(-DNNG_SUPP_SQLITE)
-    target_link_libraries(quic_client dl)
+    target_link_libraries(quic_client_v5 PRIVATE dl)
 endif (NNG_ENABLE_SQLITE)

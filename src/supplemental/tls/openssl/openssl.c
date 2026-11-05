@@ -12,17 +12,47 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/crypto.h>
 #include <openssl/x509v3.h>
 
+#include <errno.h>
+
+#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
+
+#include <openssl/engine.h>
+#include <openssl/conf.h>
+#include "cn_x509_api.h"
+#include "cn_x509_error.h"
+
+#endif
+
 // Follow the suggestion from Sliepen. https://stackoverflow.com/questions/69079419/how-i-can-read-more-than-16384-bytes-using-openssl-tls
 #define OPEN_BUF_SZ 16000
 
+#define OPEN_GM 1
 //#define OPEN_DEBUG 1
 //#define OPEN_TRACE 1
+
+static int open_tls_errno = 0;
+
+#ifdef NNG_TLS_OPENSSL_HAVE_GM
+
+#define gminfo(format, arg...)                                              \
+	do {                                                               \
+		fprintf(stderr, "[%s] " format "\n", __FUNCTION__, ##arg); \
+	} while (0)
+
+#else
+
+#define gminfo(format, arg...)                                              \
+	do {                                                               \
+	} while (0)
+
+#endif
 
 #ifdef OPEN_TRACE
 
@@ -40,23 +70,6 @@
 #endif
 
 #ifdef OPEN_DEBUG
-#include <execinfo.h>
-static void
-print_trace()
-{
-	void  *array[10];
-	char **strings;
-	int    size, i;
-
-	size    = backtrace(array, 10);
-	strings = backtrace_symbols(array, size);
-	if (strings != NULL) {
-		printf("Obtained %d stack frames.\n", size);
-		for (i = 0; i < size; i++)
-			printf("%s\n", strings[i]);
-	}
-	free(strings);
-}
 
 static void
 print_hex(char *str, const uint8_t *data, size_t len)
@@ -69,11 +82,6 @@ print_hex(char *str, const uint8_t *data, size_t len)
 }
 
 #else
-
-static void
-print_trace()
-{
-}
 
 static void
 print_hex(char *str, const uint8_t *data, size_t len)
@@ -118,6 +126,9 @@ struct nng_tls_engine_config {
 	char        *server_name;
 	int          auth_mode;
 	nni_list     psks;
+#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
+	ENGINE      *en;
+#endif
 };
 
 static int open_conn_handshake(nng_tls_engine_conn *ec);
@@ -140,21 +151,27 @@ open_net_read(void *ctx, char *buf, int len) {
 
 	rv = nng_tls_engine_recv(ctx, (uint8_t *) buf, &sz);
 	if (rv == 0)
-		log_debug("NNG-TLS-NET-RD" "Read From TCP %ld/%d rv%d", sz, len, rv);
+		nng_log_debug("NNG-TLS-NET-RD", "Read From TCP %ld/%d rv%d", sz, len, rv);
+	else
+		nng_log_info("NNG-TLS-NET-RD", "Read From TCP %ld/%d rv%d", sz, len, rv);
 	trace("end");
 	switch (rv) {
 	case 0:
 		return ((int) sz);
 	case NNG_EAGAIN:
+		nng_log_debug("NNG-TLS-NET-RD", "NNG_EAGAIN");
 		return 0 - (SSL_ERROR_WANT_READ);
 		// return (WOLFSSL_CBIO_ERR_WANT_READ);
 	case NNG_ECLOSED:
+		nng_log_debug("NNG-TLS-NET-RD", "NNG_ECLOSED");
 		return 0 - (SSL_ERROR_WANT_CONNECT);
 		// return (WOLFSSL_CBIO_ERR_CONN_CLOSE);
 	case NNG_ECONNSHUT:
+		nng_log_debug("NNG-TLS-NET-RD", "NNG_ECONNSHUT");
 		return 0 - (SSL_ERROR_WANT_CONNECT);
 		// return (WOLFSSL_CBIO_ERR_CONN_RST);
 	default:
+		nng_log_debug("NNG-TLS-NET-RD", "UNKNOWN ERROR");
 		return 0 - (SSL_ERROR_WANT_CONNECT);
 		// return (WOLFSSL_CBIO_ERR_GENERAL);
 	}
@@ -167,22 +184,28 @@ open_net_write(void *ctx, const char *buf, int len) {
 	int    rv;
 
 	rv = nng_tls_engine_send(ctx, (const uint8_t *) buf, &sz);
-	log_debug("NNG-TLS-NET-WR" "Sent To TCP %ld/%d rv%d", sz, len, rv);
+	nng_log_debug("NNG-TLS-NET-WR", "Sent To TCP %ld/%d rv%d", sz, len, rv);
+	if (rv != 0)
+		nng_log_info("NNG-TLS-NET-WR", "Sent To TCP %ld/%d rv%d", sz, len, rv);
 	trace("end");
 	switch (rv) {
 	case 0:
 		return ((int) sz);
 
 	case NNG_EAGAIN:
+		nng_log_debug("NNG-TLS-NET-WR", "NNG_EAGAIN");
 		return 0 - (SSL_ERROR_WANT_WRITE);
 		// return (WOLFSSL_CBIO_ERR_WANT_WRITE);
 	case NNG_ECLOSED:
+		nng_log_debug("NNG-TLS-NET-WR", "NNG_ECLOSED");
 		return 0 - (SSL_ERROR_WANT_CONNECT);
 		// return (WOLFSSL_CBIO_ERR_CONN_CLOSE);
 	case NNG_ECONNSHUT:
+		nng_log_debug("NNG-TLS-NET-WR", "NNG_ECONNSHUT");
 		return 0 - (SSL_ERROR_WANT_CONNECT);
 		// return (WOLFSSL_CBIO_ERR_CONN_RST);
 	default:
+		nng_log_debug("NNG-TLS-NET-WR", "UNKNOWN ERROR");
 		return 0 - (SSL_ERROR_WANT_CONNECT);
 		// return (WOLFSSL_CBIO_ERR_GENERAL);
 	}
@@ -196,25 +219,37 @@ open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 	ec->ok = 0;
 	ec->tls = tls;
 	if ((ec->ssl = SSL_new(cfg->ctx)) == NULL) {
-		log_error("NNG-TLS-CONN-INIT" "error in new SSL connection");
+		nng_log_err("NNG-TLS-CONN-INIT", "error in new SSL connection");
 		return (NNG_ENOMEM); // most likely
 	}
 
-	log_info("NNG-TLS-CONN-INIT" "%s",
-			cfg->mode == NNG_TLS_MODE_SERVER ? "SSL Server Mode":"SSL Client Mode");
+	switch (cfg->mode) {
+	case NNG_TLS_MODE_SERVER:
+		nng_log_info("NNG-TLS-CONN-INIT", "SSL Server Mode");
+		break;
+	case NNG_TLS_MODE_CLIENT:
+		nng_log_info("NNG-TLS-CONN-INIT", "SSL Client Mode");
+		break;
+	case NNG_TLS_MODE_CLIENT_GM_NW:
+		nng_log_info("NNG-TLS-CONN-INIT", "SSL Client GM NW Mode");
+		break;
+	default:
+		nng_log_err("NNG-TLS-CONN-INIT", "Unknown TLS MODE");
+		return NNG_EINVAL;
+	}
 
 	ec->rbio = BIO_new(BIO_s_mem());
 	ec->wbio = BIO_new(BIO_s_mem());
 	if (!ec->rbio || !ec->wbio) {
-		log_error("NNG-TLS-CONN-INIT" "error in new BIO for connection");
+		nng_log_err("NNG-TLS-CONN-INIT", "error in new BIO for connection");
 		return (NNG_ENOMEM); // most likely
 	}
 	SSL_set_bio(ec->ssl, ec->rbio, ec->wbio);
 
-	if (cfg->mode == NNG_TLS_MODE_CLIENT)
-		SSL_set_connect_state(ec->ssl);
-	else
+	if (cfg->mode == NNG_TLS_MODE_SERVER)
 		SSL_set_accept_state(ec->ssl);
+	else
+		SSL_set_connect_state(ec->ssl);
 
 	ec->wnext = NULL;
 
@@ -229,9 +264,13 @@ open_conn_init(nng_tls_engine_conn *ec, void *tls, nng_tls_engine_config *cfg)
 static void
 open_conn_close(nng_tls_engine_conn *ec)
 {
+	nng_log_warn("NNG-TLS-CONN-HANDSHAKE",
+				"openssl conn closed");
 	trace("start");
-	if (ec->wnext)
+	if (ec->wnext) {
 		nng_free(ec->wnext, 0);
+		ec->wnext = NULL;
+	}
 	SSL_shutdown(ec->ssl);
 	trace("end");
 }
@@ -240,26 +279,28 @@ static int
 open_conn_handshake(nng_tls_engine_conn *ec)
 {
 	int rv;
-	print_trace();
 	if (ec->ok == 1)
 		return 0;
 	rv = SSL_do_handshake(ec->ssl);
 	if (rv != 0) {
 		rv = SSL_get_error(ec->ssl, rv);
-		if (rv != 0)
-			log_warn("NNG-TLS-CONN-HANDSHAKE"
+		if (rv != 0) {
+			open_tls_errno = rv;
+			nng_log_warn("NNG-TLS-CONN-HANDSHAKE",
 				"openssl handshake still in process rv%d", rv);
+			ERR_print_errors_fp(stderr);
+		}
 	}
 	if (rv == SSL_ERROR_WANT_READ || rv == SSL_ERROR_WANT_WRITE) {
 		int ensz, sz;
 		while ((ensz = open_net_read(ec->tls, ec->wbuf, OPEN_BUF_SZ)) > 0) {
 			sz = BIO_write(ec->rbio, ec->wbuf, ensz);
-			log_debug("NNG-TLS-CONN-HANDSHAKE" "BIO write sz%d/%d", sz, ensz);
+			nng_log_debug("NNG-TLS-CONN-HANDSHAKE", "BIO write sz%d/%d", sz, ensz);
 			if (sz < 0) {
-				log_debug("NNG-TLS-CONN-HANDSHAKE"
+				nng_log_debug("NNG-TLS-CONN-HANDSHAKE",
 					"bio write failed %d", sz);
 				if (!BIO_should_retry(ec->rbio)) {
-					log_warn("NNG-TLS-CONN-HANDSHAKE"
+					nng_log_warn("NNG-TLS-CONN-HANDSHAKE",
 						"openssl BIO write failed rv%d", ensz);
 					return NNG_ECRYPTO;
 				}
@@ -272,16 +313,17 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 		}
 
 		while ((ensz = BIO_read(ec->wbio, ec->rbuf, OPEN_BUF_SZ)) > 0) {
-			log_debug("NNG-TLS-CONN-HANDSHAKE" "BIO read rv%d", ensz);
+			nng_log_debug("NNG-TLS-CONN-HANDSHAKE", "BIO read rv%d", ensz);
 			if (ensz < 0) {
 				if (!BIO_should_retry(ec->wbio)) {
-					log_warn("NNG-TLS-CONN-HANDSHAKE"
+					nng_log_warn("NNG-TLS-CONN-HANDSHAKE",
 						"openssl BIO read failed rv%d", ensz);
 					return NNG_ECRYPTO;
 				}
 				continue;
 			}
 			sz = open_net_write(ec->tls, ec->rbuf, ensz);
+			nng_log_debug("NNG-TLS-CONN-HANDSHAKE", "tcp write want%d real%d", ensz, sz);
 			if (sz == 0 - SSL_ERROR_WANT_READ || sz == 0 - SSL_ERROR_WANT_WRITE)
 				return (NNG_EAGAIN);
 			else if (sz < 0)
@@ -296,7 +338,7 @@ open_conn_handshake(nng_tls_engine_conn *ec)
 	}
 	if (rv == SSL_ERROR_NONE) {
 finished:
-		log_warn("NNG-TLS-CONN-HANDSHAKE"
+		nng_log_warn("NNG-TLS-CONN-HANDSHAKE",
 				"openssl do handshake successfully");
 		ec->ok = 1;
 		return 0;
@@ -316,8 +358,10 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 		rv = NNG_EAGAIN;
 		goto readopenssl;
 	}
-	else if (rv < 0)
+	else if (rv < 0) {
+		nng_log_info("NNG-TLS-CONN-RECV", "read err rv %d", rv);
 		return (NNG_ECLOSED);
+	}
 
 	int written = 0;
 	while ((ensz = BIO_write(ec->rbio, ec->wbuf + written, rv - written)) > 0) {
@@ -325,24 +369,30 @@ open_conn_recv(nng_tls_engine_conn *ec, uint8_t *buf, size_t *szp)
 		if (written == rv)
 			break;
 	}
+	nng_log_debug("NNG-TLS-CONN-RECV",
+		"recv %d from tcp and written %d to BIO", rv, written);
 	if (ensz < 0) {
-		log_debug("NNG-TLS-CONN-RECV" "bio write result %d", ensz);
+		nng_log_debug("NNG-TLS-CONN-RECV", "bio write result %d", ensz);
 		if (!BIO_should_retry(ec->rbio)) {
-			log_error("NNG-TLS-CONN-RECV"
+			nng_log_warn("NNG-TLS-CONN-RECV",
 				"[%d]openssl BIO write failed rv%d", ensz);
 			return (NNG_ECRYPTO);
 		}
 	}
-	log_debug("NNG-TLS-CONN-RECV"
-			"recv %d from tcp and written %d to BIO", rv, written);
 
 readopenssl:
 	if ((rv = SSL_read(ec->ssl, buf, (int) *szp)) < 0) {
+		int tmprv = rv;
 		rv = SSL_get_error(ec->ssl, rv);
 		// TODO return codes according openssl documents
 		if (rv != SSL_ERROR_WANT_READ) {
-			log_error("NNG-TLS-CONN-RECV"
-				"openssl read failed rv%d", rv);
+			open_tls_errno = rv;
+			nng_log_err("NNG-TLS-CONN-RECV",
+				"openssl read failed rv %d -> %d", tmprv, rv);
+			char errstr[1024];
+			ERR_error_string(ERR_get_error(), errstr);
+			nng_log_err("NNG-TLS-CONN-RECV", "SD says: %s", errstr);
+			nng_log_err("NNG-TLS-CONN-RECV", "%d", errno);
 			return (NNG_ECRYPTO);
 		}
 		*szp = 0;
@@ -370,7 +420,7 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 	trace("start");
 
 	if (ec->wnext) {
-		log_debug("NNG-TLS-CONN-SEND"
+		nng_log_debug("NNG-TLS-CONN-SEND",
 			"write last remaining payload first %d", ec->wnsz);
 		char *wnext = ec->wnext;
 		rv = open_net_write(ec->tls, wnext, ec->wnsz);
@@ -381,19 +431,20 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 				ec->wnext = nng_alloc(sizeof(char) * dm);
 				memcpy(ec->wnext, wnext + rv, dm);
 				ec->wnsz = dm;
-				log_debug("NNG-TLS-CONN-SEND"
+				nng_log_debug("NNG-TLS-CONN-SEND",
 					"written%d remain%d bytes to put to kernel", rv, dm);
 				nng_free(wnext, 0);
 				return NNG_EAGAIN;
 			}
 			nng_free(wnext, 0);
 			written2tcp = ec->wntcpsz;
-			log_debug("writing done%d written2tcp%d", ec->wnsz, written2tcp);
+			nng_log_debug("NNG-TLS-CONN-SEND", "writing done%d written2tcp%d", ec->wnsz, written2tcp);
 			goto end;
 		} else if (rv == 0 - SSL_ERROR_WANT_READ || rv == 0 - SSL_ERROR_WANT_WRITE) {
 			trace("end3");
 			return (NNG_EAGAIN);
 		} else {
+			nng_log_info("NNG-TLS-CONN-SEND", "write err rv %d", rv);
 			return (NNG_ECLOSED);
 		}
 	}
@@ -401,7 +452,7 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 	print_hex("send buffer:", buf, sz);
 
 	while (written2tcp < sz) {
-		log_debug("NNG-TLS-CONN-SEND"
+		nng_log_debug("NNG-TLS-CONN-SEND",
 			"written2tcp %d sz %d", written2tcp, sz);
 		int remain = sz - written2tcp;
 		batchsz = OPEN_BUF_SZ > remain ? remain : OPEN_BUF_SZ;
@@ -410,7 +461,8 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 			// TODO return codes according openssl documents
 			rv = SSL_get_error(ec->ssl, rv);
 			if (rv != SSL_ERROR_WANT_READ && rv != SSL_ERROR_WANT_WRITE) {
-				log_error("NNG-TLS-CONN-SEND" "error in ssl write%d", rv);
+				open_tls_errno = rv;
+				nng_log_err("NNG-TLS-CONN-SEND", "error in ssl write%d", rv);
 				return (NNG_ECRYPTO);
 			}
 			rv = 0;
@@ -422,10 +474,10 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 		int ensz;
 		int read2buf = 0;
 		while ((ensz = BIO_read(ec->wbio, ec->rbuf + read2buf, OPEN_BUF_SZ)) > 0) {
-			log_debug("NNG-TLS-CONN-SEND" "BIO read ensz%d", ensz);
+			nng_log_debug("NNG-TLS-CONN-SEND", "BIO read ensz%d", ensz);
 			read2buf += ensz;
 			if (read2buf > 2 * OPEN_BUF_SZ) {
-				log_error("NNG-TLS-CONN-SEND"
+				nng_log_err("NNG-TLS-CONN-SEND",
 					"BIO read buf over that 2*OPEN_BUF_SZ %d", read2buf);
 				return NNG_EINTERNAL;
 			}
@@ -433,7 +485,7 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 		if (ensz < 0) {
 			//trace("ensz%d", ensz);
 			if (!BIO_should_retry(ec->wbio)) {
-				log_error("NNG-TLS-CONN-SEND"
+				nng_log_err("NNG-TLS-CONN-SEND",
 					"BIO read failed rv%d", ensz);
 				return (NNG_ECRYPTO);
 			}
@@ -446,7 +498,7 @@ open_conn_send(nng_tls_engine_conn *ec, const uint8_t *buf, size_t *szp)
 				ec->wnext = nng_alloc(sizeof(char) * dm);
 				memcpy(ec->wnext, ec->rbuf + rv, dm);
 				ec->wnsz = dm;
-				log_debug("NNG-TLS-CONN-SEND"
+				nng_log_debug("NNG-TLS-CONN-SEND",
 					"tcp%d ssl%d written%d remain%dbytes to put to kernel",
 					written2tcp, read2buf, rv, dm);
 				// written2tcp += written2ssl; // This may make wnext send after a long time
@@ -483,7 +535,7 @@ static bool
 open_conn_verified(nng_tls_engine_conn *ec)
 {
 	long rv = SSL_get_verify_result(ec->ssl);
-	log_info("NNG-TLS-CONN-VERIFY" "verified result: %ld", rv);
+	nng_log_info("NNG-TLS-CONN-VERIFY", "verified result: %ld", rv);
 	return (X509_V_OK == rv);
 }
 
@@ -506,6 +558,7 @@ open_config_fini(nng_tls_engine_config *cfg)
 static int
 open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 {
+	int               rv;
 	int               auth_mode;
 	int               nng_auth;
 	const SSL_METHOD *method;
@@ -517,18 +570,74 @@ open_config_init(nng_tls_engine_config *cfg, enum nng_tls_mode mode)
 		method    = SSLv23_server_method();
 		auth_mode = SSL_VERIFY_NONE;
 		nng_auth  = NNG_TLS_AUTH_MODE_NONE;
-	} else {
+	} else if (mode == NNG_TLS_MODE_CLIENT) {
 		method    = SSLv23_client_method();
+#ifdef NNG_TLS_OPENSSL_HAVE_GM
+		method    = CNTLS_client_method();
+#endif
 		auth_mode = SSL_VERIFY_PEER;
 		nng_auth  = NNG_TLS_AUTH_MODE_REQUIRED;
+		nng_log_debug("open_config_init", "Using GM method %p", method);
+#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
+	} else if (mode == NNG_TLS_MODE_CLIENT_GM_NW) {
+		method = CNTLS_client_method();
+		auth_mode = SSL_VERIFY_PEER;
+		nng_auth  = NNG_TLS_AUTH_MODE_REQUIRED;
+		nng_log_debug("open_config_init", "Using GM NW method %p", method);
+#endif
 	}
 
 	cfg->ctx = SSL_CTX_new(method);
 	if (cfg->ctx == NULL) {
-		log_error("NNG-TLS-CFG-INIT" "error in new ctx");
+		nng_log_err("NNG-TLS-CFG-INIT", "error in new ctx");
 		return (NNG_ENOMEM);
 	}
 	// Set max/min version TODO
+
+#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
+	nng_log_info("NNG-TLS-CFG-INIT", "pkiLibraryInit start");
+	pkiLibraryInit();
+	ENGINE *en = ENGINE_by_id("easysec");
+	if (en == NULL) {
+		OpenSSL_add_all_algorithms();
+		OPENSSL_load_builtin_modules();
+		ENGINE_load_dynamic();
+#ifdef NNG_TLS_OPENSSL_NW_CONF
+		char *openssl_cnf_path = NNG_TLS_OPENSSL_NW_CONF;
+#else
+		char openssl_cnf_path[] = "/etc/openssl/openssl.cnf";
+#endif
+		nng_log_warn("NNG-TLS-GM-INIT", "OpenSSL conf path: %s", openssl_cnf_path);
+		if ((rv = CONF_modules_load_file(openssl_cnf_path, "openssl_conf", 0)) != 1) {
+			nng_log_err("NNG-TLS-GM-INIT",
+				"OpenSSL failed to load required configuration %d", rv);
+			ERR_print_errors_fp(stderr);
+			return NNG_ECRYPTO;
+		}
+		en = ENGINE_by_id("easysec");
+	}
+	if (en == NULL) {
+		nng_log_err("NNG-TLS-GM-INIT",
+			"OpenSSL failed to load easysec engine");
+		return NNG_ECRYPTO;
+	}
+	if(ENGINE_init(en) != 1){
+		nng_log_err("NNG-TLS-GM-INIT",
+			"OpenSSL failed to init easysec engine");
+		return NNG_ECRYPTO;
+	}
+	cfg->en = en;
+
+if (mode == NNG_TLS_MODE_CLIENT_GM_NW) {
+	if (1 != (rv = SSL_CTX_set_ssl_version(cfg->ctx, CNTLS_client_method()))) {
+		nng_log_err("NNG-TLS-CFG-INIT", "Error in set tls nw version %d", rv);
+		return (NNG_ENOMEM);
+	}
+	rv = SSL_CTX_set_cipher_list(cfg->ctx, "ECC-SM4-SM3");
+	nng_log_info("NNG-TLS-CFG-INIT", "Setting suite returns %d", rv);
+	SSL_CTX_set_verify_depth(cfg->ctx, 1);
+}
+#endif // NNG_TLS_OPENSSL_HAVE_GM_NW
 
 	SSL_CTX_set_verify(cfg->ctx, auth_mode, NULL);
 	//SSL_CTX_set_mode(cfg->ctx, SSL_MODE_AUTO_RETRY);
@@ -574,74 +683,148 @@ open_config_auth_mode(nng_tls_engine_config *cfg, nng_tls_auth_mode mode)
 	switch (mode) {
 	case NNG_TLS_AUTH_MODE_NONE:
 		SSL_CTX_set_verify(cfg->ctx, SSL_VERIFY_NONE, NULL);
-		log_debug("NNG-TLS-CFG-AUTH" "AUTH MODE: NONE");
+		nng_log_debug("NNG-TLS-CFG-AUTH", "AUTH MODE: NONE");
 		return (0);
 	case NNG_TLS_AUTH_MODE_OPTIONAL:
 		SSL_CTX_set_verify(cfg->ctx, SSL_VERIFY_PEER, NULL);
-		log_debug("NNG-TLS-CFG-AUTH" "AUTH MODE: OPTION");
+		nng_log_debug("NNG-TLS-CFG-AUTH", "AUTH MODE: OPTION");
 		return (0);
 	case NNG_TLS_AUTH_MODE_REQUIRED:
 		SSL_CTX_set_verify(cfg->ctx,
 		    SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
-		log_debug("NNG-TLS-CFG-AUTH" "AUTH MODE: REQUIRE");
+		nng_log_debug("NNG-TLS-CFG-AUTH", "AUTH MODE: REQUIRE");
 		return (0);
 	}
-	log_error("NNG-TLS-CFG-AUTH" "AUTH MODE: Unknown");
+	nng_log_err("NNG-TLS-CFG-AUTH", "AUTH MODE: Unknown");
 	return (NNG_EINVAL);
 }
 
 static int
-open_config_ca_chain(
+open_config_ca_chain_std(
     nng_tls_engine_config *cfg, const char *certs, const char *crl)
 {
+	int    rv = 0;
 	size_t len;
-	trace("start");
+	NNI_ARG_UNUSED(crl);
+
 	if (certs == NULL) {
-		log_info("open_config_ca_chain" "NULL certs detected!");
+		nng_log_warn("NNG-TLS-CFG-CACHAIN", "Failed to get ca chain! %d", rv);
+		return (NNG_EINVAL);
 	}
 	len = strlen(certs);
 
 	BIO *bio = BIO_new_mem_buf(certs, len);
 	if (!bio) {
-		log_error("NNG-TLS-CFG-CACHAIN" "Failed to create BIO");
+		nng_log_err("NNG-TLS-CFG-CACHAIN", "Failed to create BIO");
 		return (NNG_ENOMEM);
 	}
 
 	X509 *cert = NULL;
 	X509_STORE *store = SSL_CTX_get_cert_store(cfg->ctx);
-
 	while ((cert = PEM_read_bio_X509(bio, NULL, 0, NULL)) != NULL) {
 		if (X509_STORE_add_cert(store, cert) == 0) {
-			log_error("NNG-TLS-CFG-CACHAIN" "Failed to add certificate to store");
+			nng_log_err("NNG-TLS-CFG-CACHAIN", "Failed to add certificate to store");
 			X509_free(cert);
 			BIO_free(bio);
 			return (NNG_ECRYPTO);
 		}
 		X509_free(cert);
 	}
+	BIO_free(bio);
+	return (0);
+}
+
+#if defined(NNG_TLS_OPENSSL_HAVE_GM) && !defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
+static int
+open_config_ca_chain_gm(
+    nng_tls_engine_config *cfg, const char *certs, const char *crl)
+{
+	return open_config_ca_chain_std(cfg, certs, crl);
+}
+#endif
+
+#if defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
+static int
+open_config_ca_chain_gm_nw(
+    nng_tls_engine_config *cfg, const char *certs, const char *crl)
+{
+	int    rv = 0;
+	size_t len;
+	char  *certs1 = NULL;
+	NNI_ARG_UNUSED(crl);
+	NNI_ARG_UNUSED(certs);
+
+	uint8_t certs1buf[8192] = {0};
+	int32_t certs1bufsz = 8192;
+	nng_log_info("NNG-TLS-CFG-CACHAIN-GMNW", "getX509CertChain start");
+	rv = getX509CertChain(certs1buf, &certs1bufsz);
+	nng_log_info("NNG-TLS-CFG-CACHAIN-GMNW", "CA GMNW(%d)(%d)", certs1bufsz, strlen((char *)certs1buf));
+	certs1 = (char *)certs1buf;
+	if (certs1 == NULL || rv != 0) {
+		nng_log_warn("NNG-TLS-CFG-CACHAIN-GMNW", "Failed to get ca chain! %d", rv);
+		//return (NNG_EINVAL);
+	}
+	len = strlen(certs1);
+
+	BIO *bio = BIO_new_mem_buf(certs1, len);
+	if (!bio) {
+		nng_log_err("NNG-TLS-CFG-CACHAIN-GMNW", "Failed to create BIO");
+		return (NNG_ENOMEM);
+	}
+
+	STACK_OF(X509_INFO) *skinfo;
+	skinfo = PEM_X509_INFO_read_bio(bio, NULL, NULL, NULL);
+	nng_log_info("NNG-TLS-CFG-CACHAIN-GMNW",
+			"cachain has %d items", sk_X509_INFO_num(skinfo));
+
+	X509_STORE *store = X509_STORE_new();
+	for (int i=0; i<sk_X509_INFO_num(skinfo); ++i) {
+		X509_INFO *item = sk_X509_INFO_value(skinfo, i);
+		if (item->x509)
+			X509_STORE_add_cert(store, item->x509);
+		if (item->crl)
+			X509_STORE_add_crl(store, item->crl);
+	}
+	SSL_CTX_set1_verify_cert_store(cfg->ctx, store);
+
+	if (skinfo)
+		sk_X509_INFO_pop_free(skinfo, X509_INFO_free);
 
 	BIO_free(bio);
+	return (0);
+}
+#endif // NNG_TLS_OPENSSL_HAVE_GM_NW
 
-	if (crl == NULL) {
-		trace("end without crl");
-		return (0);
+static int
+open_config_ca_chain(
+    nng_tls_engine_config *cfg, const char *certs, const char *crl)
+{
+	int rv = NNG_EINVAL;
+	nng_tls_mode mode = cfg->mode;
+	if (mode == NNG_TLS_MODE_SERVER) {
+		rv = open_config_ca_chain_std(cfg, certs, crl);
+	} else if (mode == NNG_TLS_MODE_CLIENT) {
+#if defined(NNG_TLS_OPENSSL_HAVE_GM) && !defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
+		rv = open_config_ca_chain_gm(cfg, certs, crl);
+#else
+		rv = open_config_ca_chain_std(cfg, certs, crl);
+#endif
+#if defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
+	} else if (mode == NNG_TLS_MODE_CLIENT_GM_NW) {
+		rv = open_config_ca_chain_gm_nw(cfg, certs, crl);
+#endif
+	}
+	if (rv != 0) {
+		return rv;
 	}
 
 #ifdef NNG_OPENSSL_HAVE_CRL
-	log_warn("CRL is NOT supported yet");
-	/* TODO
-	len = strlen(crl);
-	rv  = wolfSSL_CTX_LoadCRLBuffer(
-	    cfg->ctx, (void *) crl, len, SSL_FILETYPE_PEM);
-	if (rv != SSL_SUCCESS) {
-	        return (NNG_ECRYPTO);
+	if (crl != NULL) {
+		log_warn("CRL is NOT supported yet");
+		return (0);
 	}
-	*/
-#else
 #endif
-	trace("end");
-
-	return (0);
+	return 0;
 }
 
 #if NNG_OPENSSL_HAVE_PASSWORD
@@ -669,7 +852,7 @@ open_get_password(char *passwd, int size, int rw, void *ctx)
 #endif
 
 static int
-open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
+open_config_own_cert_std(nng_tls_engine_config *cfg, const char *cert,
     const char *key, const char *pass)
 {
 	int len;
@@ -678,65 +861,51 @@ open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
 	BIO *biocert = NULL;
 	X509 *xcert = NULL;
 	EVP_PKEY *pkey = NULL;
-	trace("start");
 
-#if NNG_OPENSSL_HAVE_PASSWORD
-	char *dup = NULL;
-	if (pass != NULL) {
-		if ((dup = nng_strdup(pass)) == NULL) {
-			return (NNG_ENOMEM);
-		}
-	}
-	if (cfg->pass != NULL) {
-		nng_strfree(cfg->pass);
-	}
-	cfg->pass = dup;
-	SSL_CTX_set_default_passwd_cb_userdata(cfg->ctx, cfg);
-	SSL_CTX_set_default_passwd_cb(cfg->ctx, open_get_password);
-#else
-	(void) pass;
-#endif
+	NNI_ARG_UNUSED(pass);
 
 	len = strlen(cert);
 	biocert = BIO_new_mem_buf(cert, len);
 	if (!biocert) {
-		log_error("NNG-TLS-CFG-OWNCHAIN" "Failed to create BIO");
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to create BIO");
 		rv = NNG_ENOMEM;
 		goto error;
 	}
 	xcert = PEM_read_bio_X509(biocert, NULL, 0, NULL);
 	if (!xcert) {
-		log_error("NNG-TLS-CFG-OWNCHAIN" "Failed to load certificate from buffer");
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load certificate from buffer");
 		rv = NNG_EINVAL;
 		goto error;
 	}
 	if (SSL_CTX_use_certificate(cfg->ctx, xcert) <= 0) {
-		log_error("NNG-TLS-CFG-OWNCHAIN" "Failed to set certificate to SSL_CTX");
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to set certificate to SSL_CTX");
 		rv = NNG_EINVAL;
 		goto error;
 	}
+	rv = 0;
 
 	len = strlen(key);
 	biokey = BIO_new_mem_buf(key, len);
 	if (!biokey) {
-		log_error("NNG-TLS-CFG-OWNCHAIN" "Failed to create key BIO");
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to create key BIO");
 		rv = NNG_ENOMEM;
 		goto error;
 	}
 	pkey = PEM_read_bio_PrivateKey(biokey, NULL, NULL, NULL);
 	if (!pkey) {
-		log_error("NNG-TLS-CFG-OWNCHAIN" "Failed to load key from buffer");
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load key from buffer");
 		rv = NNG_EINVAL;
 		goto error;
 	}
 	if (SSL_CTX_use_PrivateKey(cfg->ctx, pkey) <= 0) {
-		log_error("NNG-TLS-CFG-OWNCHAIN" "Failed to set key to SSL_CTX");
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to set key to SSL_CTX");
 		rv = NNG_EINVAL;
 		goto error;
 	}
 
+	// Verify
 	if (SSL_CTX_check_private_key(cfg->ctx) != 1) {
-		log_error("NNG-TLS-CFG-OWNCHAIN" "Failed to check key in SSL_CTX");
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to check key in SSL_CTX");
 		rv = NNG_ECRYPTO;
 		goto error;
 	}
@@ -751,15 +920,314 @@ error:
 	if (biokey)
 		BIO_free(biokey);
 
-	trace("end");
 	return rv;
+}
+
+#if defined(NNG_TLS_OPENSSL_HAVE_GM) && !defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
+static int
+open_config_own_cert_gm(nng_tls_engine_config *cfg, const char *cert,
+    const char *key, const char *pass)
+{
+	int len;
+	int rv = 0;
+	BIO *biokey = NULL;
+	BIO *biocert = NULL;
+	X509 *xcert = NULL;
+	EVP_PKEY *pkey = NULL;
+
+	if (pass == NULL) {
+		nng_log_err("NNG-TLS-GM-OWN-CERT", "Please provide GM certificates");
+		return NNG_EINVAL;
+	}
+
+	char **encerts = (char **)pass;
+	char *enc_store = encerts[0]; // encrypt cert
+	char *enc_key = encerts[1]; // encrypt private key
+	if (enc_store == NULL || enc_key == NULL) {
+		nng_log_err("NNG-TLS-GM-OWN-CERT", "Please provide GM enc cert and enc key");
+		return NNG_EINVAL;
+	}
+	nng_log_info("NNG-TLS-GM-OWN-CERT",
+		"SSL_TLCP start encCert = %s encKey = %s", enc_store, enc_key);
+
+	len = strlen(cert);
+	biocert = BIO_new_mem_buf(cert, len);
+	if (!biocert) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to create BIO");
+		rv = NNG_ENOMEM;
+		goto error;
+	}
+	xcert = PEM_read_bio_X509(biocert, NULL, 0, NULL);
+	if (!xcert) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load certificate from buffer");
+		rv = NNG_EINVAL;
+		goto error;
+	}
+	if (SSL_CTX_use_certificate(cfg->ctx, xcert) <= 0) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to set certificate to SSL_CTX");
+		rv = NNG_EINVAL;
+		goto error;
+	}
+	rv = 0;
+
+	len = strlen(key);
+	biokey = BIO_new_mem_buf(key, len);
+	if (!biokey) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to create key BIO");
+		rv = NNG_ENOMEM;
+		goto error;
+	}
+	pkey = PEM_read_bio_PrivateKey(biokey, NULL, NULL, NULL);
+	if (!pkey) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to load key from buffer");
+		rv = NNG_EINVAL;
+		goto error;
+	}
+	if (SSL_CTX_use_PrivateKey(cfg->ctx, pkey) <= 0) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to set key to SSL_CTX");
+		rv = NNG_EINVAL;
+		goto error;
+	}
+
+	if (SSL_CTX_check_private_key(cfg->ctx) != 1) {
+		nng_log_err("NNG-TLS-CFG-OWNCHAIN", "Failed to check key in SSL_CTX");
+		rv = NNG_ECRYPTO;
+		goto error;
+	}
+
+	// encrypt cert
+	if ((rv = SSL_CTX_use_enc_certificate_file(
+	         cfg->ctx, enc_store, SSL_FILETYPE_PEM)) != 1) {
+		rv = NNG_EINVAL;
+		nng_log_err("NNG-TLS-GM-ENC-CRT", "Enc cert load failed");
+		goto error;
+	}
+	// encrypt private key
+	if ((rv = SSL_CTX_use_enc_PrivateKey_file(
+	         cfg->ctx, enc_key, SSL_FILETYPE_PEM)) != 1) {
+		rv = NNG_EINVAL;
+		nng_log_err("NNG-TLS-GM-ENC-KEY", "Enc key load failed");
+		goto error;
+	}
+	if ((rv = SSL_CTX_check_enc_private_key(cfg->ctx)) != 1) {
+		rv = NNG_ECRYPTO;
+		nng_log_err("NNG-TLS-GM-ENC-CHECK", "check key failed");
+		goto error;
+	}
+	rv = 0;
+
+error:
+	if (xcert)
+		X509_free(xcert);
+	if (biocert)
+		BIO_free(biocert);
+	if (pkey)
+		EVP_PKEY_free(pkey);
+	if (biokey)
+		BIO_free(biokey);
+
+	return rv;
+}
+#endif // NNG_TLS_OPENSSL_HAVE_GM
+
+#ifdef NNG_TLS_OPENSSL_HAVE_GM_NW
+static int
+open_config_own_cert_gm_nw(nng_tls_engine_config *cfg, const char *cert,
+    const char *key, const char *pass)
+{
+	int len;
+	int rv = 0;
+	BIO *biokey = NULL;
+	BIO *biocert = NULL;
+	BIO* bioenccert = NULL;
+	X509 *xcert = NULL;
+	X509 *xenccert = NULL;
+	EVP_PKEY *pkey = NULL;
+	char *cert1 = NULL;
+	NNI_ARG_UNUSED(pass);
+	NNI_ARG_UNUSED(cert);
+	NNI_ARG_UNUSED(key);
+
+	uint8_t cert1buf[2048];
+	uint32_t cert1sz = 2048;
+	cert1 = (char *)cert1buf;
+	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "getIdentityCert sign start");
+	rv = getIdentityCert(1, cert1buf, &cert1sz);
+	nng_log_info("NNG-TLS-OWN-CERT-GMNW",
+			"Sign Cert GMNW(%d)(%d)", cert1sz, strlen(cert1));
+	if (rv != 0) {
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to get GMNW sign cert: %d", rv);
+		return NNG_EINVAL;
+	}
+
+	char keyname[] = "sign_key";
+	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "ENGINE_load_private_key %s start", keyname);
+	pkey = ENGINE_load_private_key(cfg->en, keyname, UI_OpenSSL(), NULL);
+	if (!pkey) {
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to get GMNW sign key");
+		return NNG_EINVAL;
+	}
+	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "GMNW id after load is%d", EVP_PKEY_id(pkey));
+
+	char enc_store[2048]; // encrypt cert
+	uint32_t enc_store_sz = 2048;
+	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "getIdentityCert enc start");
+	rv = getIdentityCert(2, (uint8_t *)enc_store, &enc_store_sz);
+	if (rv != X509_NO_ERROR) {
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to get GMNW enc cert");
+		return NNG_EINVAL;
+	}
+	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "Enc Cert GMNW(%d)(%d)",
+		enc_store_sz, strlen(enc_store));
+
+	char keyname2[] = "enc__key";
+	EVP_PKEY *enc_pkey; // encrypt private key
+	nng_log_info("NNG-TLS-OWN-CERT-GMNW", "ENGINE_load_private_key %s start", keyname2);
+	enc_pkey = ENGINE_load_private_key(cfg->en, keyname2, UI_OpenSSL(), NULL);
+	if (!enc_pkey) {
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to get GMNW enc key");
+		return NNG_EINVAL;
+	}
+
+	len = strlen(cert1);
+	biocert = BIO_new_mem_buf(cert1, len);
+	if (!biocert) {
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to create sign cert BIO");
+		rv = NNG_ENOMEM;
+		goto error;
+	}
+	xcert = PEM_read_bio_X509(biocert, NULL, 0, NULL);
+	if (!xcert) {
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to load sign certificate from bio");
+		rv = NNG_EINVAL;
+		goto error;
+	}
+	if (SSL_CTX_use_certificate(cfg->ctx, xcert) <= 0) {
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to set sign certificate to SSL_CTX");
+		rv = NNG_EINVAL;
+		goto error;
+	}
+	rv = 0;
+
+	if (SSL_CTX_use_PrivateKey(cfg->ctx, pkey) <= 0) {
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to set key to SSL_CTX");
+		rv = NNG_EINVAL;
+		goto error;
+	}
+
+	if (SSL_CTX_check_private_key(cfg->ctx) != 1) {
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to check sign key");
+		rv = NNG_ECRYPTO;
+		goto error;
+	}
+
+	len = strlen(enc_store);
+	bioenccert = BIO_new_mem_buf(enc_store, len);
+	if (!bioenccert) {
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to create enc BIO");
+		rv = NNG_ENOMEM;
+		goto error;
+	}
+
+	// encrypt cert
+	xenccert = PEM_read_bio_X509(bioenccert, NULL, 0, NULL);
+	if (!xenccert) {
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Failed to load enc from BIO");
+		rv = NNG_EINVAL;
+		goto error;
+	}
+	if ((rv = SSL_CTX_use_enc_certificate(cfg->ctx, xenccert)) != 1) {
+		rv = NNG_EINVAL;
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Enc cert load failed");
+		goto error;
+	}
+	// encrypt private key
+	if ((rv = SSL_CTX_use_enc_PrivateKey(cfg->ctx, enc_pkey)) != 1) {
+		rv = NNG_EINVAL;
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "Enc key load failed");
+		goto error;
+	}
+	if ((rv = SSL_CTX_check_enc_private_key(cfg->ctx)) != 1) {
+		rv = NNG_ECRYPTO;
+		nng_log_err("NNG-TLS-OWN-CERT-GMNW", "check enc key failed");
+		goto error;
+	}
+	rv = 0;
+
+error:
+	if (xcert)
+		X509_free(xcert);
+	if (xenccert)
+		X509_free(xenccert);
+	if (biocert)
+		BIO_free(biocert);
+	if (bioenccert)
+		BIO_free(bioenccert);
+	if (pkey)
+		EVP_PKEY_free(pkey);
+	if (biokey)
+		BIO_free(biokey);
+
+	return rv;
+}
+#endif // NNG_TLS_OPENSSL_HAVE_GM_NW
+
+static int
+open_config_own_cert(nng_tls_engine_config *cfg, const char *cert,
+    const char *key, const char *pass)
+{
+	int rv = NNG_EINVAL;
+	nng_tls_mode mode = cfg->mode;
+	if (mode == NNG_TLS_MODE_SERVER) {
+		rv = open_config_own_cert_std(cfg, cert, key, pass);
+	} else if (mode == NNG_TLS_MODE_CLIENT) {
+#if defined(NNG_TLS_OPENSSL_HAVE_GM) && !defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
+		rv = open_config_own_cert_gm(cfg, cert, key, pass);
+#else
+		rv = open_config_own_cert_std(cfg, cert, key, pass);
+#endif
+#if defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
+	} else if (mode == NNG_TLS_MODE_CLIENT_GM_NW) {
+		rv = open_config_own_cert_gm_nw(cfg, cert, key, pass);
+#endif
+	}
+	if (rv != 0) {
+		return rv;
+	}
+
+#if NNG_OPENSSL_HAVE_PASSWORD
+#if defined(NNG_TLS_OPENSSL_HAVE_GM) && !defined(NNG_TLS_OPENSSL_HAVE_GM_NW)
+	nng_log_err("NNG-TLS-GM-OWN-CERT", "In GM Mode. Password is NOT working.");
+#else
+	char *dup = NULL;
+	if (pass != NULL) {
+		if ((dup = nng_strdup(pass)) == NULL) {
+			return (NNG_ENOMEM);
+		}
+	}
+	if (cfg->pass != NULL) {
+		nng_strfree(cfg->pass);
+	}
+	cfg->pass = dup;
+	SSL_CTX_set_default_passwd_cb_userdata(cfg->ctx, cfg);
+	SSL_CTX_set_default_passwd_cb(cfg->ctx, open_get_password);
+#endif
+#endif
+	return 0;
 }
 
 static int
 open_config_version(nng_tls_engine_config *cfg, nng_tls_version min_ver,
     nng_tls_version max_ver)
 {
-	if ((min_ver > max_ver) || (max_ver > NNG_TLS_1_3)) {
+	// XXX Get Last OpenSSL errno when max_ver is smaller than min_ver
+	if (max_ver < min_ver) {
+		int tls_errno = open_tls_errno;
+		open_tls_errno = 0; // reset when read
+		return 0 - tls_errno;
+	}
+
+	if (max_ver > NNG_TLS_1_3) {
 		return (NNG_ENOTSUP);
 	}
 	// TODO

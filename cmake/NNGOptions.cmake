@@ -116,6 +116,11 @@ else ()
     set(NNG_QUIC_LIB none)
 endif ()
 
+option(NNG_ENABLE_SCRAM "Enable SCRAM support." OFF)
+if (NNG_ENABLE_SCRAM)
+    set(SUPP_SCRAM ON)
+endif ()
+
 # TLS support.
 
 # Enabling TLS is required to enable support for the TLS transport
@@ -126,13 +131,17 @@ if (NNG_ENABLE_TLS)
 endif ()
 
 if (NNG_ENABLE_TLS)
-    set(NNG_TLS_ENGINES mbed wolf none)
+    set(NNG_TLS_ENGINES mbed wolf open none)
     # We assume Mbed for now.  (Someday replaced perhaps with Bear.)
     set(NNG_TLS_ENGINE mbed CACHE STRING "TLS engine to use.")
     set_property(CACHE NNG_TLS_ENGINE PROPERTY STRINGS ${NNG_TLS_ENGINES})
 else ()
     set(NNG_TLS_ENGINE none)
 endif ()
+
+# Optional OpenSSL vendor extensions. Ordinary OpenSSL stays the default.
+option(NNG_TLS_OPENSSL_HAVE_GM "Enable TASSL GM/TLS support." OFF)
+option(NNG_TLS_OPENSSL_HAVE_GM_NW "Enable Nanwang GM/TLS support." OFF)
 
 # HTTP API support.
 option (NNG_ENABLE_HTTP "Enable HTTP API." ON)
@@ -200,3 +209,5 @@ if (NNG_TRANSPORT_WS OR NNG_TRANSPORT_WSS)
     set(NNG_SUPP_BASE64 ON)
     set(NNG_SUPP_SHA1 ON)
 endif()
+
+set(NNG_TRANSPORT_MQTT_QUIC ${NNG_ENABLE_QUIC})
