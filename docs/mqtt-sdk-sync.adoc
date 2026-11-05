@@ -940,7 +940,7 @@ TCP/TLS 在拨号或连接正在使用消息时拒绝替换，返回 EBUSY。
 |Release、共享 MsQuic
 |构建通过；全量 101/103
 |QUIC 与本地核心测试通过。resolver_test 假定 Google DNS 名解析为
-8.8.8.8，但当前网络实际返回 198.18.0.13；httpclient 的公网 httpbin
+8.8.8.8，但当前网络实际返回 198.18.0.13；httpclient 的公网 anglesharp.azurewebsites.net
 chunked exchange 失败。没有更改测试断言掩盖这两个外部依赖失败。
 |普通 OpenSSL、SCRAM
 |构建通过；本地 MQTT 15/15（排除两项）
@@ -981,3 +981,42 @@ NNG_BROKER_TEST_MIN_SPACING=1 NNG_BROKER_TEST_RATE=1 \
 ----
 
 这些结果验证了所列平台和场景，不等于所有平台、TLS 引擎及供应商环境均已通过。
+
+== 2026-11-05：回移上游 HTTP 客户端测试修复
+
+用户报告各配置中的 `nng.httpclient` 失败。本地重现旧测试时，
+httpbin 和普通事务场景通过，失败发生于 `Given a client (chunked)` 的
+`nng_aio_result(aio) == 0` 断言。该场景实际连接
+`http://anglesharp.azurewebsites.net/Chunked`，并非 httpbin。
+HTTP 实现与 rebase 前 main 相同；旧测试依赖公网服务可达性、响应形式及固定内容。
+
+上游已在 https://github.com/nanomsg/nng/commit/9aa948d9aa8c19a3e2d808ae701a9b246dd950ff[#2257 / 9aa948d9a]
+移除默认 HTTP 客户端测试的公网依赖，改为 NUTS 和本地 scripted server。
+本次回移其默认测试，适配 NanoSDK 保留的 HTTP v1 接口：
+
+* 使用 `127.0.0.1:0` 自动分配端口，服务端使用 nng_stream 收发。
+* 保留 `nng.httpclient` CTest 名称与 HTTP 功能开关条件，继续默认执行。
+* 覆盖请求/响应及正文、`nng_http_client_transact`、
+  同一连接两次事务、响应超时、chunked 正文解码五个场景。
+* 用 `nng_http_req` / `nng_http_res` 适配上游新版合并后的 HTTP 对象；
+  不更改 NanoSDK 的公开 HTTP API 或库实现。
+* 恢复原先跳过的超时测试；在创建服务线程前设置全部 fixture 状态，
+  并处理发送零进度，避免跨线程修改配置或无进度循环。
+* 其他测试仍使用 Convey，因此未同步上游删除整个 Convey 框架的部分。
+  默认回归不需要上游另设的 Docker/httpbin 互操作测试。
+
+验证结果：
+
+* 修改前 Release `nng.httpclient` 可重现失败（本次约 12.5 秒）。
+* Release、ASAN、非 QUIC/MbedTLS、OpenSSL/SCRAM 四种现有配置均编译并通过，
+  每次完整执行五个用例，约 0.22–0.27 秒。
+* Release 与 ASAN 各连续执行十次全部通过；ASAN 未报告内存错误。
+* 原有 Release `nng.httpserver` 通过。
+* 本次只重跑相关测试；没有把旧的全量 101/103 结果改写为新一轮全量通过。
+
+[source,sh]
+----
+cmake --build build-sdk-sync/default-only --target httpclient -j 8
+ctest --test-dir build-sdk-sync/default-only -R '^nng.httpclient$' --output-on-failure
+ctest --test-dir build-sdk-sync/user-ninja -R '^nng.httpclient$' --repeat until-fail:10 --output-on-failure
+----

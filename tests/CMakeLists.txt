@@ -126,7 +126,8 @@ endif ()
 
 add_nng_test(device 5)
 add_nng_test(files 5)
-add_nng_test1(httpclient 60 NNG_SUPP_HTTP)
+# Upstream #2257 uses loopback peers and NUTS, with no public HTTP dependency.
+nng_test_if(NNG_SUPP_HTTP httpclient)
 add_nng_test1(httpserver 30 NNG_SUPP_HTTP)
 add_nng_test(inproc 5)
 add_nng_test(ipc 5)
