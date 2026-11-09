@@ -2,7 +2,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#ifdef NNG_SUPP_ZSTD
 #include <zstd.h>
+#endif
 
 #include "mqtt_nano_paho.h"
 #include "core/nng_impl.h"
@@ -591,7 +593,7 @@ MQTTAsync_createWithOptions(MQTTAsync *handle, const char *serverURI,
 		nng_log_debug("MQTTAsync_createWithOptions", "dialer created!");
 	}
 	if (clientId)
-		m->clientId = strdup(clientId);
+		m->clientId = nni_strdup(clientId);
 	else
 		m->clientId = NULL;
 
@@ -707,6 +709,19 @@ disconnect_cb(nng_pipe p, nng_pipe_ev ev, void *arg)
 
 int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
 {
+	if (handle == NULL || options == NULL) {
+		return MQTTASYNC_NULL_PARAMETER;
+	}
+#ifndef NNG_SUPP_ZSTD
+	if (options->is_payload_zstd) {
+		return MQTTASYNC_BAD_MQTT_OPTION;
+	}
+#endif
+#ifndef SUPP_SCRAM
+	if (options->scram) {
+		return MQTTASYNC_BAD_MQTT_OPTION;
+	}
+#endif
     int rv = 0;
     int rc = MQTTASYNC_SUCCESS;
 	MQTTAsyncs *m = handle;
@@ -728,11 +743,6 @@ int MQTTAsync_connect(MQTTAsync handle, const MQTTAsync_connectOptions *options)
     }
 	nng_mqtt_msg_alloc(&connmsg, 0);
 	nng_mqtt_msg_set_packet_type(connmsg, NNG_MQTT_CONNECT);
-	if (options == NULL)
-	{
-		rc = MQTTASYNC_NULL_PARAMETER;
-		goto exit;
-	}
 	if (strncmp(options->struct_id, "MQTC", 4) != 0 || options->struct_version < 0 || options->struct_version > 8)
 	{
 		rc = MQTTASYNC_BAD_STRUCTURE;
@@ -1180,6 +1190,11 @@ int MQTTAsync_send(MQTTAsync handle, const char *destinationName,
 		return MQTTASYNC_FAILURE;
 	}
 	client = m->nanosdk_client;
+#ifndef NNG_SUPP_ZSTD
+	if (is_payload_zstd) {
+		return MQTTASYNC_BAD_MQTT_OPTION;
+	}
+#endif
 
 	if (!UTF8_validateString(destinationName))
 		rc = MQTTASYNC_BAD_UTF8_STRING;
@@ -1231,6 +1246,7 @@ int MQTTAsync_send(MQTTAsync handle, const char *destinationName,
 		MQTTProperties_free(&m->publish.properties);
 	}
 
+#ifdef NNG_SUPP_ZSTD
 	if (is_payload_zstd) {
 		size_t bound = ZSTD_compressBound(payloadlen + 1);
 		void* compressed = nng_alloc(bound);
@@ -1254,7 +1270,9 @@ int MQTTAsync_send(MQTTAsync handle, const char *destinationName,
 			mqtt_property_append(plist_plist, p1);
 		}
 		nng_free(compressed, bound);
-	} else {
+	} else
+#endif
+	{
 		nng_mqtt_msg_set_publish_payload(
 				pubmsg, (uint8_t *) payload, payloadlen);
 	}

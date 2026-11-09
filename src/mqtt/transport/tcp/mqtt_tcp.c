@@ -1884,12 +1884,15 @@ mqtt_tcptran_ep_set_enable_scram(void *arg, const void *v, size_t sz, nni_opt_ty
 	int              rv;
 
 	if ((rv = nni_copyin_bool(&tmp, v, sz, t)) == 0) {
+#ifndef SUPP_SCRAM
+		if (tmp) {
+			return NNG_ENOTSUP;
+		}
+#endif
 		nni_mtx_lock(&ep->mtx);
 		ep->enable_scram = tmp;
 #ifdef SUPP_SCRAM
 		nng_log_info("Scram Enabler", "Auth SCRAM status: %s", tmp == 1 ? "Enabled":"Disabled");
-#else
-		nng_log_warn("Auth SCRAM Error", " Try to compile with NNG_ENABLE_SCRAM");
 #endif
 		nni_mtx_unlock(&ep->mtx);
 	}

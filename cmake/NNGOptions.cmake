@@ -58,6 +58,9 @@ if (NNG_ENABLE_SQLITE)
 endif()
 mark_as_advanced(NNG_ENABLE_SQLITE)
 
+# Optional Paho MQTT payload compression. Default builds need no zstd SDK.
+option(NNG_ENABLE_ZSTD "Enable Zstandard compression for MQTT payloads." OFF)
+
 # Protocols.
 option (NNG_PROTO_BUS0 "Enable BUSv0 protocol." ON)
 mark_as_advanced(NNG_PROTO_BUS0)
@@ -116,7 +119,9 @@ else ()
     set(NNG_QUIC_LIB none)
 endif ()
 
-option(NNG_ENABLE_SCRAM "Enable SCRAM support." OFF)
+# The current SCRAM implementation uses POSIX strings and C99 VLAs.
+cmake_dependent_option(NNG_ENABLE_SCRAM "Enable SCRAM support." OFF
+    "NOT WIN32" OFF)
 if (NNG_ENABLE_SCRAM)
     set(SUPP_SCRAM ON)
 endif ()
@@ -141,7 +146,15 @@ endif ()
 
 # Optional OpenSSL vendor extensions. Ordinary OpenSSL stays the default.
 option(NNG_TLS_OPENSSL_HAVE_GM "Enable TASSL GM/TLS support." OFF)
-option(NNG_TLS_OPENSSL_HAVE_GM_NW "Enable Nanwang GM/TLS support." OFF)
+# The bundled Nanwang engine and vendor libraries are Linux-only.
+set(NNG_NANWANG_SUPPORTED OFF)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(NNG_NANWANG_SUPPORTED ON)
+endif ()
+cmake_dependent_option(NNG_TLS_OPENSSL_HAVE_GM_NW
+    "Enable Nanwang GM/TLS support (Linux only)." OFF
+    "NNG_NANWANG_SUPPORTED" OFF)
+unset(NNG_NANWANG_SUPPORTED)
 
 # HTTP API support.
 option (NNG_ENABLE_HTTP "Enable HTTP API." ON)

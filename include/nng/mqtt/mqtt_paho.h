@@ -673,7 +673,9 @@ typedef struct {
 	/** This option will overwrite the is_payload_zstd option in
 	 * connection option. When it's true. The payload of this MQTT
 	 * message will be compressed with zstd and sent. Note. This option
-	 * only works when it's a MQTT V5 client.
+	 * only works when it's a MQTT V5 client. It also requires a library
+	 * built with NNG_ENABLE_ZSTD=ON; otherwise sending returns
+	 * MQTTASYNC_BAD_MQTT_OPTION.
 	 */
 	bool is_payload_zstd;
 	/**
@@ -1342,11 +1344,14 @@ typedef struct {
 	 */
 	const char *httpsProxy;
 	/**
-	 * MQTTV5 SCRAM enhanced authentication
+	 * MQTTV5 SCRAM enhanced authentication. Requires NNG_ENABLE_SCRAM;
+	 * unavailable on Windows. Unsupported requests return
+	 * MQTTASYNC_BAD_MQTT_OPTION.
 	 */
 	bool scram;
 	/**
-	 * Is MQTT Payload zstd compressed
+	 * Is MQTT Payload zstd compressed. Requires NNG_ENABLE_ZSTD=ON;
+	 * otherwise MQTTAsync_connect returns MQTTASYNC_BAD_MQTT_OPTION.
 	 */
 	bool is_payload_zstd;
 	/**
