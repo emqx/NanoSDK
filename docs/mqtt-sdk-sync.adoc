@@ -1020,3 +1020,38 @@ cmake --build build-sdk-sync/default-only --target httpclient -j 8
 ctest --test-dir build-sdk-sync/default-only -R '^nng.httpclient$' --output-on-failure
 ctest --test-dir build-sdk-sync/user-ninja -R '^nng.httpclient$' --repeat until-fail:10 --output-on-failure
 ----
+
+== 2026-11-09：Windows/macOS 兼容性静态修复
+
+根据 Windows CI 的 zstd 配置失败和 macOS 的日志函数声明错误，审查同步代码的
+平台依赖。按用户要求，本轮不下载或安装 Windows/macOS 工具链，不运行本机构建
+或平台测试；只完成代码审查、修改和提交，原生编译结果交由后续线上 CI 确认。
+以下内容是静态修复记录，不能视为 Windows/macOS 编译已经通过。
+
+* 新增 `NNG_ENABLE_ZSTD`，默认 OFF。仅开启时查找 zstd、定义
+  `NNG_SUPP_ZSTD`、编译压缩路径并向安装包消费者声明依赖。
+  支持 zstd 包导出的 shared/static/generic target，默认 Windows/macOS
+  及 Linux 构建均不再强制依赖 zstd。需要原压缩功能的构建应显式开启此选项。
+* 未编入 zstd 时，Paho 的压缩连接/发送请求返回
+  `MQTTASYNC_BAD_MQTT_OPTION`；不静默发送未压缩 payload。
+  Paho 字符串复制改用 NNG 的可移植 helper。
+* 日志进程标识统一走内部 helper：Windows 使用 `_getpid`，
+  macOS/其他 POSIX 使用 `getpid`，Linux 保留 `SYS_gettid` 的线程标识。
+  删除不存在的 `nni_plat_getpid` 调用，Linux syscall 头文件仅在 Linux 包含。
+* Windows 屏蔽 POSIX syslog/Unix-domain datagram 日志代码，保留现有无操作入口。
+  日志轮转的 size_t 格式使用 `%zu`，适配 Windows LLP64。
+* 为 Windows 补充 `nni_timestamp`，使用已有的 `nni_time_get`
+  转换 Unix epoch 毫秒，避免公共 timestamp API 在链接时缺少后端实现。
+* 现有 SCRAM 实现含 POSIX 字符串函数及 MSVC 不支持的 C99 变长数组，
+  因而 Windows 上将 `NNG_ENABLE_SCRAM` 约束为 OFF。
+  未编入 SCRAM 时，TCP/TLS 启用请求返回 NNG_ENOTSUP，Paho 返回
+  MQTTASYNC_BAD_MQTT_OPTION；不会声称已启用而实际跳过认证。
+* 南网附带的库与 engine 为 Linux 专用，非 Linux 平台将
+  `NNG_TLS_OPENSSL_HAVE_GM_NW` 约束为 OFF；普通 OpenSSL 不受影响。
+* 共享 MsQuic 使用 `TARGET_LINKER_FILE`，使 Windows 链接导入库而非 DLL。
+  使用 Linux `clock_nanosleep` 的公网 QUIC 测速程序仅在 Linux 构建，
+  SDK QUIC 功能和可移植单元测试的开关保持独立。
+* 使用 CMake 的 `CMAKE_POSITION_INDEPENDENT_CODE`，不再向 MSVC
+  直接传入 GCC 的 `-fPIC` 参数。
+
+本轮执行了差异检查和宏/依赖静态核对；未报告任何新的原生构建或运行通过结果。
