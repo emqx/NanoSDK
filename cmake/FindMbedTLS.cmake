@@ -40,6 +40,7 @@ set(_MBED_REQUIRED_VARS MbedTLS_TARGET MbedX509_TARGET MbedCrypto_TARGET MbedTLS
 
 include(FindPackageHandleStandardArgs)
 include(CMakePushCheckState)
+include(CheckSymbolExists)
 
 find_path(_MBEDTLS_INCLUDE_DIR
         NAMES mbedtls/ssl.h

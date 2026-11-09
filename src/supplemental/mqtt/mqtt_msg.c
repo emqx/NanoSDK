@@ -210,17 +210,42 @@ nni_mqtt_msg_get_publish_dup(nni_msg *msg)
 	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
 	return proto_data->fixed_header.publish.dup;
 }
-// only for internal use
+
+// Decoded PUBLISH buffers borrow the wire message. Copy both buffers before
+// a setter replaces either, so the shared ownership flag remains accurate.
+static int
+mqtt_publish_own(nni_mqtt_proto_data *p)
+{
+    if (p == NULL) return NNG_EINVAL;
+    if (p->initialized && !p->is_copied) {
+        mqtt_buf topic = {0}, payload = {0};
+        int rv;
+        if ((rv = mqtt_buf_dup(&topic, &p->var_header.publish.topic_name)) != 0)
+            return rv;
+        if ((rv = mqtt_buf_dup(&payload, &p->payload.publish.payload)) != 0) {
+            mqtt_buf_free(&topic);
+            return rv;
+        }
+        p->var_header.publish.topic_name = topic;
+        p->payload.publish.payload = payload;
+    }
+    p->is_copied = true;
+    return 0;
+}
+
 int
 nni_mqtt_msg_set_publish_topic(nni_msg *msg, const char *topic)
 {
-	int rv;
-	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
-	if (proto_data->is_copied == true)
-		mqtt_buf_free(&proto_data->var_header.publish.topic_name);
-	rv = mqtt_buf_create(&proto_data->var_header.publish.topic_name,
-	    (uint8_t *) topic, (uint32_t) strlen(topic));
-	return rv;
+    nni_mqtt_proto_data *p = nni_msg_get_proto_data(msg);
+    mqtt_buf replacement = {0};
+    int rv;
+    if (topic == NULL) return NNG_EINVAL;
+    if ((rv = mqtt_publish_own(p)) != 0) return rv;
+    if ((rv = mqtt_buf_create(&replacement, (const uint8_t *)topic,
+        (uint32_t)strlen(topic))) != 0) return rv;
+    mqtt_buf_free(&p->var_header.publish.topic_name);
+    p->var_header.publish.topic_name = replacement;
+    return 0;
 }
 
 // only for internal use
@@ -266,13 +291,15 @@ nni_mqtt_msg_get_publish_topic(nni_msg *msg, uint32_t *topic_len)
 int
 nni_mqtt_msg_set_publish_payload(nni_msg *msg, uint8_t *payload, uint32_t len)
 {
-	nni_mqtt_proto_data *proto_data = nni_msg_get_proto_data(msg);
-	if (proto_data == NULL)
-		return -1;
-	if (proto_data->is_copied == true)
-		mqtt_buf_free(&proto_data->payload.publish.payload);
-	return mqtt_buf_create(
-	    &proto_data->payload.publish.payload, payload, (uint32_t) len);
+    nni_mqtt_proto_data *p = nni_msg_get_proto_data(msg);
+    mqtt_buf replacement = {0};
+    int rv;
+    if (len && payload == NULL) return NNG_EINVAL;
+    if ((rv = mqtt_publish_own(p)) != 0) return rv;
+    if (len && (rv = mqtt_buf_create(&replacement, payload, len)) != 0) return rv;
+    mqtt_buf_free(&p->payload.publish.payload);
+    p->payload.publish.payload = replacement;
+    return 0;
 }
 
 uint8_t *
@@ -1002,6 +1029,9 @@ mqtt_close_unack_msg_cb(void *key, void *val)
 
 	aio = nni_mqtt_msg_get_aio(msg);
 	if (aio) {
+		nni_aio_set_prov_data(aio, NULL);
+		nni_aio_set_msg(aio, NULL);
+		nni_mqtt_msg_set_aio(msg, NULL);
 		nni_aio_finish_error(aio, NNG_ECLOSED);
 	}
 	nni_msg_free(msg);

@@ -8,15 +8,13 @@
 //
 #include "quic_api.h"
 #include "core/nng_impl.h"
+#include "nng/supplemental/nanolib/log.h"
 #include "msquic.h"
 
 #include "nng/mqtt/mqtt_client.h"
 #include "nng/nng.h"
-#include "nng/supplemental/nanolib/conf.h"
 #include "supplemental/mqtt/mqtt_msg.h"
 
-#include "openssl/pem.h"
-#include "openssl/x509.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -25,11 +23,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 
 struct quic_dialer {
 	nng_stream_dialer ops;
 	bool              closed;
+    bool              dialing;
+    bool              discard_dial;
 	nni_mtx           mtx;
 	char *            host;
 	char *            port;
@@ -45,7 +44,7 @@ nni_quic_listener_alloc(nng_stream_listener **lp, const nni_url *url)
 	NNI_ARG_UNUSED(lp);
 	NNI_ARG_UNUSED(url);
 
-	return 0;
+	return NNG_ENOTSUP;
 }
 
 static void
@@ -58,7 +57,8 @@ quic_dial_cancel(nni_aio *aio, void *arg, int rv)
 		nni_aio_list_remove(aio);
 		nni_aio_finish_error(aio, rv);
 
-		if (nni_list_empty(&d->conaios)) {
+		if (nni_list_empty(&d->conaios) && d->dialing) {
+            d->discard_dial = true;
 			nni_aio_abort(d->conaio, NNG_ECANCELED);
 		}
 	}
@@ -68,35 +68,32 @@ quic_dial_cancel(nni_aio *aio, void *arg, int rv)
 static void
 quic_dial_con_cb(void *arg)
 {
-	quic_dialer *d = arg;
-	nng_aio *   aio;
-	int         rv;
-
-	nni_mtx_lock(&d->mtx);
-	rv = nni_aio_result(d->conaio);
-	if ((d->closed) || ((aio = nni_list_first(&d->conaios)) == NULL)) {
-		if (rv == 0) {
-			// The type of this output is the nni_quic_conn.
-			// Make sure we discard the underlying connection.
-			nng_stream_free(nni_aio_get_output(d->conaio, 0));
-			nni_aio_set_output(d->conaio, 0, NULL);
-		}
-		nni_mtx_unlock(&d->mtx);
-		return;
-	}
-	nni_list_remove(&d->conaios, aio);
-	if (rv != 0) {
-		nni_aio_finish_error(aio, rv);
-	} else {
-		nni_aio_set_output(aio, 0, nni_aio_get_output(d->conaio, 0));
-		nni_aio_set_output(aio, 1, nni_aio_get_output(d->conaio, 1));
-		nni_aio_finish(aio, 0, 0);
-	}
-
-	// Start next dialer if it exists
-	if (!nni_list_empty(&d->conaios))
-		nni_quic_dial(d->d, d->host, d->port, d->conaio);
-	nni_mtx_unlock(&d->mtx);
+    quic_dialer *d = arg;
+    nni_aio *aio;
+    nni_mtx_lock(&d->mtx);
+    int rv = nni_aio_result(d->conaio);
+    nng_stream *stream = rv == 0 ? nni_aio_get_output(d->conaio, 0) : NULL;
+    nni_aio_set_output(d->conaio, 0, NULL);
+    d->dialing = false;
+    if (d->closed || d->discard_dial ||
+        (aio = nni_list_first(&d->conaios)) == NULL) {
+        // Cancellation may complete after a new request has been queued.
+        // That new request must not inherit the old dial's result.
+        if (stream) nng_stream_free(stream);
+    } else {
+        nni_list_remove(&d->conaios, aio);
+        if (rv) nni_aio_finish_error(aio, rv);
+        else {
+            nni_aio_set_output(aio, 0, stream);
+            nni_aio_finish(aio, 0, 0);
+        }
+    }
+    d->discard_dial = false;
+    if (!d->closed && !nni_list_empty(&d->conaios)) {
+        d->dialing = true;
+        nni_quic_dial(d->d, d->host, d->port, d->conaio);
+    }
+    nni_mtx_unlock(&d->mtx);
 }
 
 static void
@@ -111,7 +108,7 @@ quic_dialer_close(void *arg)
 		nni_list_remove(&d->conaios, aio);
 		nni_aio_finish_error(aio, NNG_ECLOSED);
 	}
-	nni_quic_dialer_close(d->d);
+    if (d->d) nni_quic_dialer_close(d->d);
 	nni_mtx_unlock(&d->mtx);
 }
 
@@ -137,7 +134,8 @@ quic_dialer_dial(void *arg, nng_aio *aio)
 	}
 	nni_list_append(&d->conaios, aio);
 	if (nni_list_first(&d->conaios) == aio) {
-		if (!nni_aio_busy(d->conaio)) {
+		if (!d->dialing) {
+            d->dialing = true;
 			nni_quic_dial(d->d, d->host, d->port, d->conaio);
 		}
 	}
@@ -151,23 +149,20 @@ quic_dialer_set_tls_ca(void *arg, const void *buf, size_t sz, nni_type t)
 	nni_quic_dialer *d = arg;
 	int              rv;
 	char *           str;
-	char *           old;
 
 	str = nng_alloc(sz + 1);
+	if (str == NULL) return NNG_ENOMEM;
 	memset(str, '\0', sz + 1);
 
-	if (((rv = nni_copyin_str(str, buf, sz, sz, t)) != 0) || (d == NULL)) {
+	if (((rv = nni_copyin_str(str, buf, sz, sz + 1, t)) != 0) || (d == NULL)) {
 		nng_free(str, sz + 1);
 		return rv;
 	}
 
 	nni_mtx_lock(&d->mtx);
-	old = d->ca;
+	nni_strfree(d->ca);
 	d->ca = str;
 	nni_mtx_unlock(&d->mtx);
-	if (old != NULL) {
-		nng_free(old, 0);
-	}
 	return 0;
 }
 
@@ -194,23 +189,20 @@ quic_dialer_set_tls_pwd(void *arg, const void *buf, size_t sz, nni_type t)
 	nni_quic_dialer *d = arg;
 	int              rv;
 	char *           str;
-	char *           old;
 
 	str = nng_alloc(sz + 1);
+	if (str == NULL) return NNG_ENOMEM;
 	memset(str, '\0', sz + 1);
 
-	if (((rv = nni_copyin_str(str, buf, sz, sz, t)) != 0) || (d == NULL)) {
+	if (((rv = nni_copyin_str(str, buf, sz, sz + 1, t)) != 0) || (d == NULL)) {
 		nng_free(str, sz + 1);
 		return rv;
 	}
 
 	nni_mtx_lock(&d->mtx);
-	old = d->password;
+	nni_strfree(d->password);
 	d->password = str;
 	nni_mtx_unlock(&d->mtx);
-	if (old != NULL) {
-		nng_free(old, 0);
-	}
 	return 0;
 }
 
@@ -220,23 +212,20 @@ quic_dialer_set_tls_key(void *arg, const void *buf, size_t sz, nni_type t)
 	nni_quic_dialer *d = arg;
 	int              rv;
 	char *           str;
-	char *           old;
 
 	str = nng_alloc(sz + 1);
+	if (str == NULL) return NNG_ENOMEM;
 	memset(str, '\0', sz + 1);
 
-	if (((rv = nni_copyin_str(str, buf, sz, sz, t)) != 0) || (d == NULL)) {
+	if (((rv = nni_copyin_str(str, buf, sz, sz + 1, t)) != 0) || (d == NULL)) {
 		nng_free(str, sz + 1);
 		return rv;
 	}
 
 	nni_mtx_lock(&d->mtx);
-	old = d->key;
+	nni_strfree(d->key);
 	d->key = str;
 	nni_mtx_unlock(&d->mtx);
-	if (old != NULL) {
-		nng_free(old, 0);
-	}
 	return 0;
 }
 
@@ -260,23 +249,20 @@ quic_dialer_set_tls_cacert(void *arg, const void *buf, size_t sz, nni_type t)
 	nni_quic_dialer *d = arg;
 	int              rv;
 	char *           str;
-	char *           old;
 
 	str = nng_alloc(sz + 1);
+	if (str == NULL) return NNG_ENOMEM;
 	memset(str, '\0', sz + 1);
 
-	if (((rv = nni_copyin_str(str, buf, sz, sz, t)) != 0) || (d == NULL)) {
+	if (((rv = nni_copyin_str(str, buf, sz, sz + 1, t)) != 0) || (d == NULL)) {
 		nng_free(str, sz + 1);
 		return rv;
 	}
 
 	nni_mtx_lock(&d->mtx);
-	old = d->cacert;
+	nni_strfree(d->cacert);
 	d->cacert = str;
 	nni_mtx_unlock(&d->mtx);
-	if (old != NULL) {
-		nng_free(old, 0);
-	}
 	return 0;
 }
 
@@ -292,6 +278,7 @@ quic_dialer_set_congestion_ctl_cubic(void *arg, const void *buf, size_t sz, nni_
 	}
 
 	nni_mtx_lock(&d->mtx);
+	if (!b) { nni_mtx_unlock(&d->mtx); return NNG_ENOTSUP; }
 	d->settings.IsSet.CongestionControlAlgorithm = TRUE;
 	d->settings.CongestionControlAlgorithm = QUIC_CONGESTION_CONTROL_ALGORITHM_CUBIC;
 	nni_mtx_unlock(&d->mtx);
@@ -390,6 +377,7 @@ quic_dialer_set_connect_timeout(void *arg, const void *buf, size_t sz, nni_type 
 	}
 
 	nni_mtx_lock(&d->mtx);
+	if (n > UINT64_MAX / 1000) { nni_mtx_unlock(&d->mtx); return NNG_EINVAL; }
 	d->qconnect_timeout = n;
 	d->settings.IsSet.HandshakeIdleTimeoutMs = TRUE;
 	d->settings.HandshakeIdleTimeoutMs = n * 1000;
@@ -420,15 +408,12 @@ quic_dialer_set_keepalive(void *arg, const void *buf, size_t sz, nni_type t)
 static int
 quic_dialer_set_priority(void *arg, const void *buf, size_t sz, nni_type t)
 {
-	NNI_ARG_UNUSED(sz);
-	NNI_ARG_UNUSED(t);
 	nni_quic_dialer *d = arg;
-	int *_buf = (int *)buf;
-
+	int value, rv = nni_copyin_int(&value, buf, sz, 0, 65535, t);
+	if (rv) return rv;
 	nni_mtx_lock(&d->mtx);
-	d->priority = *_buf;
+	d->priority = value;
 	nni_mtx_unlock(&d->mtx);
-
 	return 0;
 }
 
@@ -444,6 +429,7 @@ quic_dialer_set_idle_timeout(void *arg, const void *buf, size_t sz, nni_type t)
 	}
 
 	nni_mtx_lock(&d->mtx);
+	if (n > UINT64_MAX / 1000) { nni_mtx_unlock(&d->mtx); return NNG_EINVAL; }
 	d->qidle_timeout = n;
 	d->settings.IsSet.IdleTimeoutMs = TRUE;
 	d->settings.IdleTimeoutMs = n * 1000;
@@ -616,6 +602,7 @@ quic_dialer_free(void *arg)
 	if (d == NULL)
 		return;
 
+    quic_dialer_close(d);
 	nni_aio_stop(d->conaio);
 	nni_aio_free(d->conaio);
 
@@ -694,4 +681,3 @@ nni_quic_dialer_alloc(nng_stream_dialer **dp, const nni_url *url)
 	*dp = (void *) d;
 	return (0);
 }
-

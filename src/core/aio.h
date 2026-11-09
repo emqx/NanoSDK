@@ -214,7 +214,7 @@ struct nng_aio {
 	bool         a_expire_ok;  // Expire from sleep is ok
 	bool         a_expiring;   // Expiration in progress
 	bool         a_use_expire; // Use expire instead of timeout
-	bool         a_abort;      // Abort the operation.
+	bool         a_abort;      // Cancellation before provider scheduling
 	nni_task     a_task;
 
 	// Read/write operations.

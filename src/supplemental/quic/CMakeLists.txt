@@ -1,50 +1,54 @@
-#
-# This software is supplied under the terms of the MIT License, a
-# copy of which should be located in the distribution where this
-# file was obtained (LICENSE.txt).  A copy of the license may also be
-# found online at https://opensource.org/licenses/MIT.
-#
-
 if (NNG_ENABLE_QUIC)
-    set(NNG_QUIC_LIBS msquic none)
+    nng_defines(NNG_SUPP_QUIC)
+    set(NNG_MSQUIC_SOURCE_DIR "${PROJECT_SOURCE_DIR}/extern/msquic" CACHE PATH "MsQuic source tree")
+    find_path(MSQUIC_INCLUDE_DIR msquic.h HINTS ${MSQUIC_ROOT_DIR} PATH_SUFFIXES include src/inc)
+    find_library(MSQUIC_LIBRARY msquic HINTS ${MSQUIC_ROOT_DIR} PATH_SUFFIXES lib lib64)
+    if (MSQUIC_INCLUDE_DIR AND MSQUIC_LIBRARY)
+        nng_link_libraries("$<BUILD_INTERFACE:${MSQUIC_LIBRARY}>" "$<INSTALL_INTERFACE:nng::msquic>")
+    else ()
+        set(QUIC_BUILD_TEST OFF CACHE BOOL "" FORCE)
+        set(QUIC_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+        set(QUIC_BUILD_PERF OFF CACHE BOOL "" FORCE)
+        add_subdirectory(${NNG_MSQUIC_SOURCE_DIR} msquic)
+        set(MSQUIC_INCLUDE_DIR "${NNG_MSQUIC_SOURCE_DIR}/src/inc")
+        add_dependencies(nng msquic)
+        add_dependencies(nng_testing msquic)
+        # Static MsQuic exposes an INTERFACE target containing its merged
+        # archive. It has no TARGET_FILE and is not in an export set.
+        get_target_property(_msquic_type msquic TYPE)
+        if (_msquic_type STREQUAL "INTERFACE_LIBRARY")
+            get_target_property(_msquic_libraries msquic INTERFACE_LINK_LIBRARIES)
+            foreach (_library IN LISTS _msquic_libraries)
+                nng_link_libraries("$<BUILD_INTERFACE:${_library}>")
+            endforeach ()
+            get_target_property(_msquic_system_libraries base_link INTERFACE_LINK_LIBRARIES)
+            nng_link_libraries(${_msquic_system_libraries})
+            nng_defines(QUIC_BUILD_STATIC)
+        else ()
+            # On Windows link the import library, not the runtime DLL.
+            nng_link_libraries("$<BUILD_INTERFACE:$<TARGET_LINKER_FILE:msquic>>")
+        endif ()
+        nng_link_libraries("$<INSTALL_INTERFACE:nng::msquic>")
+    endif ()
+    nng_include_directories(${MSQUIC_INCLUDE_DIR})
+    nng_sources(quic_api.c msquic_dial.c quic_api.h)
+endif ()
+nng_test(mqtt_frame_test)
 
-    # We assume msquic for now.
-    set(NNG_QUIC_LIB msquic CACHE STRING "QUIC lib to use.")
-    add_subdirectory(msquic)
-    add_dependencies(nng msquic)
-
-    nng_sources(quic_api.c)
-    nng_sources(quic_api.h)
-    nng_sources(msquic_dial.c)
-	# nng_test(quic_api_test)
-    nng_test_if(NNG_PROTO_MQTT_QUIC_CLIENT msquic_dial_test)
-
-    if(NOT ANDROID)
-        find_path(INTERNAL_MSQUIC_INCLUDE_DIR
-        NAMES msquic.h
-        HINTS ${_MSQUIC_ROOT_HINTS}
-        PATHS ${PROJECT_SOURCE_DIR}/extern/msquic/src
-        PATH_SUFFIXES inc)
-    endif()
-
-    if(NNG_PLATFORM_POSIX)
-        nng_link_libraries(dl)
-    elseif(NNG_PLATFORM_WINDOWS)
-        nng_link_libraries(ws2_32)
-    endif()
-
-    nng_include_directories(${CMAKE_SOURCE_DIR}/build/_deps/opensslquic-build/openssl/include)
-    ## link openssl through target
-    # nng_link_libraries("${CMAKE_SOURCE_DIR}/build/_deps/opensslquic-build/openssl/lib/libssl.a")
-    # nng_link_libraries("${CMAKE_SOURCE_DIR}/build/_deps/opensslquic-build/openssl/lib/libcrypto.a")
-
-    # nng_include_directories(${INTERNAL_MSQUIC_INCLUDE_DIR})
-    
-    # set_property(CACHE NNG_QUIC_LIB PROPERTY STRINGS ${NNG_TLS_ENGINES})
-else ()
-    set(NNG_QUIC_LIB none)
+if (NNG_ENABLE_QUIC AND NNG_TESTS AND UNIX)
+    nng_test(msquic_integration_test)
+    target_include_directories(msquic_integration_test PRIVATE ${MSQUIC_INCLUDE_DIR})
+    target_compile_definitions(msquic_integration_test PRIVATE SUPP_QUIC)
 endif ()
 
-# if (NOT NNG_QUIC_LIB STREQUAL "none")
-#     nng_test(quic_test)
-# endif ()
+if (NNG_ENABLE_QUIC AND NNG_TESTS)
+    nng_test(msquic_dial_test)
+    target_include_directories(msquic_dial_test PRIVATE ${MSQUIC_INCLUDE_DIR})
+endif ()
+
+# This rate/fault driver uses Linux clock_nanosleep; it is not a portable SDK test.
+# Explicit opt-in at runtime: it contacts only the URL passed by the operator.
+if (NNG_ENABLE_QUIC AND NNG_TESTS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(mqtt_quic_broker_test mqtt_quic_broker_test.c)
+    target_link_libraries(mqtt_quic_broker_test PRIVATE nng Threads::Threads)
+endif ()

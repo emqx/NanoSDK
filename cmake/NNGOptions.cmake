@@ -58,6 +58,15 @@ if (NNG_ENABLE_SQLITE)
 endif()
 mark_as_advanced(NNG_ENABLE_SQLITE)
 
+# Preserve existing Linux/Unix payload compression. Windows/macOS default
+# builds do not require a zstd SDK; users can opt in when it is installed.
+set(NNG_ZSTD_DEFAULT ON)
+if (WIN32 OR APPLE)
+    set(NNG_ZSTD_DEFAULT OFF)
+endif ()
+option(NNG_ENABLE_ZSTD "Enable Zstandard compression for MQTT payloads." ${NNG_ZSTD_DEFAULT})
+unset(NNG_ZSTD_DEFAULT)
+
 # Protocols.
 option (NNG_PROTO_BUS0 "Enable BUSv0 protocol." ON)
 mark_as_advanced(NNG_PROTO_BUS0)
@@ -95,17 +104,18 @@ mark_as_advanced(NNG_PROTO_SURVEYOR0)
 option (NNG_PROTO_MQTT_CLIENT "Enable MQTT Client protocol." ON)
 mark_as_advanced(NNG_PROTO_MQTT_CLIENT)
 
-option (NNG_PROTO_MQTT_QUIC_CLIENT "Enable MQTT over msQuic Client protocol." OFF)
-mark_as_advanced(NNG_PROTO_MQTT_QUIC_CLIENT)
-
-option(NNG_ENABLE_QUIC "Enable Quic support." OFF)
-if (NNG_ENABLE_QUIC)
-    option (NNG_PROTO_MQTT_QUIC_CLIENT "Enable MQTT over msQuic Client protocol." ON)
-    mark_as_advanced(NNG_PROTO_MQTT_QUIC_CLIENT)
-
-    set(NNG_SUPP_QUIC ON)
-    # For now we only accept msQuic as the quic lib
+# The SDK QUIC integration is disabled on Windows/macOS, including explicit
+# requests and stale cache entries. Other Unix platforms keep their opt-in.
+if ((WIN32 OR APPLE) AND NNG_ENABLE_QUIC)
+    message(STATUS "MQTT over QUIC is disabled on Windows/macOS")
 endif ()
+cmake_dependent_option(NNG_ENABLE_QUIC "Enable Quic support." OFF
+    "NOT WIN32;NOT APPLE" OFF)
+
+# These layers require the same backend; do not let stale independent options
+# enable a protocol or transport after the backend has been disabled.
+set(NNG_PROTO_MQTT_QUIC_CLIENT ${NNG_ENABLE_QUIC})
+set(NNG_SUPP_QUIC ${NNG_ENABLE_QUIC})
 
 if (NNG_ENABLE_QUIC)
     set(NNG_QUIC_LIBS msquic none)
@@ -114,6 +124,13 @@ if (NNG_ENABLE_QUIC)
     set_property(CACHE NNG_QUIC_LIB PROPERTY STRINGS ${NNG_QUIC_LIBS})
 else ()
     set(NNG_QUIC_LIB none)
+endif ()
+
+# The current SCRAM implementation uses POSIX strings and C99 VLAs.
+cmake_dependent_option(NNG_ENABLE_SCRAM "Enable SCRAM support." OFF
+    "NOT WIN32" OFF)
+if (NNG_ENABLE_SCRAM)
+    set(SUPP_SCRAM ON)
 endif ()
 
 # TLS support.
@@ -126,13 +143,25 @@ if (NNG_ENABLE_TLS)
 endif ()
 
 if (NNG_ENABLE_TLS)
-    set(NNG_TLS_ENGINES mbed wolf none)
+    set(NNG_TLS_ENGINES mbed wolf open none)
     # We assume Mbed for now.  (Someday replaced perhaps with Bear.)
     set(NNG_TLS_ENGINE mbed CACHE STRING "TLS engine to use.")
     set_property(CACHE NNG_TLS_ENGINE PROPERTY STRINGS ${NNG_TLS_ENGINES})
 else ()
     set(NNG_TLS_ENGINE none)
 endif ()
+
+# Optional OpenSSL vendor extensions. Ordinary OpenSSL stays the default.
+option(NNG_TLS_OPENSSL_HAVE_GM "Enable TASSL GM/TLS support." OFF)
+# The bundled Nanwang engine and vendor libraries are Linux-only.
+set(NNG_NANWANG_SUPPORTED OFF)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(NNG_NANWANG_SUPPORTED ON)
+endif ()
+cmake_dependent_option(NNG_TLS_OPENSSL_HAVE_GM_NW
+    "Enable Nanwang GM/TLS support (Linux only)." OFF
+    "NNG_NANWANG_SUPPORTED" OFF)
+unset(NNG_NANWANG_SUPPORTED)
 
 # HTTP API support.
 option (NNG_ENABLE_HTTP "Enable HTTP API." ON)
@@ -159,12 +188,6 @@ mark_as_advanced(NNG_TRANSPORT_IPC)
 # TCP transport
 option (NNG_TRANSPORT_TCP "Enable TCP transport." ON)
 mark_as_advanced(NNG_TRANSPORT_TCP)
-
-if (NNG_ENABLE_QUIC)
-    # MQTT QUIC transport
-    option (NNG_TRANSPORT_MQTT_QUIC "Enable MQTT QUIC transport." ON)
-    mark_as_advanced(NNG_TRANSPORT_MQTT_QUIC)
-endif ()
 
 # MQTT TCP transport
 option (NNG_TRANSPORT_MQTT_TCP "Enable MQTT TCP transport." ON)
@@ -200,3 +223,5 @@ if (NNG_TRANSPORT_WS OR NNG_TRANSPORT_WSS)
     set(NNG_SUPP_BASE64 ON)
     set(NNG_SUPP_SHA1 ON)
 endif()
+
+set(NNG_TRANSPORT_MQTT_QUIC ${NNG_ENABLE_QUIC})

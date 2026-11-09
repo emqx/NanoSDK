@@ -239,7 +239,7 @@ sqlite_config(nng_socket *sock, uint8_t proto_ver)
 }
 
 static void
-send_callback (nng_mqtt_client *client, nng_msg *msg, void *arg) {
+send_callback (nng_mqtt_client *client, nng_msg *msg, void *arg, int rv) {
 	nng_aio *        aio    = client->send_aio;
 	uint32_t         count;
 	uint8_t *        code;

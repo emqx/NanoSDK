@@ -1,0 +1,9 @@
+openssl_conf = openssl_def
+[openssl_def]
+engines = engine_section
+[engine_section]
+easysec = easysec_section
+[easysec_section]
+engine_id = easysec
+dynamic_path = /tmp/libcn_x509_engine.so
+init = 1

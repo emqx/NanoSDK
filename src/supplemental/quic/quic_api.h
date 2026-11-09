@@ -18,7 +18,6 @@
 #include "msquic.h"
 
 typedef struct quic_dialer quic_dialer;
-typedef struct quic_listener quic_listener;
 
 extern int nni_quic_dialer_alloc(nng_stream_dialer **, const nni_url *);
 extern int nni_quic_listener_alloc(nng_stream_listener **, const nni_url *);
@@ -30,39 +29,20 @@ extern void nni_quic_dialer_fini(nni_quic_dialer *d);
 extern void nni_quic_dial(void *, const char *, const char *, nni_aio *);
 extern void nni_quic_dialer_close(void *);
 
-typedef struct nni_quic_listener nni_quic_listener;
-
-extern int  nni_quic_listener_init(void **);
-extern void nni_quic_listener_listen(nni_quic_listener *, const char *, const char *);
-extern void nni_quic_listener_accept(nni_quic_listener *, nng_aio *aio);
-
 typedef struct nni_quic_conn nni_quic_conn;
-// When multi stream is enabled
-typedef struct ex_quic_conn ex_quic_conn;
-
-extern int  nni_msquic_quic_alloc(nni_quic_conn **, nni_quic_dialer *);
-extern void nni_msquic_quic_init(nni_quic_conn *);
-extern void nni_msquic_quic_start(nni_quic_conn *, int, int);
 extern void nni_msquic_quic_dialer_rele(nni_quic_dialer *);
 
 struct nni_quic_dialer {
-	nni_aio                *qconaio; // for quic connection
 	nni_quic_conn          *currcon; // a var to record conn context for one dial action
-	nni_list                connq;   // pending connections/quic streams
 	bool                    closed;
-	bool                    nodelay;
-	bool                    keepalive;
-	struct sockaddr_storage src;
-	size_t                  srclen;
 	nni_mtx                 mtx;
 	nni_atomic_u64          ref;
-	nni_atomic_bool         fini;
 
 	// MsQuic
-	HQUIC    qconn; // quic connection
+	const QUIC_API_TABLE *api;
+	HQUIC registration;
 	bool     enable_0rtt;
 	bool     enable_mltstrm;
-	uint8_t  reason_code;
 	// ResumptionTicket
 	char      rticket[4096]; // Ususally it would be within 4096.
 	                         // But in msquic. The maximum size is 65535.
@@ -86,22 +66,4 @@ struct nni_quic_dialer {
 	QUIC_SETTINGS settings;
 };
 
-struct nni_quic_listener {
-	nni_mtx                 mtx;
-	nni_atomic_u64          ref;
-	nni_atomic_bool         fini;
-	bool                    closed;
-	bool                    started;
-	nni_list                acceptq;
-	nni_list                incomings;
-
-	// MsQuic
-	HQUIC    ql; // Quic Listener
-
-	// Quic Settings
-	bool     enable_0rtt;
-	bool     enable_mltstrm;
-
-	QUIC_SETTINGS settings;
-};
 #endif

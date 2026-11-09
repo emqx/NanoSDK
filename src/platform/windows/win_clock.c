@@ -33,6 +33,20 @@ nni_time_get(uint64_t *seconds, uint32_t *nanoseconds)
 	return (nni_win_error(GetLastError()));
 }
 
+// Wall-clock milliseconds since the Unix epoch, matching the POSIX backend.
+nni_time
+nni_timestamp(void)
+{
+	uint64_t seconds;
+	uint32_t nanoseconds;
+	int      rv;
+
+	if ((rv = nni_time_get(&seconds, &nanoseconds)) != 0) {
+		nni_panic("nni_time_get failed: %d", rv);
+	}
+	return (seconds * 1000 + nanoseconds / 1000000);
+}
+
 void
 nni_msleep(nni_duration dur)
 {
