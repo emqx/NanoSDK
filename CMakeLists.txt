@@ -103,7 +103,10 @@ add_definitions(-DNNG_PRIVATE)
 
 if (NOT (BUILD_SHARED_LIBS))
     set(NNG_STATIC_LIB ON)
-    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    # Preserve Unix compiler flags; only Windows needs to omit GCC's -fPIC.
+    if (NOT WIN32)
+        add_compile_options(-fPIC)
+    endif ()
     message(STATUS "Building static libs.")
 endif ()
 
@@ -314,6 +317,13 @@ else ()
     # blithely hope for POSIX to work
     add_definitions(-DNNG_PLATFORM_POSIX)
     set(NNG_PLATFORM_POSIX ON)
+endif ()
+
+# Threads is shared by the POSIX backend, MsQuic, and test executables.
+# Define its imported target here so all sibling directories can see it;
+# optional dependencies such as zstd must not be responsible for finding it.
+if (NNG_PLATFORM_POSIX)
+    nng_find_package(Threads)
 endif ()
 
 if (NNG_ENABLE_TLS)
