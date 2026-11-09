@@ -25,7 +25,8 @@ if (NNG_ENABLE_QUIC)
             nng_link_libraries(${_msquic_system_libraries})
             nng_defines(QUIC_BUILD_STATIC)
         else ()
-            nng_link_libraries("$<BUILD_INTERFACE:$<TARGET_FILE:msquic>>")
+            # On Windows link the import library, not the runtime DLL.
+            nng_link_libraries("$<BUILD_INTERFACE:$<TARGET_LINKER_FILE:msquic>>")
         endif ()
         nng_link_libraries("$<INSTALL_INTERFACE:nng::msquic>")
     endif ()
@@ -45,8 +46,9 @@ if (NNG_ENABLE_QUIC AND NNG_TESTS)
     target_include_directories(msquic_dial_test PRIVATE ${MSQUIC_INCLUDE_DIR})
 endif ()
 
-# Explicit opt-in: this executable contacts the URL passed by the operator.
-if (NNG_ENABLE_QUIC AND NNG_TESTS AND UNIX)
+# This rate/fault driver uses Linux clock_nanosleep; it is not a portable SDK test.
+# Explicit opt-in at runtime: it contacts only the URL passed by the operator.
+if (NNG_ENABLE_QUIC AND NNG_TESTS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_executable(mqtt_quic_broker_test mqtt_quic_broker_test.c)
     target_link_libraries(mqtt_quic_broker_test PRIVATE nng Threads::Threads)
 endif ()
