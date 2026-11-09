@@ -44,6 +44,18 @@ endif ()
 
 if (NNG_TESTS)
 
+    # Check platform option policy without installing cross toolchains.
+    foreach (_system Linux FreeBSD Windows Darwin)
+        foreach (_quic ON OFF)
+            add_test(NAME nng.cmake.quic_${_system}_${_quic}
+                COMMAND ${CMAKE_COMMAND}
+                    -DNNG_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+                    -DNNG_TEST_SYSTEM=${_system}
+                    -DNNG_TEST_QUIC=${_quic}
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/quic_platform_options.cmake)
+        endforeach ()
+    endforeach ()
+
     nng_check_sym(nl_langinfo langinfo.h NNG_HAVE_LANGINFO)
     if (NOT NNG_SANITIZER STREQUAL "none")
         set(TIMEOUT_FACTOR 2)

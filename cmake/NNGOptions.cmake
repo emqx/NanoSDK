@@ -58,8 +58,14 @@ if (NNG_ENABLE_SQLITE)
 endif()
 mark_as_advanced(NNG_ENABLE_SQLITE)
 
-# Optional Paho MQTT payload compression. Default builds need no zstd SDK.
-option(NNG_ENABLE_ZSTD "Enable Zstandard compression for MQTT payloads." OFF)
+# Preserve existing Linux/Unix payload compression. Windows/macOS default
+# builds do not require a zstd SDK; users can opt in when it is installed.
+set(NNG_ZSTD_DEFAULT ON)
+if (WIN32 OR APPLE)
+    set(NNG_ZSTD_DEFAULT OFF)
+endif ()
+option(NNG_ENABLE_ZSTD "Enable Zstandard compression for MQTT payloads." ${NNG_ZSTD_DEFAULT})
+unset(NNG_ZSTD_DEFAULT)
 
 # Protocols.
 option (NNG_PROTO_BUS0 "Enable BUSv0 protocol." ON)
@@ -98,17 +104,18 @@ mark_as_advanced(NNG_PROTO_SURVEYOR0)
 option (NNG_PROTO_MQTT_CLIENT "Enable MQTT Client protocol." ON)
 mark_as_advanced(NNG_PROTO_MQTT_CLIENT)
 
-option (NNG_PROTO_MQTT_QUIC_CLIENT "Enable MQTT over msQuic Client protocol." OFF)
-mark_as_advanced(NNG_PROTO_MQTT_QUIC_CLIENT)
-
-option(NNG_ENABLE_QUIC "Enable Quic support." OFF)
-if (NNG_ENABLE_QUIC)
-    option (NNG_PROTO_MQTT_QUIC_CLIENT "Enable MQTT over msQuic Client protocol." ON)
-    mark_as_advanced(NNG_PROTO_MQTT_QUIC_CLIENT)
-
-    set(NNG_SUPP_QUIC ON)
-    # For now we only accept msQuic as the quic lib
+# The SDK QUIC integration is disabled on Windows/macOS, including explicit
+# requests and stale cache entries. Other Unix platforms keep their opt-in.
+if ((WIN32 OR APPLE) AND NNG_ENABLE_QUIC)
+    message(STATUS "MQTT over QUIC is disabled on Windows/macOS")
 endif ()
+cmake_dependent_option(NNG_ENABLE_QUIC "Enable Quic support." OFF
+    "NOT WIN32;NOT APPLE" OFF)
+
+# These layers require the same backend; do not let stale independent options
+# enable a protocol or transport after the backend has been disabled.
+set(NNG_PROTO_MQTT_QUIC_CLIENT ${NNG_ENABLE_QUIC})
+set(NNG_SUPP_QUIC ${NNG_ENABLE_QUIC})
 
 if (NNG_ENABLE_QUIC)
     set(NNG_QUIC_LIBS msquic none)
@@ -181,12 +188,6 @@ mark_as_advanced(NNG_TRANSPORT_IPC)
 # TCP transport
 option (NNG_TRANSPORT_TCP "Enable TCP transport." ON)
 mark_as_advanced(NNG_TRANSPORT_TCP)
-
-if (NNG_ENABLE_QUIC)
-    # MQTT QUIC transport
-    option (NNG_TRANSPORT_MQTT_QUIC "Enable MQTT QUIC transport." ON)
-    mark_as_advanced(NNG_TRANSPORT_MQTT_QUIC)
-endif ()
 
 # MQTT TCP transport
 option (NNG_TRANSPORT_MQTT_TCP "Enable MQTT TCP transport." ON)
