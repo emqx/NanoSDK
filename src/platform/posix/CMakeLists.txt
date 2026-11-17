@@ -13,7 +13,7 @@
 # the static library unless they also go into the dynamic.
 if (NNG_PLATFORM_POSIX)
 
-    nng_find_package(Threads)
+    # The root directory finds Threads for all POSIX consumers.
     nng_link_libraries(Threads::Threads)
 
     # Unconditionally declare the following feature test macros.  These are

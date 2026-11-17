@@ -217,7 +217,7 @@ void print_property(property *prop)
 }
 
 static void
-send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg) {
+send_callback(nng_mqtt_client *client, nng_msg *msg, void *arg, int rv) {
 	nng_aio *        aio    = client->send_aio;
 	uint32_t         count;
 	uint8_t *        code;
@@ -481,8 +481,9 @@ main(const int argc, const char **argv)
 		// rv = nng_mqtt_subscribe(sock, subscriptions, 1, plist);
 
 		// Asynchronous subscription
-		nng_mqtt_client *client = nng_mqtt_client_alloc(sock, &send_callback, true);
-		nng_mqtt_subscribe_async(client, subscriptions, 1, plist);
+		nng_mqtt_client *client = nng_mqtt_client_alloc(sock, send_callback, NULL, true);
+		nng_mqtt_subscribe_async(client, subscriptions,
+		    sizeof(subscriptions) / sizeof(nng_mqtt_topic_qos), plist);
 
 		printf("Start receiving loop:\n");
 		while (true) {

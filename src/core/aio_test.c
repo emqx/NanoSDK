@@ -8,6 +8,8 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
+#include "core/nng_impl.h"
+
 #include <string.h>
 
 #include <nuts.h>
@@ -397,7 +399,49 @@ test_aio_busy(void)
 	nng_aio_free(aio);
 }
 
+// Closing an AIO cannot steal the provider's pending completion reference.
+static void test_abort_before_schedule(void)
+{
+	nng_aio *aio; int done = 0;
+	NUTS_PASS(nng_aio_alloc(&aio, cb_done, &done));
+	NUTS_PASS(nni_aio_begin(aio)); nni_aio_abort(aio, NNG_ETIMEDOUT);
+	NUTS_TRUE(nni_aio_busy(aio));
+	NUTS_FAIL(nni_aio_schedule(aio, NULL, NULL), NNG_ETIMEDOUT);
+	nni_aio_finish_error(aio, NNG_ETIMEDOUT);
+	nng_aio_wait(aio); NUTS_TRUE(done == 1); nng_aio_free(aio);
+}
+typedef struct { nng_aio *aio; nni_atomic_int entered, done; } stop_state;
+static void stop_thread(void *arg)
+{
+	stop_state *s = arg;
+	nni_atomic_set(&s->entered, 1); nni_aio_stop(s->aio); nni_atomic_set(&s->done, 1);
+}
+static void test_stop_waits_provider(void)
+{
+	stop_state s; nni_thr thread; int completed = 0;
+	nni_atomic_init(&s.entered); nni_atomic_init(&s.done);
+	NUTS_PASS(nng_aio_alloc(&s.aio, cb_done, &completed));
+	NUTS_PASS(nni_aio_begin(s.aio));
+	NUTS_PASS(nni_thr_init(&thread, stop_thread, &s)); nni_thr_run(&thread);
+	while (!nni_atomic_get(&s.entered)) nni_msleep(1);
+	nni_msleep(10); NUTS_TRUE(!nni_atomic_get(&s.done));
+	nni_aio_finish_error(s.aio, NNG_ECLOSED); nni_thr_fini(&thread);
+	NUTS_TRUE(nni_atomic_get(&s.done) && completed == 1); nng_aio_free(s.aio);
+}
+static void test_close_preserves_completion(void)
+{
+	nng_aio *aio; int done = 0;
+	NUTS_PASS(nng_aio_alloc(&aio, cb_done, &done));
+	NUTS_PASS(nni_aio_begin(aio)); nni_aio_close(aio);
+	NUTS_TRUE(nni_aio_busy(aio));
+	NUTS_FAIL(nni_aio_schedule(aio, NULL, NULL), NNG_ECLOSED);
+	nni_aio_finish_error(aio, NNG_ECLOSED);
+	nng_aio_wait(aio); NUTS_TRUE(done == 1); nng_aio_free(aio);
+}
 NUTS_TESTS = {
+	{"abort before provider schedule", test_abort_before_schedule},
+	{"stop waits for provider completion", test_stop_waits_provider},
+	{"close preserves pending completion", test_close_preserves_completion},
 	{ "sleep", test_sleep },
 	{ "sleep timeout", test_sleep_timeout },
 	{ "insane nio", test_insane_nio },

@@ -237,6 +237,12 @@ nng_sendmsg(nng_socket s, nng_msg *msg, int flags)
 
 	nni_aio_wait(&aio);
 	rv = nni_aio_result(&aio);
+	// MQTT may return an ACK in place of the outgoing message. Other
+    // protocols can leave the consumed original pointer in the AIO.
+    if (rv == 0 && nni_aio_get_msg(&aio) != msg) {
+		nni_msg_free(nni_aio_get_msg(&aio));
+		nni_aio_set_msg(&aio, NULL);
+	}
 	nni_aio_fini(&aio);
 
 	// Possibly massage nonblocking attempt.  Note that nonblocking is

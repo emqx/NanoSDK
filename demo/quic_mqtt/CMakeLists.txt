@@ -33,9 +33,6 @@ else ()
 endif (BUILD_DEMO)
 
 find_package(Threads)
-if (NOT TARGET msquic AND NOT TARGET nng::msquic)
-  find_package(msquic CONFIG)
-endif ()
 
 if (DEBUG)
   SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
@@ -61,7 +58,6 @@ target_link_libraries(quic_client PRIVATE
   ${_NNG_TARGET}
   Threads::Threads)
 
-target_link_libraries(quic_client PRIVATE nng::msquic)
 target_compile_definitions(quic_client PRIVATE NNG_ELIDE_DEPRECATED)
 
 if (NNG_ENABLE_SQLITE)

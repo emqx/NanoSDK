@@ -272,10 +272,15 @@ nni_dialer_create(nni_dialer **dp, nni_sock *s, const char *url_str)
 		nni_mtx_lock(&dialers_lk);
 		nni_id_remove(&dialers, d->d_id);
 		nni_mtx_unlock(&dialers_lk);
+		nng_log_warn("NanoSDK-CONN-FAIL",
+		    "Fail to create the dialer of socket<%u> to %s: %s",
+		    nni_sock_id(d->d_sock), d->d_url->u_rawurl,
+		    nng_strerror(rv));
 #ifdef NNG_ENABLE_STATS
 		nni_stat_unregister(&d->st_root);
 #endif
 		nni_dialer_destroy(d);
+
 		return (rv);
 	}
 
@@ -337,11 +342,14 @@ void
 nni_dialer_close(nni_dialer *d)
 {
 	nni_mtx_lock(&dialers_lk);
+	nng_log_debug("NanoSDK-Dialer",
+		    "Dialer to %s is being closed", d->d_url->u_rawurl);
 	if (d->d_closed) {
 		nni_mtx_unlock(&dialers_lk);
 		nni_dialer_rele(d);
 		return;
 	}
+
 	d->d_closed = true;
 	nni_id_remove(&dialers, d->d_id);
 	nni_mtx_unlock(&dialers_lk);
@@ -358,6 +366,9 @@ dialer_timer_cb(void *arg)
 	nni_dialer *d = arg;
 
 	if (nni_aio_result(&d->d_tmo_aio) == 0) {
+		nng_log_info("NanoSDK-Timer",
+		    "socket<%u> to %s is reconnecting ...",
+		    nni_sock_id(d->d_sock), d->d_url->u_rawurl);
 		dialer_connect_start(d);
 	}
 }
@@ -385,11 +396,15 @@ dialer_connect_cb(void *arg)
 	case NNG_ECLOSED:   // No further action.
 	case NNG_ECANCELED: // No further action.
 		nni_dialer_bump_error(d, rv);
+		nng_log_warn("NanoSDK-CONN-FAIL",
+		    "socket<%u> to %s is being closed: %s",
+		    nni_sock_id(d->d_sock), d->d_url->u_rawurl,
+		    nng_strerror(rv));
 		break;
 	case NNG_ECONNREFUSED:
 	case NNG_ETIMEDOUT:
 	default:
-		nng_log_warn("NNG-CONN-FAIL",
+		nng_log_warn("NanoSDK-CONN-FAIL",
 		    "Failed connecting socket<%u> to %s: %s",
 		    nni_sock_id(d->d_sock), d->d_url->u_rawurl,
 		    nng_strerror(rv));
@@ -410,6 +425,8 @@ dialer_connect_cb(void *arg)
 static void
 dialer_connect_start(nni_dialer *d)
 {
+	nng_log_info("NanoSDK-DIAL", "Starting Connecting for socket<%u> on %s",
+	    nni_sock_id(d->d_sock), d->d_url->u_rawurl);
 	d->d_ops.d_connect(d->d_data, &d->d_con_aio);
 }
 
@@ -444,7 +461,7 @@ nni_dialer_start(nni_dialer *d, unsigned flags)
 		nni_aio_free(aio);
 	}
 
-	nng_log_info("NNG-DIAL", "Starting dialer for socket<%u> on %s",
+	nng_log_info("NanoSDK-DIAL", "Starting dialer for socket<%u> on %s",
 	    nni_sock_id(d->d_sock), d->d_url->u_rawurl);
 
 	return (rv);
@@ -455,6 +472,8 @@ nni_dialer_stop(nni_dialer *d)
 {
 	nni_aio_stop(&d->d_tmo_aio);
 	nni_aio_stop(&d->d_con_aio);
+	nng_log_info("NanoSDK-DIAL", "Stopping dialer for socket<%u> on %s",
+	    nni_sock_id(d->d_sock), d->d_url->u_rawurl);
 	d->d_ops.d_close(d->d_data);
 }
 

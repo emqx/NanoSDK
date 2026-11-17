@@ -4011,6 +4011,9 @@ property_dup(property **dup, const property *src)
 		return -1;
 	}
 	property *list = property_alloc();
+	if (list == NULL) {
+		return -2;
+	}
 	property *tail = list;
 
 	for (property *p = src->next; p != NULL; p = p->next) {

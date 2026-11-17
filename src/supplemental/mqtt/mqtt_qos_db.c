@@ -700,9 +700,8 @@ nni_mqtt_sqlite_db_init(
 		nni_mqtt_qos_db_init(
 		    (sqlite3 **)&sqlite->db, sqlite->mounted_file_path, db_name);
 
-		if (proto_ver == 0 ||
-		    (proto_ver != MQTT_PROTOCOL_VERSION_v311 &&
-		        proto_ver != MQTT_PROTOCOL_VERSION_v5)) {
+		if (proto_ver == MQTT_PROTOCOL_VERSION_v311 ||
+		    proto_ver == MQTT_PROTOCOL_VERSION_v5) {
 			sqlite->mqtt_version = proto_ver;
 		}
 
@@ -714,10 +713,13 @@ nni_mqtt_sqlite_db_init(
 void
 nni_mqtt_sqlite_db_fini(nni_mqtt_sqlite_option *sqlite)
 {
-	if (sqlite != NULL && sqlite->enable) {
+	if (sqlite != NULL && sqlite->db != NULL) {
+		nni_lmq_flush(&sqlite->offline_cache);
 		nni_lmq_fini(&sqlite->offline_cache);
 		nni_strfree(sqlite->db_name);
+		sqlite->db_name = NULL;
 		nni_mqtt_qos_db_close(sqlite->db);
+		sqlite->db = NULL;
 	}
 }
 

@@ -270,6 +270,8 @@ typedef struct mqtt_fixed_hdr_t {
 typedef struct mqtt_msg_t {
 	/* Fixed header part */
 	nni_aio *                  aio; // QoS AIO
+	uint8_t                    quic_stream; // local routing metadata
+    bool                       quic_priority;
 	mqtt_fixed_hdr             fixed_header;
 	union mqtt_variable_header var_header;
 	union mqtt_payload         payload;

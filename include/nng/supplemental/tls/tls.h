@@ -30,6 +30,7 @@ typedef struct nng_tls_config nng_tls_config;
 typedef enum nng_tls_mode {
 	NNG_TLS_MODE_CLIENT = 0,
 	NNG_TLS_MODE_SERVER = 1,
+	NNG_TLS_MODE_CLIENT_GM_NW = 2,	// Please only use it with GM Mode
 } nng_tls_mode;
 
 typedef enum nng_tls_auth_mode {

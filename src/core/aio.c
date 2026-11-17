@@ -114,8 +114,6 @@ nni_aio_fini(nni_aio *aio)
 
 	if (fn != NULL) {
 		fn(aio, arg, NNG_ECLOSED);
-	} else {
-		nni_task_abort(&aio->a_task);
 	}
 
 	nni_task_fini(&aio->a_task);
@@ -422,9 +420,9 @@ nni_aio_abort(nni_aio *aio, int rv)
 	aio->a_cancel_fn  = NULL;
 	aio->a_cancel_arg = NULL;
 	if (fn == NULL) {
-		// We haven't been scheduled yet,
-		// so make sure that the schedule will abort.
-		aio->a_abort  = true;
+		// The provider may be between begin/schedule or finish/dispatch.
+		// It still owns the completion and the task's busy reference.
+		aio->a_abort = true;
 		aio->a_result = rv;
 	}
 	nni_mtx_unlock(&eq->eq_mtx);

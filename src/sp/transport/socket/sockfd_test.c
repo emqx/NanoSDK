@@ -76,6 +76,24 @@ test_sfd_accept(void)
 	close(fds[1]);
 }
 
+static void
+test_sfd_close_pending_fini(void)
+{
+    for (unsigned i = 0; i < 100; ++i) {
+        nng_socket sock;
+        nng_listener listener;
+        int fd[2];
+        NUTS_PASS(nng_socket_pair(fd));
+        NUTS_OPEN(sock);
+        NUTS_PASS(nng_listen(sock, "socket://", &listener, 0));
+        NUTS_PASS(nng_listener_set_int(listener, NNG_OPT_SOCKET_FD, fd[0]));
+        NUTS_SLEEP(1);
+        NUTS_CLOSE(sock);
+        close(fd[1]);
+        nng_fini();
+    }
+}
+
 void
 test_sfd_exchange(void)
 {
@@ -445,6 +463,7 @@ test_sfd_fd_dev_zero(void)
 }
 
 NUTS_TESTS = {
+    { "close pending negotiation then finalize", test_sfd_close_pending_fini },
 	{ "socket connect fail", test_sfd_connect_fail },
 	{ "socket malformed address", test_sfd_malformed_address },
 #ifdef NNG_HAVE_SOCKETPAIR

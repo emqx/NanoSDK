@@ -44,6 +44,18 @@ endif ()
 
 if (NNG_TESTS)
 
+    # Check platform option policy without installing cross toolchains.
+    foreach (_system Linux FreeBSD Windows Darwin)
+        foreach (_quic ON OFF)
+            add_test(NAME nng.cmake.quic_${_system}_${_quic}
+                COMMAND ${CMAKE_COMMAND}
+                    -DNNG_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+                    -DNNG_TEST_SYSTEM=${_system}
+                    -DNNG_TEST_QUIC=${_quic}
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/quic_platform_options.cmake)
+        endforeach ()
+    endforeach ()
+
     nng_check_sym(nl_langinfo langinfo.h NNG_HAVE_LANGINFO)
     if (NOT NNG_SANITIZER STREQUAL "none")
         set(TIMEOUT_FACTOR 2)
@@ -126,7 +138,8 @@ endif ()
 
 add_nng_test(device 5)
 add_nng_test(files 5)
-add_nng_test1(httpclient 60 NNG_SUPP_HTTP)
+# Upstream #2257 uses loopback peers and NUTS, with no public HTTP dependency.
+nng_test_if(NNG_SUPP_HTTP httpclient)
 add_nng_test1(httpserver 30 NNG_SUPP_HTTP)
 add_nng_test(inproc 5)
 add_nng_test(ipc 5)

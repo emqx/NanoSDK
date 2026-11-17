@@ -858,6 +858,25 @@ NNG_DECL nng_listener nng_pipe_listener(nng_pipe);
 // a detrimental effect on performance. For most uses, we recommend
 // enabling this. (Disable it if you are on a very slow network.)
 // This is a boolean.
+#define NNG_OPT_QUIC_ENABLE_0RTT "quic-0rtt"
+#define NNG_OPT_QUIC_ENABLE_MULTISTREAM "quic-multistream"
+#define NNG_OPT_QUIC_IDLE_TIMEOUT "quic-idle-timeout"
+#define NNG_OPT_QUIC_KEEPALIVE "quic-keepalive"
+#define NNG_OPT_QUIC_CONNECT_TIMEOUT "quic-connect-timeout"
+#define NNG_OPT_QUIC_DISCONNECT_TIMEOUT "quic-disconnect-timeout"
+#define NNG_OPT_QUIC_SEND_IDLE_TIMEOUT "quic-send-idle-timeout"
+#define NNG_OPT_QUIC_INITIAL_RTT_MS "quic-initial-ms"
+#define NNG_OPT_QUIC_MAX_ACK_DELAY_MS "quic-max-ack-delay-ms"
+#define NNG_OPT_MQTT_QUIC_PRIORITY "quic-mqtt-stream-priority"
+#define NNG_OPT_QUIC_PRIORITY "quic-stream-priority"
+#define NNG_OPT_QUIC_CONGESTION_CTL_CUBIC "quic-congestion-cubic"
+#define NNG_OPT_QUIC_TLS_CACERT_PATH "quic-tls-cacert"
+#define NNG_OPT_QUIC_TLS_KEY_PATH "quic-tls-key"
+#define NNG_OPT_QUIC_TLS_KEY_PASSWORD "quic-tls-pwd"
+#define NNG_OPT_QUIC_TLS_VERIFY_PEER "quic-tls-verify"
+#define NNG_OPT_QUIC_TLS_CA_PATH "quic-tls-ca"
+#define NNG_OPT_TCP_QUICKACK "tcp-quickack"
+
 #define NNG_OPT_TCP_NODELAY "tcp-nodelay"
 
 // TCP keepalive causes the underlying transport to send keep-alive

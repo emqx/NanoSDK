@@ -52,11 +52,7 @@ endmacro()
 # nng_link_libraries adds link dependencies to the libraries.
 function(nng_link_libraries)
     target_link_libraries(nng PRIVATE ${ARGN})
-    if(NNG_ENABLE_QUIC)
-        target_link_libraries(nng_testing PRIVATE ${ARGN} msquic OpenSSLQuic)
-    else()
-        target_link_libraries(nng_testing PRIVATE ${ARGN})
-    endif()
+    target_link_libraries(nng_testing PRIVATE ${ARGN})
 endfunction()
 
 function(nng_link_libraries_public)

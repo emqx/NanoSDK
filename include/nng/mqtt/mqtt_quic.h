@@ -1,19 +1,6 @@
-//
-// Copyright 2022 NanoMQ Team, Inc. <jaylin@emqx.io>
-//
-// This software is supplied under the terms of the MIT License, a
-// copy of which should be located in the distribution where this
-// file was obtained (LICENSE.txt).  A copy of the license may also be
-// found online at https://opensource.org/licenses/MIT.
-//
-
-#ifndef NNG_MQTT_QUIC_CLIENT_H
-#define NNG_MQTT_QUIC_CLIENT_H
-
-#include <nng/nng.h>
-#include <stdbool.h>
-#include <stdint.h>
-
+#ifndef NNG_MQTT_QUIC_H
+#define NNG_MQTT_QUIC_H
+#include <nng/mqtt/mqtt_quic_client.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -36,7 +23,7 @@ struct conf_tls {
 
 struct conf_quic {
 	conf_tls     tls;
-	bool         qos_first; // send QoS msg in high priority
+	bool         qos_first; // legacy hint; does not bypass ordered send queues
 	bool         multi_stream;     
 	uint64_t     qkeepalive;		//keepalive timeout interval of QUIC transport
 	uint64_t     qconnect_timeout;	// HandshakeIdleTimeoutMs of QUIC
@@ -45,31 +32,26 @@ struct conf_quic {
 	uint8_t      qcongestion_control; // congestion control algorithm 1: bbr 0: cubic
 };
 
-// It is an interface only for ffi.
-void conf_quic_tls_create(conf_quic **cqp, char *cafile, char *certfile,
-    char *keyfile, char *key_pwd);
 
-NNG_DECL int nng_mqttv5_quic_client_open(nng_socket *, const char *url);
-NNG_DECL int nng_mqttv5_quic_client_open_conf(
-    nng_socket *sock, const char *url, conf_quic *conf);
-NNG_DECL int nng_mqtt_quic_client_open(nng_socket *, const char *url);
-NNG_DECL int nng_mqtt_quic_client_open_conf(
-    nng_socket *sock, const char *url, conf_quic *conf);
-NNG_DECL int nng_mqtt_quic_set_connect_cb(
-    nng_socket *, int (*cb)(void *, void *), void *arg);
-NNG_DECL int nng_mqtt_quic_set_disconnect_cb(
-    nng_socket *, int (*cb)(void *, void *), void *arg);
-NNG_DECL int nng_mqtt_quic_set_msg_recv_cb(
-    nng_socket *, int (*cb)(void *, void *), void *arg);
-NNG_DECL int nng_mqtt_quic_set_msg_send_cb(
-    nng_socket *, int (*cb)(void *, void *), void *arg);
-NNG_DECL int nng_mqtt_quic_ack_callback_set(
-    nng_socket *sock, void (*cb)(void *), void *arg);
-//NNG_DECL int nng_mqtt_quic_set_config(
-//    nng_socket *sock, void *node);
+// Source compatibility for the legacy open(url), then send CONNECT workflow.
+// Recompile callers; the new one-argument open ABI is not the old two-argument ABI.
+NNG_DECL int nng_mqtt_quic_client_open_url(nng_socket *, const char *);
+NNG_DECL int nng_mqttv5_quic_client_open_url(nng_socket *, const char *);
+NNG_DECL int nng_mqtt_quic_client_open_conf(nng_socket *, const char *, conf_quic *);
+NNG_DECL int nng_mqttv5_quic_client_open_conf(nng_socket *, const char *, conf_quic *);
+NNG_DECL int nng_mqtt_quic_ack_callback_set(nng_socket *, void (*)(void *), void *);
+NNG_DECL void conf_quic_tls_create(conf_quic **, char *, char *, char *, char *);
+// Only frees configurations allocated by conf_quic_tls_create.
+NNG_DECL void conf_quic_tls_free(conf_quic *);
 
+#ifndef NNG_MQTT_QUIC_NO_LEGACY_MACROS
+#define NNG_MQTT_QUIC_OPEN_SELECT(_1, _2, NAME, ...) NAME
+#define nng_mqtt_quic_client_open(...) \
+    NNG_MQTT_QUIC_OPEN_SELECT(__VA_ARGS__, nng_mqtt_quic_client_open_url, nng_mqtt_quic_client_open, unused)(__VA_ARGS__)
+#define nng_mqttv5_quic_client_open(...) \
+    NNG_MQTT_QUIC_OPEN_SELECT(__VA_ARGS__, nng_mqttv5_quic_client_open_url, nng_mqttv5_quic_client_open, unused)(__VA_ARGS__)
+#endif
 #ifdef __cplusplus
 }
 #endif
-
-#endif // NNG_MQTT_QUIC_CLIENT_H
+#endif

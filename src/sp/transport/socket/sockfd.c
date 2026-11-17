@@ -53,7 +53,6 @@ struct sfd_tran_ep {
 	nni_mtx              mtx;
 	uint16_t             proto;
 	size_t               rcvmax;
-	bool                 fini;
 	bool                 started;
 	bool                 closed;
 	nng_sockaddr         src;
@@ -146,9 +145,6 @@ sfd_tran_pipe_fini(void *arg)
 		nni_mtx_lock(&ep->mtx);
 		nni_list_node_remove(&p->node);
 		ep->refcnt--;
-		if (ep->fini && (ep->refcnt == 0)) {
-			nni_reap(&sfd_tran_ep_reap_list, ep);
-		}
 		nni_mtx_unlock(&ep->mtx);
 	}
 
@@ -659,8 +655,12 @@ sfd_tran_ep_fini(void *arg)
 	sfd_tran_ep *ep = arg;
 
 	nni_mtx_lock(&ep->mtx);
-	ep->fini = true;
 	if (ep->refcnt != 0) {
+        // Keep the endpoint in the reap graph until negotiation callbacks
+        // have queued and released every pipe. Otherwise global reap_drain
+        // can return before a late callback queues a pipe, and aio_sys_fini
+        // destroys the expiry mutex that pipe_stop still needs.
+        nni_reap(&sfd_tran_ep_reap_list, ep);
 		nni_mtx_unlock(&ep->mtx);
 		return;
 	}

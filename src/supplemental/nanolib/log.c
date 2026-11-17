@@ -15,25 +15,44 @@
 
 #define MAX_CALLBACKS 10
 
-#if NNG_PLATFORM_WINDOWS
+#if defined(NNG_PLATFORM_WINDOWS)
+#include <process.h>
 #define nano_localtime(t, pTm) localtime_s(pTm, t)
 #else
-#if defined(SUPP_SYSLOG)
+#include <unistd.h>
+#define nano_localtime(t, pTm) localtime_r(t, pTm)
+#if defined(NNG_PLATFORM_LINUX)
+#include <sys/syscall.h>
+#endif
+#endif
+
+// Windows has no POSIX syslog or Unix-domain datagram implementation here.
+#if defined(SUPP_SYSLOG) && !defined(NNG_PLATFORM_WINDOWS)
+#define NANO_HAS_SYSLOG
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <syslog.h>
+#include <errno.h>
 static int syslog_socket = -1;
 static struct sockaddr_un syslog_addr;
 static const char *log_ident = NULL;
 static int log_option = 0;
 static int log_facility = LOG_USER;
 #endif
-#include <sys/types.h>
-#include <unistd.h>
-#include <sys/syscall.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <errno.h>
-#define nano_localtime(t, pTm) localtime_r(t, pTm)
+
+static int
+log_get_pid(void)
+{
+#if defined(NNG_PLATFORM_WINDOWS)
+	return _getpid();
+#elif defined(NNG_PLATFORM_LINUX)
+	// Preserve the Linux thread ID in existing log output.
+	return (int) syscall(SYS_gettid);
+#else
+	return (int) getpid();
 #endif
+}
 
 
 typedef struct {
@@ -76,11 +95,7 @@ static void
 stdout_callback(log_event *ev)
 {
 	char buf[64];
-#if (NNG_PLATFORM_WINDOWS || NNG_PLATFORM_DARWIN)
-	int pid = (int) getpid();
-#else
-	pid_t pid = syscall(__NR_gettid);
-#endif
+	int pid = log_get_pid();
 
 	buf[strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &ev->time)] = '\0';
 #ifdef LOG_USE_COLOR
@@ -101,11 +116,7 @@ static void
 file_callback(log_event *ev)
 {
 	char buf[64];
-#if (NNG_PLATFORM_WINDOWS || NNG_PLATFORM_DARWIN)
-	int pid = nni_plat_getpid();
-#else
-	pid_t pid = syscall(__NR_gettid);
-#endif
+	int pid = log_get_pid();
 #ifndef NNG_PLATFORM_WINDOWS
 	if (nng_access(ev->config->dir, W_OK) < 0) {
 		fprintf(stderr, "open path %s failed! close file!\n",
@@ -129,7 +140,7 @@ file_callback(log_event *ev)
 	file_rotation(fp, ev->config);
 }
 
-#if defined(SUPP_SYSLOG)
+#if defined(NANO_HAS_SYSLOG)
 
 static uint8_t
 convert_syslog_level(uint8_t level)
@@ -155,11 +166,7 @@ static void
 syslog_callback(log_event *ev)
 {
 
-#if (NNG_PLATFORM_WINDOWS || NNG_PLATFORM_DARWIN)
-	int pid = nni_plat_getpid();
-#else
-	pid_t pid = syscall(__NR_gettid);
-#endif
+	int pid = log_get_pid();
 
 	// Create buffer for the log prefix
 	char buf[256];
@@ -252,11 +259,7 @@ static void
 uds_syslog_callback(log_event *ev)
 {
 
-#if (NNG_PLATFORM_WINDOWS || NNG_PLATFORM_DARWIN)
-	int pid = nni_plat_getpid();
-#else
-	pid_t pid = syscall(__NR_gettid);
-#endif
+	int pid = log_get_pid();
 
 	// Create buffer for the log prefix
 	char buf[256];
@@ -404,7 +407,7 @@ file_rotation(FILE *fp, conf_log *config)
 		size_t log_name_len = strlen(config->abs_path) + 20;
 		char * log_name     = nni_zalloc(log_name_len);
 		snprintf(
-		    log_name, log_name_len, "%s.%lu", config->file, index);
+		    log_name, log_name_len, "%s.%zu", config->file, index);
 		char *backup_log_path =
 		    nano_concat_path(config->dir, log_name);
 		if (fp)
